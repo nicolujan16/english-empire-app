@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { MainBanner } from "@/components/website/common/MainBanner";
 // Ojo: Asegúrate de que la ruta de CourseCard sea correcta cuando lo migremos
-import { CourseCard } from "@/components/website/CourseCard";
+import { CourseCard } from "@/components/website/cursos/CourseCard";
 
 // 1. Definimos las Interfaces de TypeScript
 export interface Curso {

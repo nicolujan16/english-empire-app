@@ -52,7 +52,7 @@ export default function HomePage() {
 			<Slider
 				images={!isScreenSmall ? imagesDesktop : imagesMobile}
 				text="Inscripción 2026"
-				link="/inscripcion"
+				link="/cursos"
 				imgAlt="Aprende inglés con los cursos personalizados de English Empire"
 			/>
 

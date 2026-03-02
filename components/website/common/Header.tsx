@@ -8,9 +8,12 @@ import Image from "next/image"; // Image oficial de Next.js
 import logo from "@/assets/logo-empire.png";
 import menulistsvg from "@/assets/svgs/menu-list.svg";
 import exitmenulistsvg from "@/assets/svgs/exit-menu-list.svg";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Header() {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+	const { user } = useAuth();
 
 	const toggleMenu = () => {
 		setIsMenuOpen(!isMenuOpen);
@@ -86,7 +89,7 @@ export default function Header() {
 						</NavItem>
 						<li className="w-full lg:w-auto mt-4 lg:mt-0 flex justify-center">
 							<Link
-								href="/login" // Lo mandamos al login/panel
+								href={user ? "/mi-cuenta" : "/iniciar-sesion"}
 								onClick={handleLinkClick}
 								className="
                     block w-full lg:w-auto text-center
@@ -94,10 +97,12 @@ export default function Header() {
                     px-6 py-2 rounded-lg 
                     hover:bg-[#b30000] transition-colors 
                     font-medium shadow-sm hover:no-underline
-                    text-lg lg:text-base 
+                    text-lg lg:text-base
                   "
 							>
-								Panel de Usuario
+								<p className="font-bold">
+									{user ? "Mi Cuenta" : "Iniciar Sesión"}
+								</p>
 							</Link>
 						</li>
 					</ul>

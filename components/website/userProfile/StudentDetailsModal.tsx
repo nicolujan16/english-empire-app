@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import Link from "next/link"; // Importamos Link para la redirección
+import { Plus } from "lucide-react"; // Importamos un ícono lindo para el botón
 import {
 	Dialog,
 	DialogContent,
@@ -9,26 +11,8 @@ import {
 	DialogFooter,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { StudentDetails } from "@/types";
 
-// 1. Tipamos el objeto del curso
-interface Course {
-	id: number;
-	name: string;
-	start: string;
-	end: string;
-	teacher: string;
-}
-
-// 2. Tipamos la información del alumno que esperamos recibir
-export interface StudentDetails {
-	id?: string | number; // Opcional por si no lo pasas
-	fullName: string;
-	dni: string;
-	age: number | string;
-	birthDate: string;
-}
-
-// 3. Tipamos las Props del Modal
 interface StudentDetailsModalProps {
 	student: StudentDetails | null;
 	isOpen: boolean;
@@ -40,32 +24,12 @@ export default function StudentDetailsModal({
 	isOpen,
 	onClose,
 }: StudentDetailsModalProps) {
-	// Si no hay estudiante seleccionado, el modal no renderiza nada interno
 	if (!student) return null;
-
-	// Mock data for courses (Tipamos el array)
-	const enrolledCourses: Course[] = [
-		{
-			id: 1,
-			name: "Inglés Básico A1",
-			start: "10/02/2026",
-			end: "15/05/2026",
-			teacher: "Prof. Smith",
-		},
-		{
-			id: 2,
-			name: "Conversación I",
-			start: "20/02/2026",
-			end: "20/04/2026",
-			teacher: "Prof. Johnson",
-		},
-	];
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onClose}>
 			<DialogContent className="sm:max-w-[700px]">
 				<DialogHeader>
-					{/* Ajustado el color al azul institucional */}
 					<DialogTitle className="text-2xl font-bold text-[#252d62] mb-4">
 						Detalles del Alumno
 					</DialogTitle>
@@ -78,7 +42,7 @@ export default function StudentDetailsModal({
 							Nombre y Apellido
 						</p>
 						<p className="text-lg font-semibold text-gray-900">
-							{student.fullName}
+							{student.nombre} {student.apellido}
 						</p>
 					</div>
 					<div>
@@ -88,7 +52,12 @@ export default function StudentDetailsModal({
 					<div>
 						<p className="text-sm font-medium text-gray-500">Edad</p>
 						<p className="text-lg font-semibold text-gray-900">
-							{student.age} años
+							{Math.floor(
+								(new Date().getTime() -
+									new Date(student.fechaNacimiento).getTime()) /
+									(1000 * 60 * 60 * 24 * 365.25),
+							)}{" "}
+							años
 						</p>
 					</div>
 					<div>
@@ -96,19 +65,30 @@ export default function StudentDetailsModal({
 							Fecha de nacimiento
 						</p>
 						<p className="text-lg font-semibold text-gray-900">
-							{student.birthDate}
+							{student.fechaNacimiento.split("-").reverse().join("/")}
 						</p>
 					</div>
 				</div>
 
 				{/* --- CURSOS INSCRIPTOS --- */}
 				<div className="border-t pt-6">
-					<h3 className="text-lg font-bold text-[#252d62] mb-4">
-						Cursos inscritos
-					</h3>
+					{/* NUEVO: Header de la sección con el botón de Inscribir */}
+					<div className="flex items-center justify-between mb-4">
+						<h3 className="text-lg font-bold text-[#252d62]">
+							Cursos inscritos
+						</h3>
+						<Button
+							asChild
+							className="bg-[#EE1120] hover:bg-[#c4000e] text-white flex items-center gap-2 transition-all shadow-sm"
+						>
+							<Link href="/cursos">
+								<Plus className="w-4 h-4" />
+								Inscribir a curso nuevo
+							</Link>
+						</Button>
+					</div>
 
 					<div className="overflow-hidden rounded-lg border border-gray-200">
-						{/* Si hubiese muchos cursos, un overflow-x-auto ayudaría en móviles */}
 						<div className="overflow-x-auto">
 							<table className="w-full text-sm">
 								<thead className="bg-gray-50">
@@ -120,28 +100,22 @@ export default function StudentDetailsModal({
 											Inicio
 										</th>
 										<th className="px-4 py-3 text-left font-medium text-gray-700 whitespace-nowrap">
-											Fin
-										</th>
-										<th className="px-4 py-3 text-left font-medium text-gray-700 whitespace-nowrap">
-											Profesor
+											Cuotas
 										</th>
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-gray-200">
-									{enrolledCourses.length > 0 ? (
-										enrolledCourses.map((course) => (
-											<tr key={course.id} className="hover:bg-gray-50">
+									{student?.cursos?.length > 0 ? (
+										student.cursos.map((course) => (
+											<tr key={course.courseId} className="hover:bg-gray-50">
 												<td className="px-4 py-3 text-gray-900 font-medium">
-													{course.name}
+													{course.nombreCurso}
 												</td>
 												<td className="px-4 py-3 text-gray-600">
-													{course.start}
+													{course.fechaInicio}
 												</td>
 												<td className="px-4 py-3 text-gray-600">
-													{course.end}
-												</td>
-												<td className="px-4 py-3 text-gray-600">
-													{course.teacher}
+													{course.cuotasPagadas}/{course.totalCuotas}
 												</td>
 											</tr>
 										))
@@ -149,7 +123,7 @@ export default function StudentDetailsModal({
 										<tr>
 											<td
 												colSpan={4}
-												className="px-4 py-6 text-center text-gray-500"
+												className="px-4 py-8 text-center text-gray-500 bg-gray-50/50"
 											>
 												Este alumno aún no está inscripto en ningún curso.
 											</td>
@@ -165,8 +139,8 @@ export default function StudentDetailsModal({
 				<DialogFooter className="mt-6">
 					<Button
 						onClick={onClose}
-						// Cambiado a variante predeterminada de shadcn o colores institucionales
-						className="bg-[#252d62] hover:bg-[#1d2355] text-white"
+						variant="outline"
+						className="text-[#252d62] border-[#252d62] hover:bg-[#252d62] hover:text-white transition-all"
 					>
 						Cerrar
 					</Button>

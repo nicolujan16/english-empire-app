@@ -1,4 +1,5 @@
 import "./globals.css";
+import { AuthProvider } from "@/context/AuthContext";
 
 export default function RootLayout({
 	children,
@@ -7,7 +8,9 @@ export default function RootLayout({
 }) {
 	return (
 		<html lang="es">
-			<body className="antialiased text-gray-900 bg-gray-50">{children}</body>
+			<body className="antialiased text-gray-900 bg-gray-50">
+				<AuthProvider>{children}</AuthProvider>
+			</body>
 		</html>
 	);
 }

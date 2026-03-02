@@ -2,6 +2,17 @@
 
 import React, { useState, ChangeEvent, SyntheticEvent } from "react";
 import {
+	collection,
+	query,
+	where,
+	getDocs,
+	addDoc,
+	doc,
+	updateDoc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig";
+import { useAuth } from "@/context/AuthContext";
+import {
 	Dialog,
 	DialogContent,
 	DialogHeader,
@@ -11,58 +22,129 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { StudentDetails } from "@/types";
 
-// 1. Tipamos los Props que recibe el Modal
 interface AddStudentModalProps {
 	isOpen: boolean;
 	onClose: () => void;
-}
-
-// 2. Tipamos el estado del formulario
-interface StudentFormData {
-	nombre: string;
-	apellido: string;
-	dni: string;
-	edad: string;
-	fechaNacimiento: string;
 }
 
 export default function AddStudentModal({
 	isOpen,
 	onClose,
 }: AddStudentModalProps) {
-	const [formData, setFormData] = useState<StudentFormData>({
+	const { user, userData } = useAuth();
+
+	const [formData, setFormData] = useState<StudentDetails>({
 		nombre: "",
 		apellido: "",
 		dni: "",
-		edad: "",
 		fechaNacimiento: "",
+		cursos: [],
 	});
 
-	// 3. Tipamos el evento de los inputs
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [errorMsg, setErrorMsg] = useState("");
+
 	const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
 		const { name, value } = e.target;
 		setFormData((prev) => ({ ...prev, [name]: value }));
 	};
 
-	// 4. Tipamos el evento del submit con SyntheticEvent
-	const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
+	const handleSubmit = async (e: SyntheticEvent<HTMLFormElement>) => {
 		e.preventDefault();
+		setErrorMsg("");
 
-		// Aquí normalmente llamarías a una API/Firebase para guardar al alumno
-		console.log("Guardando alumno:", formData);
+		if (!user || !userData) {
+			setErrorMsg("No hay sesión activa.");
+			return;
+		}
 
-		// Limpiamos el formulario
-		setFormData({
-			nombre: "",
-			apellido: "",
-			dni: "",
-			edad: "",
-			fechaNacimiento: "",
-		});
+		const age = Math.floor(
+			(new Date().getTime() - new Date(formData.fechaNacimiento).getTime()) /
+				(1000 * 60 * 60 * 24 * 365.25),
+		);
 
-		// Cerramos el modal
-		onClose();
+		if (age > 18) {
+			alert(
+				"Alumno mayor de edad. Se recomienda crear una cuenta propia para una mejor experiencia.",
+			);
+			return;
+		}
+
+		// 1. Validación Básica: Que no sea el DNI del propio padre
+		if (formData.dni === userData.dni) {
+			setErrorMsg(
+				"El DNI del alumno no puede ser igual al del titular de la cuenta.",
+			);
+			return;
+		}
+
+		setIsSubmitting(true);
+
+		try {
+			// --- LA NUEVA DOBLE VALIDACIÓN BARRERA ---
+			const usersRef = collection(db, "Users");
+			const hijosRef = collection(db, "Hijos");
+
+			// A. Verificar si el DNI ya existe en la colección de Users (Como titular)
+			const userDniQuery = query(usersRef, where("dni", "==", formData.dni));
+			const userDniSnapshot = await getDocs(userDniQuery);
+
+			if (!userDniSnapshot.empty) {
+				setErrorMsg(
+					`El DNI ${formData.dni} ya pertenece a un usuario titular registrado.`,
+				);
+				setIsSubmitting(false);
+				return;
+			}
+
+			// B. Verificar si el DNI ya existe en la colección de Hijos (Como alumno a cargo de alguien)
+			const hijoDniQuery = query(hijosRef, where("dni", "==", formData.dni));
+			const hijoDniSnapshot = await getDocs(hijoDniQuery);
+
+			if (!hijoDniSnapshot.empty) {
+				setErrorMsg(
+					`El DNI ${formData.dni} ya se encuentra registrado como alumno a cargo en el instituto.`,
+				);
+				setIsSubmitting(false);
+				return;
+			}
+			// -----------------------------------------
+
+			// 3. Crear el nuevo documento en la colección Hijos
+			await addDoc(hijosRef, {
+				tutorId: user.uid,
+				nombre: formData.nombre,
+				apellido: formData.apellido,
+				dni: formData.dni,
+				fechaNacimiento: formData.fechaNacimiento,
+				cursos: [],
+			});
+
+			// 4. Si el padre no era tutor, lo actualizamos
+			if (!userData.isTutor) {
+				const userDocRef = doc(db, "Users", user.uid);
+				await updateDoc(userDocRef, {
+					isTutor: true,
+				});
+			}
+
+			// Limpiamos el formulario y cerramos
+			setFormData({
+				nombre: "",
+				apellido: "",
+				dni: "",
+				fechaNacimiento: "",
+				cursos: [],
+			});
+			onClose();
+		} catch (error) {
+			console.error("Error al guardar alumno:", error);
+			setErrorMsg("Ocurrió un error al guardar el alumno. Inténtalo de nuevo.");
+		} finally {
+			setIsSubmitting(false);
+		}
 	};
 
 	return (
@@ -85,7 +167,9 @@ export default function AddStudentModal({
 							value={formData.nombre}
 							onChange={handleChange}
 							className="col-span-3"
+							placeholder="Nombre del alumno"
 							required
+							disabled={isSubmitting}
 						/>
 					</div>
 					<div className="grid grid-cols-4 items-center gap-4">
@@ -95,10 +179,12 @@ export default function AddStudentModal({
 						<Input
 							id="apellido"
 							name="apellido"
+							placeholder="Apellido del alumno"
 							value={formData.apellido}
 							onChange={handleChange}
 							className="col-span-3"
 							required
+							disabled={isSubmitting}
 						/>
 					</div>
 					<div className="grid grid-cols-4 items-center gap-4">
@@ -108,29 +194,19 @@ export default function AddStudentModal({
 						<Input
 							id="dni"
 							name="dni"
+							type="number"
+							placeholder="Ej: 45123456"
 							value={formData.dni}
 							onChange={handleChange}
 							className="col-span-3"
 							required
+							disabled={isSubmitting}
 						/>
 					</div>
-					<div className="grid grid-cols-4 items-center gap-4">
-						<Label htmlFor="edad" className="text-right">
-							Edad
-						</Label>
-						<Input
-							id="edad"
-							name="edad"
-							type="number"
-							value={formData.edad}
-							onChange={handleChange}
-							className="col-span-3"
-							required
-						/>
-					</div>
+
 					<div className="grid grid-cols-4 items-center gap-4">
 						<Label htmlFor="fechaNacimiento" className="text-right">
-							Fecha Nac.
+							Nacimiento
 						</Label>
 						<Input
 							id="fechaNacimiento"
@@ -140,19 +216,52 @@ export default function AddStudentModal({
 							onChange={handleChange}
 							className="col-span-3 text-gray-700"
 							required
+							disabled={isSubmitting}
+						/>
+					</div>
+					<div className="grid grid-cols-4 items-center gap-4">
+						<Label htmlFor="edad_readonly" className="text-right">
+							Edad
+						</Label>
+						<input
+							id="edad_readonly"
+							type="text"
+							readOnly
+							value={
+								formData.fechaNacimiento
+									? Math.floor(
+											(new Date().getTime() -
+												new Date(formData.fechaNacimiento).getTime()) /
+												(1000 * 60 * 60 * 24 * 365.25),
+										)
+									: ""
+							}
+							placeholder="--"
+							className="w-full h-11 px-2 text-center text-sm font-bold bg-gray-200 text-gray-700 rounded-lg border border-transparent outline-none cursor-not-allowed col-span-3"
 						/>
 					</div>
 
+					{errorMsg && (
+						<div className="bg-red-50 text-red-600 p-2 rounded-md text-sm text-center font-medium">
+							{errorMsg}
+						</div>
+					)}
+
 					<DialogFooter className="mt-4">
-						<Button type="button" variant="outline" onClick={onClose}>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={onClose}
+							disabled={isSubmitting}
+						>
 							Cancelar
 						</Button>
 						<Button
 							type="submit"
-							// Usamos el color rojo de la marca o el azul oscuro
+							disabled={isSubmitting}
 							className="bg-[#EE1120] hover:bg-[#c4000e] text-white transition-all"
 						>
-							Guardar
+							{isSubmitting ? "Guardando..." : "Guardar"}
 						</Button>
 					</DialogFooter>
 				</form>
