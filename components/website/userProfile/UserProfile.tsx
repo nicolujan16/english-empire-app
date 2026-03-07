@@ -9,16 +9,6 @@ function UserProfile({
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	user: any | null;
 }) {
-	// // Sample user data
-	// const user = {
-	// 	nombre: "María",
-	// 	apellido: "González Pérez",
-	// 	dni: "45678912",
-	// 	email: "maria.gonzalez@email.com",
-	// 	phone: "+34 612 345 678",
-	// 	fechaRegistro: "15 de Enero, 2024",
-	// };
-
 	// Si estamos cargando o no tenemos datos de usuario, mostramos un skeleton
 	if (isLoading || user === null) {
 		return (

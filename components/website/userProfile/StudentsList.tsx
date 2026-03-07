@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Button } from "../ui/button";
+import { Button } from "../../ui/button";
 import { Plus, Users } from "lucide-react"; // Importamos 'Users' para el estado vacío
 import AddStudentModal from "./AddStudentModal";
 import StudentDetailsModal from "./StudentDetailsModal";

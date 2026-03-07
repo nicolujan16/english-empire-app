@@ -11,7 +11,7 @@ import {
 	Loader2,
 	AlertCircle,
 } from "lucide-react";
-import { Button } from "@/components/website/ui/button";
+import { Button } from "@/components/ui/button";
 import PaymentModal from "@/components/portal/PaymentModal";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -79,7 +79,7 @@ function CheckoutContent() {
 					const data = docSnap.data();
 					setCourseInfo({
 						name: data.nombre || "Curso sin nombre",
-						price: data.precio || 0,
+						price: data.inscripcion,
 						isLoading: false,
 					});
 				} else {
@@ -200,7 +200,7 @@ function CheckoutContent() {
 	// 3. CORRECCIÓN: Invertimos el orden. El error tiene máxima prioridad visual.
 	if (errorState.show) {
 		return (
-			<div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+			<div className="min-h-[400px] bg-gray-50 flex items-center justify-center p-4">
 				<motion.div
 					initial={{ opacity: 0, scale: 0.95, y: 10 }}
 					animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -298,7 +298,7 @@ function CheckoutContent() {
 										</div>
 									</div>
 
-									<div className="mt-6 flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100">
+									<div className="mt-6 flex items-center gap-2 text-lg text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100">
 										<ShieldCheck className="w-4 h-4 text-green-600" />
 										<span>
 											Tus datos están protegidos con encriptación SSL de 256
@@ -318,31 +318,31 @@ function CheckoutContent() {
 								className="lg:sticky lg:top-24"
 							>
 								<div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-									<h3 className="text-lg font-bold text-[#2a2e5b] mb-4">
+									<h3 className="text-xl font-bold text-[#2a2e5b] mb-4">
 										Resumen de Compra
 									</h3>
 
 									<div className="mb-4 pb-4 border-b border-gray-100">
 										<div className="flex justify-between mb-1">
-											<span className="text-xs text-gray-500">Estudiante:</span>
-											<span className="text-xs font-semibold text-gray-800 text-right">
+											<span className="text-lg text-gray-500">Estudiante:</span>
+											<span className="text-lg font-semibold text-gray-800 text-right">
 												{studentInfo.name}
 											</span>
 										</div>
 										<div className="flex justify-between">
-											<span className="text-xs text-gray-500">DNI:</span>
-											<span className="text-xs font-semibold text-gray-800">
+											<span className="text-lg text-gray-500">DNI:</span>
+											<span className="text-lg font-semibold text-gray-800">
 												{studentInfo.dni}
 											</span>
 										</div>
 									</div>
 
 									<div className="mb-4 pb-4 border-b border-gray-100">
-										<p className="font-semibold text-sm text-gray-800 mb-2 leading-tight">
+										<p className="font-semibold text-lg text-gray-800 mb-2 leading-tight">
 											{courseInfo.name}
 										</p>
 										<div className="flex justify-between items-baseline">
-											<span className="text-xs text-gray-500">Precio:</span>
+											<span className="text-lg text-gray-500">Precio:</span>
 											<span className="text-lg font-bold text-[#2a2e5b]">
 												ARS ${courseInfo.price.toLocaleString("es-AR")}
 											</span>
@@ -351,7 +351,7 @@ function CheckoutContent() {
 
 									<div className="mb-6">
 										<div className="flex justify-between items-baseline">
-											<span className="text-sm font-bold text-gray-800">
+											<span className="text-lg font-bold text-gray-800">
 												Total a pagar:
 											</span>
 											<span className="text-xl font-bold text-[#EE1120]">

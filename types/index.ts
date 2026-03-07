@@ -4,13 +4,14 @@ import { Timestamp } from "firebase/firestore";
 // CURSOS
 
 export interface CursoObject {
+	imgURL: string;
 	id: string;
 	nombre: string;
 	descripcion: string[];
 	duracion: string;
 	clasesSemanales: number;
-	precio: number;
-	cupos: number;
+	inscripcion: number;
+	cuota: number;
 	inicio: string;
 	fin: string;
 	categoria: string;

@@ -6,7 +6,7 @@ import CoursesList from "@/components/website/userProfile/CoursesList";
 import StudentsList from "@/components/website/userProfile/StudentsList";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/website/ui/button";
+import { Button } from "@/components/ui/button";
 import LogoutButton from "@/components/website/userProfile/LogoutButton";
 import { StudentDetails } from "@/types";
 

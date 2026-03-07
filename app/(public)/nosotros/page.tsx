@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link"; // Next.js Link
-import Image, { StaticImageData } from "next/image"; // Next.js Image
+import Link from "next/link";
+import Image, { StaticImageData } from "next/image";
 
 // Componentes
 import { MainBanner } from "@/components/website/common/MainBanner";
-// Ojo: Asegurate de que la ruta de ProfesorCard sea correcta cuando lo migres
 import ProfesorCard from "@/components/website/nosotros/ProfesorCard";
 
 // Assets
@@ -14,51 +13,53 @@ import nosAlumnos from "@/assets/nosotros/alumnos-recibidos.png";
 import nosCursos from "@/assets/nosotros/cursos.png";
 import nosProfesores from "@/assets/nosotros/profesores.png";
 
-// 1. Tipamos nuestro MOCK DATA y nuestro Estado
+// --- FIRESTORE IMPORTS ---
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig"; // Ajustá esta ruta a tu config
+
+// 1. Tipamos nuestro Estado (Mapeado a español para el componente ProfesorCard)
 interface StaffMember {
-	id: number | string;
+	id: string;
 	nombre: string;
 	cargo: string;
 	imagen: string;
+	orden: number;
 }
 
-// MOCK DATA PARA PRUEBAS (Borrar cuando conectes Firebase)
-const MOCK_STAFF: StaffMember[] = [
-	{
-		id: 1,
-		nombre: "Ana Gómez",
-		cargo: "Director",
-		imagen: "https://i.pravatar.cc/300?img=1",
-	},
-	{
-		id: 2,
-		nombre: "Carlos Pérez",
-		cargo: "Profesor",
-		imagen: "https://i.pravatar.cc/300?img=11",
-	},
-	{
-		id: 3,
-		nombre: "Lucía M.",
-		cargo: "Secretaria",
-		imagen: "https://i.pravatar.cc/300?img=5",
-	},
-	{
-		id: 4,
-		nombre: "Marcos R.",
-		cargo: "Profesor",
-		imagen: "https://i.pravatar.cc/300?img=13",
-	},
-];
-
 export default function AboutPage() {
-	// 2. Le decimos a useState que va a manejar un array de StaffMember
 	const [staff, setStaff] = useState<StaffMember[]>([]);
+	const [isLoading, setIsLoading] = useState(true);
 
+	// 2. Traemos los datos de Firestore al cargar la página
 	useEffect(() => {
-		// Simulamos un pequeño tiempo de carga (opcional, para ver el efecto)
-		setTimeout(() => {
-			setStaff(MOCK_STAFF);
-		}, 500);
+		const fetchStaff = async () => {
+			try {
+				const staffRef = collection(db, "Staff");
+
+				// Pedimos los datos YA ORDENADOS por la propiedad "orden" de menor a mayor (1, 2, 3...)
+				const q = query(staffRef, orderBy("orden", "asc"));
+				const snapshot = await getDocs(q);
+
+				const staffData: StaffMember[] = snapshot.docs.map((doc) => {
+					const data = doc.data();
+					return {
+						id: doc.id,
+						nombre: data.name || "Sin nombre", // Traducimos 'name' de la BD a 'nombre'
+						cargo: data.role || "Sin cargo", // Traducimos 'role' de la BD a 'cargo'
+						imagen: data.image || "", // Traducimos 'image' de la BD a 'imagen'
+						orden: data.orden || 99,
+					};
+				});
+
+				setStaff(staffData);
+			} catch (error) {
+				console.error("Error obteniendo el personal:", error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchStaff();
 	}, []);
 
 	return (
@@ -126,7 +127,12 @@ export default function AboutPage() {
 
 				{/* GRID DE PROFESORES */}
 				<section className="w-[90%] md:w-[80%] mx-auto flex flex-wrap justify-center gap-10 py-8">
-					{staff.length > 0 ? (
+					{isLoading ? (
+						<div className="flex justify-center items-center h-40 w-full">
+							{/* Reutilizamos el loader de Tailwind */}
+							<div className="w-12 h-12 border-[5px] border-black/10 border-t-[#EE1120] rounded-full animate-spin"></div>
+						</div>
+					) : staff.length > 0 ? (
 						staff.map((prof) => (
 							<ProfesorCard
 								key={prof.id}
@@ -136,15 +142,13 @@ export default function AboutPage() {
 							/>
 						))
 					) : (
-						<div className="flex justify-center items-center h-40">
-							{/* Reutilizamos el loader de Tailwind de la pág de Cursos */}
-							<div className="w-12 h-12 border-[5px] border-black/10 border-t-[#EE1120] rounded-full animate-spin"></div>
+						<div className="text-center text-gray-500 w-full py-10">
+							<p>El equipo se está conformando. ¡Vuelve pronto!</p>
 						</div>
 					)}
 				</section>
 
 				{/* BANNER FINAL (Llamado a la acción) */}
-				{/* Nota del Tech Lead: Al poner "mb-16" le damos espacio al botón flotante */}
 				<div className="relative bg-[#252d62] text-center py-24 px-[10%] mt-12 mb-16">
 					<p className="text-white font-bold text-2xl md:text-4xl max-w-4xl mx-auto">
 						¡Permítenos inspirarte a alcanzar tus metas y superar tus
@@ -181,12 +185,7 @@ interface StatItemProps {
 function StatItem({ img, alt, label }: StatItemProps) {
 	return (
 		<div className="flex flex-col items-center gap-4 py-4 w-full">
-			<Image
-				src={img}
-				alt={alt}
-				className="w-full h-auto object-contain"
-				// Agregamos max-w para que no se estire demasiado en pantallas gigantes
-			/>
+			<Image src={img} alt={alt} className="w-full h-auto object-contain" />
 			<p className="text-3xl font-medium text-[#252d62] text-center">{label}</p>
 		</div>
 	);

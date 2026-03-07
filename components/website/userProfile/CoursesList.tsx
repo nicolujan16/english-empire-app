@@ -1,7 +1,7 @@
 import React from "react";
 import { Plus, BookOpen } from "lucide-react"; // Sumamos BookOpen para el estado vacío
 import Link from "next/link";
-import { Button } from "../ui/button";
+import { Button } from "../../ui/button";
 import { CursoInscripto } from "@/types";
 
 function CoursesList({ cursos }: { cursos: CursoInscripto[] | null }) {

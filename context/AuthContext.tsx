@@ -165,8 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			pass,
 		);
 
+		const cleanDNI = userData.dni ? userData.dni.replace(/[\s.]/g, "") : "";
+
 		await setDoc(doc(db, "Users", userCredential.user.uid), {
 			...userData,
+			dni: cleanDNI,
 			email: email,
 			rol: "alumno",
 			fechaRegistro: new Date(),

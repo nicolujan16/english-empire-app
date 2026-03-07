@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { CursoObject, StudentDetails } from "@/types";
+import { X } from "lucide-react"; // Importamos el ícono de la X
 
 export default function ConfirmInscription({
 	curso,
@@ -15,81 +16,122 @@ export default function ConfirmInscription({
 }) {
 	const { userData } = useAuth();
 
-	// Estado para guardar la selección. "self" significa que se inscribe el titular.
 	const [selectedStudentDNI, setSelectedStudentId] = useState<string>("self");
 
 	const onConfirm = () => {
 		if (selectedStudentDNI === "self") {
-			handleConfirmEnrollment(userData?.dni || ""); // Si es el titular, pasamos su DNI
+			handleConfirmEnrollment(userData?.dni || "");
 			return;
 		}
 		handleConfirmEnrollment(selectedStudentDNI);
 	};
 
 	return (
-		<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-			<div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
-				{/* HEADER MODAL */}
-				<div className="bg-[#1d2355] p-6 text-center">
-					<h3 className="text-white text-2xl font-bold">
+		<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6 animate-in fade-in duration-200">
+			{/* EL TRUCO ESTÁ ACÁ:
+        flex flex-col y max-h-[90vh] asegura que el modal no sea más grande que la pantalla. 
+      */}
+			<div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[95vh] sm:max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
+				{/* HEADER MODAL - shrink-0 evita que se achique */}
+				<div className="bg-[#1d2355] p-5 text-center border-b-4 border-[#EE1120] relative shrink-0">
+					<h3 className="text-white text-xl sm:text-2xl font-bold tracking-wide pr-6">
 						Confirmar Inscripción
 					</h3>
-					<p className="text-gray-300 text-sm mt-1">
-						Revisa los detalles antes de continuar
+					<p className="text-gray-300 text-xs sm:text-sm mt-1">
+						Revisa los detalles antes de ir al pago
 					</p>
+
+					{/* Botón X para cerrar (Muy útil en mobile) */}
+					<button
+						onClick={() => setIsModalOpen(false)}
+						className="absolute top-4 right-4 text-gray-300 hover:text-white bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors"
+					>
+						<X className="w-5 h-5" />
+					</button>
 				</div>
 
-				{/* BODY MODAL */}
-				<div className="p-8 flex flex-col gap-6 text-[#252d62] max-h-[70vh] overflow-y-auto">
-					<div className="text-center border-b pb-4">
-						<h4 className="text-3xl font-bold text-[#EE1120]">
+				{/* BODY MODAL - flex-1 overflow-y-auto asegura que el scroll solo ocurra acá adentro */}
+				<div className="p-5 sm:p-8 flex-1 flex flex-col gap-5 text-[#252d62] overflow-y-auto">
+					{/* Título del curso y Precio */}
+					<div className="text-center border-b border-gray-100 pb-4">
+						<h4 className="text-2xl sm:text-3xl font-extrabold text-[#252d62] leading-tight">
 							{curso.nombre}
 						</h4>
-						<p className="text-lg font-medium mt-1">Precio: ${curso.precio}</p>
-					</div>
-
-					<div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm md:text-base">
-						<div>
-							<p className="font-bold text-gray-500">Duración:</p>
-							<p>{curso.duracion}</p>
-						</div>
-						<div>
-							<p className="font-bold text-gray-500">Frecuencia:</p>
-							<p>{curso.clasesSemanales} clases/semana</p>
-						</div>
-						<div>
-							<p className="font-bold text-gray-500">Inicio:</p>
-							<p>{curso.inicio}</p>
-						</div>
-						<div>
-							<p className="font-bold text-gray-500">Fin:</p>
-							<p>{curso.fin}</p>
+						<div className="mt-3 inline-block bg-green-50 text-green-700 px-4 py-1.5 rounded-full font-bold text-sm sm:text-base border border-green-200">
+							Valor Inscripción: ${curso.inscripcion.toLocaleString("es-AR")}
 						</div>
 					</div>
 
-					<div className="bg-gray-100 p-4 rounded-lg">
-						<p className="font-bold text-[#1d2355] mb-2 text-center">
-							Horarios de Clases:
+					{/* Grilla de info */}
+					<div className="grid grid-cols-2 gap-y-4 gap-x-2 text-xs sm:text-sm bg-gray-50 p-4 rounded-xl border border-gray-100">
+						<div>
+							<p className="font-bold text-gray-400 uppercase tracking-wider mb-1">
+								Duración
+							</p>
+							<p className="font-semibold">{curso.duracion}</p>
+						</div>
+						<div>
+							<p className="font-bold text-gray-400 uppercase tracking-wider mb-1">
+								Frecuencia
+							</p>
+							<p className="font-semibold">
+								{curso.clasesSemanales} clases/sem
+							</p>
+						</div>
+						<div>
+							<p className="font-bold text-gray-400 uppercase tracking-wider mb-1">
+								Inicio
+							</p>
+							<p className="font-semibold">{curso.inicio}</p>
+						</div>
+						<div>
+							<p className="font-bold text-gray-400 uppercase tracking-wider mb-1">
+								Fin
+							</p>
+							<p className="font-semibold">{curso.fin}</p>
+						</div>
+					</div>
+
+					{/* Horarios */}
+					<div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+						<p className="font-bold text-[#1d2355] mb-3 flex items-center gap-2 text-sm sm:text-base">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<circle cx="12" cy="12" r="10" />
+								<polyline points="12 6 12 12 16 14" />
+							</svg>
+							Horarios de Cursada:
 						</p>
-						<ul className="space-y-2">
+						<ul className="space-y-2 text-sm">
 							{curso.horarios.map((h, idx) => (
 								<li
 									key={idx}
-									className="flex justify-between border-b border-gray-300 last:border-0 pb-1 last:pb-0"
+									className="flex justify-between bg-white px-3 py-2 rounded-lg border border-blue-50 shadow-sm"
 								>
-									<span className="font-medium">{h.dia}</span>
-									<span>{h.hora}</span>
+									<span className="font-bold text-gray-700">{h.dia}</span>
+									<span className="text-[#EE1120] font-medium">
+										{h.hora || "A definir"}
+									</span>
 								</li>
 							))}
 						</ul>
 					</div>
 
-					{/* --- NUEVA SECCIÓN: SELECTOR DE ALUMNO --- */}
-					{userData && (
-						<div className="mt-2 bg-blue-50/50 p-4 rounded-lg border border-blue-100">
+					{/* --- SELECTOR DE ALUMNO --- */}
+					{userData ? (
+						<div className="mt-1">
 							<label
 								htmlFor="student-select"
-								className="block text-sm font-bold text-[#252d62] mb-2"
+								className="block text-xs sm:text-sm font-bold text-[#252d62] mb-2"
 							>
 								¿A quién vas a inscribir en este curso?
 							</label>
@@ -97,46 +139,59 @@ export default function ConfirmInscription({
 								id="student-select"
 								value={selectedStudentDNI}
 								onChange={(e) => setSelectedStudentId(e.target.value)}
-								className="w-full h-11 px-4 text-base text-gray-900 bg-white rounded-lg border border-gray-300 focus:border-[#1d2355] focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all cursor-pointer"
+								className="w-full h-11 sm:h-12 px-3 sm:px-4 text-sm sm:text-base text-gray-900 bg-white rounded-xl border-2 border-gray-200 focus:border-[#EE1120] focus:ring-0 outline-none transition-all cursor-pointer font-medium"
 							>
-								{/* Opción 1: El titular (siempre disponible si hay userData) */}
-								<option value="self">
+								<option value="self" className="font-medium">
 									Yo ({userData.nombre} {userData.apellido})
 								</option>
 
-								{/* Opciones extra: Los hijos (si es tutor y tiene hijos cargados) */}
-								{userData.isTutor &&
-									userData.hijos &&
-									userData.hijos.length > 0 && (
-										<optgroup label="Alumnos a cargo">
-											{userData.hijos.map(
-												(hijo: StudentDetails, index: number) => (
-													<option key={hijo.dni || index} value={hijo.dni}>
-														{hijo.nombre} {hijo.apellido} (DNI: {hijo.dni})
-													</option>
-												),
-											)}
-										</optgroup>
-									)}
+								{userData.hijos && userData.hijos.length > 0 && (
+									<optgroup
+										label="Alumnos a cargo (Tus Hijos)"
+										className="font-bold"
+									>
+										{userData.hijos.map(
+											(hijo: StudentDetails, index: number) => (
+												<option key={hijo.dni || index} value={hijo.dni}>
+													{hijo.nombre} {hijo.apellido} - DNI: {hijo.dni}
+												</option>
+											),
+										)}
+									</optgroup>
+								)}
 							</select>
 						</div>
+					) : (
+						<div className="mt-2 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-center">
+							<p className="text-red-600 font-bold text-xs sm:text-sm">
+								Debes iniciar sesión para inscribirte.
+							</p>
+						</div>
 					)}
-					{/* Si no hay userData (ej. usuario no logueado), podrías mostrar un mensaje pidiendo que inicie sesión aquí, aunque idealmente no debería llegar al modal sin estar logueado. */}
 				</div>
 
-				{/* FOOTER MODAL */}
-				<div className="p-6 bg-gray-50 flex gap-4 justify-end border-t">
-					<button
-						onClick={() => setIsModalOpen(false)}
-						className="px-6 py-2 rounded-lg text-gray-600 font-bold hover:bg-gray-200 transition-colors"
-					>
-						Cancelar
-					</button>
+				{/* FOOTER MODAL - shrink-0 lo ancla abajo */}
+				<div className="p-4 justify-center sm:p-5 bg-gray-50 flex flex-col-reverse sm:flex-row gap-3 border-t border-gray-200 shrink-0">
 					<button
 						onClick={onConfirm}
-						className="px-6 py-2 rounded-lg bg-[#EE1120] text-white font-bold hover:bg-[#b30000] shadow-md transition-colors"
+						disabled={!userData}
+						className="w-full sm:w-auto px-6 py-3 sm:py-2 rounded-xl bg-[#EE1120] text-white font-bold hover:bg-[#c4000e] shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
 					>
 						Confirmar e Ir a Pagar
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						>
+							<line x1="5" y1="12" x2="19" y2="12"></line>
+							<polyline points="12 5 19 12 12 19"></polyline>
+						</svg>
 					</button>
 				</div>
 			</div>

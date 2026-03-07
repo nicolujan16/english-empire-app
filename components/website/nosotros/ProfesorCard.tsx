@@ -16,6 +16,7 @@ export default function ProfesorCard({
 	return (
 		<div className="flex flex-col flex-shrink-0 justify-center items-center gap-3 w-[240px] min-w-[240px] md:min-w-[20%] text-center">
 			{/* IMAGEN DE PERFIL */}
+			{/* Mientras carga, quiero que se muestre una imagen de carga */}
 			<Image
 				src={imgSrc}
 				alt={`Foto de ${name} - ${role}`}

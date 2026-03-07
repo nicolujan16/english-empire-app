@@ -10,8 +10,8 @@ import {
 	DialogTitle,
 	DialogDescription,
 	DialogFooter,
-} from "../ui/dialog";
-import { Button } from "../ui/button";
+} from "../../ui/dialog";
+import { Button } from "../../ui/button";
 import { LogOut } from "lucide-react"; // Un ícono lindo para el botón
 
 export default function LogoutButton() {
