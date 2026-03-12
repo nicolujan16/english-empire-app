@@ -20,6 +20,7 @@
 		"firebase": "^12.9.0",
 		"framer-motion": "^12.34.0",
 		"lucide-react": "^0.292.0",
+		"mercadopago": "^2.12.0",
 		"next": "16.1.6",
 		"react": "19.2.3",
 		"react-dom": "19.2.3",
