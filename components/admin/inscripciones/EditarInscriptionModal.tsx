@@ -19,17 +19,19 @@ export interface Inscription {
 	cursoNombre: string;
 	cursoInscripcion: number;
 	status: InscriptionStatus;
-	paymentMethod?: string; // NUEVO: Añadimos paymentMethod como opcional para evitar errores en datos viejos
+	paymentMethod?: string;
 }
 
 interface EditInscriptionModalProps {
 	isOpen: boolean;
 	onClose: () => void;
 	inscriptionToEdit: Inscription | null;
+	// NUEVO: Agregamos nuevoMetodoPago como parámetro a la función onSave
 	onSave: (
 		id: string,
 		nuevoEstado: InscriptionStatus,
 		nuevoMonto: number,
+		nuevoMetodoPago?: string,
 	) => Promise<void>;
 }
 
@@ -40,12 +42,17 @@ export default function EditInscriptionModal({
 	onSave,
 }: EditInscriptionModalProps) {
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [errorMsg, setErrorMsg] = useState(""); // NUEVO: Estado para errores de validación
+
+	// NUEVO: Agregamos paymentMethod al estado
 	const [formData, setFormData] = useState<{
 		status: InscriptionStatus;
 		monto: string;
+		paymentMethod: string;
 	}>({
 		status: "Pendiente",
 		monto: "",
+		paymentMethod: "",
 	});
 
 	useEffect(() => {
@@ -53,26 +60,38 @@ export default function EditInscriptionModal({
 			setFormData({
 				status: inscriptionToEdit.status,
 				monto: inscriptionToEdit.cursoInscripcion.toString(),
+				paymentMethod: inscriptionToEdit.paymentMethod || "", // Cargamos el dato si ya existía
 			});
+			setErrorMsg(""); // Limpiamos errores al abrir
 		}
 	}, [inscriptionToEdit, isOpen]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!inscriptionToEdit) return;
+		setErrorMsg("");
+
+		// VALIDACIÓN CRÍTICA CONTABLE
+		if (formData.status === "Confirmado" && !formData.paymentMethod) {
+			setErrorMsg(
+				"Debes seleccionar un método de pago para confirmar la inscripción.",
+			);
+			return;
+		}
 
 		setIsSubmitting(true);
 		try {
-			// Pasamos los datos al componente padre para que haga el updateDoc
+			// Pasamos los 4 parámetros al padre
 			await onSave(
 				inscriptionToEdit.id,
 				formData.status,
 				parseFloat(formData.monto) || 0,
+				formData.status === "Confirmado" ? formData.paymentMethod : undefined,
 			);
 			onClose();
 		} catch (error) {
 			console.error("Error al actualizar inscripción:", error);
-			alert("Hubo un error al guardar los cambios.");
+			setErrorMsg("Hubo un error al guardar los cambios en la base de datos.");
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -120,7 +139,6 @@ export default function EditInscriptionModal({
 							<div className="p-6">
 								{/* Datos de solo lectura */}
 								<div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-6">
-									{/* Cambiamos a un grid de 2 columnas donde los items se acomodan */}
 									<div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
 										<div>
 											<p className="text-gray-500 text-[11px] font-bold uppercase tracking-wider mb-0.5">
@@ -149,10 +167,9 @@ export default function EditInscriptionModal({
 											</p>
 										</div>
 
-										{/* NUEVO: Método de Pago */}
 										<div>
 											<p className="text-gray-500 text-[11px] font-bold uppercase tracking-wider mb-0.5">
-												Método de Pago
+												Método Actual
 											</p>
 											<p className="font-semibold text-[#252d62]">
 												{inscriptionToEdit.paymentMethod || "No especificado"}
@@ -167,6 +184,14 @@ export default function EditInscriptionModal({
 										</div>
 									</div>
 								</div>
+
+								{/* Mensaje de Error (Si lo hay) */}
+								{errorMsg && (
+									<div className="mb-4 bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2 font-medium">
+										<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+										<p>{errorMsg}</p>
+									</div>
+								)}
 
 								{/* Formulario Editable */}
 								<form
@@ -220,10 +245,41 @@ export default function EditInscriptionModal({
 											>
 												<option value="Pendiente">🟡 Pendiente</option>
 												<option value="Confirmado">🟢 Confirmado</option>
-												{/* Cambiamos pin blanco por rojo */}
 												<option value="Cancelado">🔴 Cancelado</option>
 											</select>
 										</div>
+
+										{/* NUEVO: Selector de Método de Pago Condicional */}
+										{formData.status === "Confirmado" && (
+											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
+												<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+													Método de Pago Utilizado
+												</label>
+												<select
+													required
+													disabled={isSubmitting}
+													value={formData.paymentMethod}
+													onChange={(e) =>
+														setFormData({
+															...formData,
+															paymentMethod: e.target.value,
+														})
+													}
+													className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-white transition-colors"
+												>
+													<option value="" disabled>
+														-- Seleccione un método --
+													</option>
+													<option value="Efectivo">Efectivo</option>
+													<option value="Transferencia Bancaria (Verificada)">
+														Transferencia Bancaria (Verificada)
+													</option>
+													<option value="Tarjeta (Posnet)">
+														Tarjeta (Posnet)
+													</option>
+												</select>
+											</div>
+										)}
 									</div>
 								</form>
 							</div>

@@ -186,9 +186,10 @@ export default function AdminCoursesPage() {
 							<div className="p-6 flex-1 flex flex-col justify-between">
 								<div>
 									<div className="flex justify-between items-start mb-2 gap-2">
-										<h3 className="text-xl font-bold text-[#252d62] leading-tight">
+										<h3 className="text-xl font-bold text-[#252d62] leading-tight w-full">
 											{course.nombre}
 										</h3>
+
 										<span className="inline-block px-3 py-1 bg-blue-50 text-[#252d62] text-sm font-semibold rounded-full whitespace-nowrap">
 											Cuota: ${course.cuota.toLocaleString("es-AR")}
 										</span>

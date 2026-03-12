@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import MetricsCard from "@/components/admin/MetricsCard";
-// import InscriptionsTable from '@/components/admin/InscriptionsTable'; // <-- Descomentar cuando la creemos
-import { Users, UserPlus, DollarSign, BookOpen } from "lucide-react";
+import { Users, UserPlus, DollarSign, BookOpen, Loader2 } from "lucide-react";
 import {
 	BarChart,
 	Bar,
@@ -18,44 +17,189 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 import InscriptionsTable from "@/components/admin/inscripciones/InscriptionTable";
+// import { useAdminAuth } from "@/context/AdminAuthContext";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig";
 
-const enrollmentData = [
-	{ mes: "Enero", inscripciones: 45, ingresos: 11200 },
-	{ mes: "Febrero", inscripciones: 52, ingresos: 12800 },
-	{ mes: "Marzo", inscripciones: 38, ingresos: 9500 },
-	{ mes: "Abril", inscripciones: 61, ingresos: 15200 },
-	{ mes: "Mayo", inscripciones: 48, ingresos: 12000 },
-	{ mes: "Junio", inscripciones: 55, ingresos: 13700 },
-];
+interface ChartData {
+	mes: string;
+	inscripciones: number;
+	ingresos: number;
+}
 
 export default function AdminDashboardPage() {
+	// const { adminData } = useAdminAuth();
+
+	const [isLoading, setIsLoading] = useState(true);
+	const [metrics, setMetrics] = useState({
+		totalAlumnos: 0,
+		nuevasInscripcionesMes: 0,
+		ingresosMes: 0,
+		cursosActivos: 0,
+	});
+	const [chartData, setChartData] = useState<ChartData[]>([]);
+
+	useEffect(() => {
+		const fetchDashboardData = async () => {
+			try {
+				setIsLoading(true);
+				const today = new Date();
+				const currentYear = today.getFullYear();
+				const currentMonthIndex = today.getMonth(); // 0 = Enero, ..., 11 = Diciembre
+				const currentMonthString = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, "0")}`;
+
+				// 1. OBTENER CURSOS ACTIVOS
+				const qCursos = query(
+					collection(db, "Cursos"),
+					where("active", "==", true),
+				);
+				const snapCursos = await getDocs(qCursos);
+				const cursosCount = snapCursos.size;
+
+				// 2. OBTENER ALUMNOS ACTIVOS (Con cursos asignados)
+				const qUsers = query(
+					collection(db, "Users"),
+					where("cursos", "!=", []),
+				);
+				const qHijos = query(
+					collection(db, "Hijos"),
+					where("cursos", "!=", []),
+				);
+				const [snapUsers, snapHijos] = await Promise.all([
+					getDocs(qUsers),
+					getDocs(qHijos),
+				]);
+				const alumnosCount = snapUsers.size + snapHijos.size;
+
+				// 3. INICIALIZAR ESTRUCTURA PARA LOS GRÁFICOS (12 Meses)
+				const mesesNombres = [
+					"Ene",
+					"Feb",
+					"Mar",
+					"Abr",
+					"May",
+					"Jun",
+					"Jul",
+					"Ago",
+					"Sep",
+					"Oct",
+					"Nov",
+					"Dic",
+				];
+				const yearData: ChartData[] = mesesNombres.map((mes) => ({
+					mes,
+					inscripciones: 0,
+					ingresos: 0,
+				}));
+
+				let ingresosMesActual = 0;
+				let inscripcionesMesActual = 0;
+
+				// 4. PROCESAR CUOTAS (Ingresos Mensuales)
+				const qCuotas = query(
+					collection(db, "Cuotas"),
+					where("estado", "==", "pagado"),
+				);
+				const snapCuotas = await getDocs(qCuotas);
+
+				snapCuotas.forEach((doc) => {
+					const data = doc.data();
+					const mesCuota = data.mes; // Ej: "2026-03"
+					const monto = data.montoAbonado || 0;
+
+					if (mesCuota === currentMonthString) {
+						ingresosMesActual += monto;
+					}
+
+					// Sumar al gráfico si es del año actual
+					if (mesCuota && mesCuota.startsWith(String(currentYear))) {
+						const mesIndex = parseInt(mesCuota.split("-")[1]) - 1;
+						if (mesIndex >= 0 && mesIndex < 12) {
+							yearData[mesIndex].ingresos += monto;
+						}
+					}
+				});
+
+				// 5. PROCESAR INSCRIPCIONES (Nuevas altas y cobros de inscripción)
+				const snapInscripciones = await getDocs(
+					collection(db, "Inscripciones"),
+				);
+
+				snapInscripciones.forEach((doc) => {
+					const data = doc.data();
+					// Convertir el Timestamp de Firebase a Date nativo
+					const fechaInscripcion = data.fecha?.toDate
+						? data.fecha.toDate()
+						: new Date(data.fecha);
+					const costoInscripcion = data.cursoInscripcion || 0;
+
+					if (fechaInscripcion.getFullYear() === currentYear) {
+						const mesIndex = fechaInscripcion.getMonth();
+						yearData[mesIndex].inscripciones += 1;
+						yearData[mesIndex].ingresos += costoInscripcion; // Sumamos la inscripción a los ingresos de ese mes
+
+						if (mesIndex === currentMonthIndex) {
+							inscripcionesMesActual += 1;
+							ingresosMesActual += costoInscripcion;
+						}
+					}
+				});
+
+				// 6. ACTUALIZAR ESTADOS
+				setMetrics({
+					totalAlumnos: alumnosCount,
+					cursosActivos: cursosCount,
+					ingresosMes: ingresosMesActual,
+					nuevasInscripcionesMes: inscripcionesMesActual,
+				});
+
+				// Opcional: Filtrar el gráfico para mostrar solo hasta el mes actual, o todos los meses
+				// Por ahora dejamos los 12 meses fijos para que el gráfico quede visualmente completo
+				setChartData(yearData);
+			} catch (error) {
+				console.error("Error cargando métricas del dashboard:", error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchDashboardData();
+	}, []);
+
+	if (isLoading) {
+		return (
+			<div className="flex h-[70vh] items-center justify-center">
+				<Loader2 className="w-10 h-10 animate-spin text-[#252d62]" />
+			</div>
+		);
+	}
+
 	return (
 		<>
-			{/* Metrics Grid */}
 			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
 				<MetricsCard
 					icon={Users}
 					label="Total Alumnos Activos"
-					value="450"
-					trend="+12% vs mes anterior"
+					value={metrics.totalAlumnos.toString()}
+					trend="En todos los cursos"
 				/>
 				<MetricsCard
 					icon={UserPlus}
 					label="Nuevas Inscripciones del Mes"
-					value="+25"
-					trend="+8% vs mes anterior"
+					value={`+${metrics.nuevasInscripcionesMes}`}
+					trend="Alta de nuevos alumnos"
 				/>
 				<MetricsCard
 					icon={DollarSign}
 					label="Ingresos Mensuales"
-					value="$12,500"
-					trend="+15% vs mes anterior"
+					value={`$${metrics.ingresosMes.toLocaleString("es-AR")}`}
+					trend="Cuotas + Inscripciones"
 				/>
 				<MetricsCard
 					icon={BookOpen}
 					label="Cursos Activos"
-					value="18"
-					trend="3 nuevos este mes"
+					value={metrics.cursosActivos.toString()}
+					trend="Catálogo habilitado"
 				/>
 			</div>
 
@@ -69,10 +213,10 @@ export default function AdminDashboardPage() {
 					className="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
 				>
 					<h3 className="text-lg font-bold text-[#252d62] mb-6">
-						Inscripciones por Mes
+						Inscripciones del Año
 					</h3>
 					<ResponsiveContainer width="100%" height={300}>
-						<BarChart data={enrollmentData}>
+						<BarChart data={chartData}>
 							<CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
 							<XAxis
 								dataKey="mes"
@@ -110,10 +254,10 @@ export default function AdminDashboardPage() {
 					className="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
 				>
 					<h3 className="text-lg font-bold text-[#252d62] mb-6">
-						Ingresos Mensuales (ARS)
+						Ingresos Anuales Brutos (ARS)
 					</h3>
 					<ResponsiveContainer width="100%" height={300}>
-						<LineChart data={enrollmentData}>
+						<LineChart data={chartData}>
 							<CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
 							<XAxis
 								dataKey="mes"
@@ -150,7 +294,6 @@ export default function AdminDashboardPage() {
 				</motion.div>
 			</div>
 
-			{/* Inscriptions Table (Placeholder) */}
 			<InscriptionsTable />
 		</>
 	);
