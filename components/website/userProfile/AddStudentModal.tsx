@@ -9,6 +9,7 @@ import {
 	addDoc,
 	doc,
 	updateDoc,
+	arrayUnion, // <-- NUEVA IMPORTACIÓN VITAL
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { useAuth } from "@/context/AuthContext";
@@ -83,11 +84,9 @@ export default function AddStudentModal({
 		setIsSubmitting(true);
 
 		try {
-			// --- LA NUEVA DOBLE VALIDACIÓN BARRERA ---
 			const usersRef = collection(db, "Users");
 			const hijosRef = collection(db, "Hijos");
 
-			// A. Verificar si el DNI ya existe en la colección de Users (Como titular)
 			const userDniQuery = query(usersRef, where("dni", "==", formData.dni));
 			const userDniSnapshot = await getDocs(userDniQuery);
 
@@ -99,7 +98,6 @@ export default function AddStudentModal({
 				return;
 			}
 
-			// B. Verificar si el DNI ya existe en la colección de Hijos (Como alumno a cargo de alguien)
 			const hijoDniQuery = query(hijosRef, where("dni", "==", formData.dni));
 			const hijoDniSnapshot = await getDocs(hijoDniQuery);
 
@@ -110,10 +108,9 @@ export default function AddStudentModal({
 				setIsSubmitting(false);
 				return;
 			}
-			// -----------------------------------------
 
-			// 3. Crear el nuevo documento en la colección Hijos
-			await addDoc(hijosRef, {
+			// 2. CREAMOS EL HIJO Y GUARDAMOS SU REFERENCIA (PARA EXTRAER EL ID)
+			const nuevoHijoRef = await addDoc(hijosRef, {
 				tutorId: user.uid,
 				nombre: formData.nombre,
 				apellido: formData.apellido,
@@ -122,15 +119,24 @@ export default function AddStudentModal({
 				cursos: [],
 			});
 
-			// 4. Si el padre no era tutor, lo actualizamos
+			// 3. ACTUALIZAMOS AL PADRE (Inyectando el nuevo ID)
+			const userDocRef = doc(db, "Users", user.uid);
+
+			// Armamos un objeto con los datos a actualizar
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const updateData: any = {
+				hijos: arrayUnion(nuevoHijoRef.id), // Inyecta el ID generado por Firebase en el array
+			};
+
+			// Si el padre no era tutor previamente, le actualizamos el estado
 			if (!userData.isTutor) {
-				const userDocRef = doc(db, "Users", user.uid);
-				await updateDoc(userDocRef, {
-					isTutor: true,
-				});
+				updateData.isTutor = true;
 			}
 
-			// Limpiamos el formulario y cerramos
+			// Mandamos la actualización a Firestore en una sola operación atómica
+			await updateDoc(userDocRef, updateData);
+
+			// 4. LIMPIAMOS ESTADOS Y CERRAMOS
 			setFormData({
 				nombre: "",
 				apellido: "",
@@ -139,6 +145,9 @@ export default function AddStudentModal({
 				cursos: [],
 			});
 			onClose();
+
+			// TIP PRO: Si usas un onSnapshot en tu AuthContext, el perfil se actualizará solo.
+			// Si no, quizás necesites hacer un reload() o disparar un fetch manual aquí.
 		} catch (error) {
 			console.error("Error al guardar alumno:", error);
 			setErrorMsg("Ocurrió un error al guardar el alumno. Inténtalo de nuevo.");

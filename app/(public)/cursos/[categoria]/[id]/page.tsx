@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 
-// Assets
 import weekIcon from "@/assets/cursoDetails/icon_semanas.png";
 import lessonsIcon from "@/assets/cursoDetails/icon_frecuencia.png";
 import bannerFallback from "@/assets/cursoDetails/banner_cursos.png";
@@ -12,10 +11,35 @@ import ConfirmInscription from "@/components/website/cursos/ConfirmInscription";
 import { CursoObject } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
-// --- FIRESTORE IMPORTS ---
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
-import { Loader2 } from "lucide-react";
+// Importamos el ícono User para el nuevo modal
+import { Loader2, User } from "lucide-react";
+
+const NOMBRES_MESES = [
+	"Enero",
+	"Febrero",
+	"Marzo",
+	"Abril",
+	"Mayo",
+	"Junio",
+	"Julio",
+	"Agosto",
+	"Septiembre",
+	"Octubre",
+	"Noviembre",
+	"Diciembre",
+];
+
+const getNombreMes = (
+	mes: string | number | undefined,
+	fallback: string,
+): string => {
+	if (typeof mes === "number" && mes >= 1 && mes <= 12) {
+		return NOMBRES_MESES[mes - 1];
+	}
+	return typeof mes === "string" ? mes : fallback;
+};
 
 const DurationInfo = ({
 	duracion,
@@ -58,7 +82,12 @@ function CursoDetailsPage() {
 
 	const [curso, setCurso] = useState<CursoObject | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
+
+	// Estado para el modal de inscripción normal (usuario logueado)
 	const [isModalOpen, setIsModalOpen] = useState(false);
+
+	// NUEVO: Estado para el modal de advertencia de autenticación (usuario NO logueado)
+	const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
 	const urlCategoria = params.categoria as string;
 	const urlId = params.id as string;
@@ -74,22 +103,17 @@ function CursoDetailsPage() {
 				if (docSnap.exists()) {
 					const data = docSnap.data();
 
-					// Calculamos cantidad de clases semanales contando las llaves del objeto horarios
 					let cantClases = 0;
 					if (data.horarios) {
-						// Si el horario dice "A definir", lo contamos como 0 o 1
 						if (Object.keys(data.horarios)[0] === "A definir") {
-							cantClases = 2; // Default fallback
+							cantClases = 2;
 						} else {
 							cantClases = Object.keys(data.horarios).length;
 						}
 					}
 
-					// --- LÓGICA PARA SEPARAR PÁRRAFOS ---
 					let descripcionArray = ["Sin descripción disponible."];
 					if (data.descripcion) {
-						// Dividimos el string gigante cada vez que detecta un enter (\n)
-						// Usamos .filter() para quitar líneas vacías por si el usuario dio muchos "enters"
 						descripcionArray = (data.descripcion as string)
 							.split("\n")
 							.filter((parrafo) => parrafo.trim() !== "");
@@ -98,13 +122,13 @@ function CursoDetailsPage() {
 					const cursoData: CursoObject = {
 						id: docSnap.id,
 						nombre: data.nombre || "Curso sin nombre",
-						descripcion: descripcionArray, // Asignamos nuestro nuevo array formateado
+						descripcion: descripcionArray,
 						duracion: "Anual",
 						clasesSemanales: cantClases > 0 ? cantClases : 2,
 						inscripcion: data.inscripcion,
 						cuota: data.cuota,
-						inicio: data.inicio,
-						fin: data.fin,
+						inicio: getNombreMes(data.inicioMes || data.inicio, "Marzo"),
+						fin: getNombreMes(data.finMes || data.fin, "Diciembre"),
 						categoria: data.categoria || urlCategoria,
 						horarios: data.horarios
 							? Object.entries(data.horarios).map(([dia, hora]) => ({
@@ -112,7 +136,6 @@ function CursoDetailsPage() {
 									hora: hora as string,
 								}))
 							: [{ dia: "A definir", hora: "" }],
-						// Pasamos la URL correcta de la base de datos (o el fallback)
 						imgURL: bannerFallback.src,
 					};
 
@@ -172,7 +195,7 @@ function CursoDetailsPage() {
 				<div
 					className="w-[90%] h-[248px] bg-cover bg-center rounded-b-[45px] flex flex-col lg:flex-row justify-center lg:justify-start items-center lg:pl-14 gap-4 shadow-sm relative overflow-hidden"
 					style={{
-						backgroundImage: `url(${curso.imgURL || bannerFallback.src})`,
+						backgroundImage: `url(${curso.imgURL})`,
 					}}
 				>
 					<div className="absolute inset-0 bg-black/40 z-0"></div>
@@ -213,7 +236,6 @@ function CursoDetailsPage() {
 				</div>
 
 				<div className="w-[90%] max-w-7xl flex flex-col lg:flex-row justify-center items-start pt-12 gap-10 lg:gap-20">
-					{/* AQUÍ SE RENDERIZA EL ARRAY DE PÁRRAFOS */}
 					<div className="w-full lg:w-[65%] flex flex-col gap-6 text-[#252d62] text-xl lg:text-[24px] leading-relaxed text-justify lg:text-left">
 						{curso.descripcion.map((parrafo, index) => (
 							<p key={index}>{parrafo}</p>
@@ -223,11 +245,11 @@ function CursoDetailsPage() {
 					<aside className="w-full lg:w-[35%] lg:sticky lg:top-36 flex flex-col items-center">
 						<div className="bg-[#f1f1f1] w-full p-8 rounded-[20px] flex flex-col gap-6 items-center text-[#252d62] shadow-lg border border-gray-200">
 							<h2 className="text-5xl font-bold">
-								${curso.cuota.toLocaleString("es-AR")}
+								${curso.inscripcion.toLocaleString("es-AR")}
 							</h2>
 
 							<p className="text-gray-500 font-medium -mt-4 text-sm text-center">
-								Valor de cuota mensual
+								Valor de la inscripción
 							</p>
 
 							<button
@@ -235,7 +257,8 @@ function CursoDetailsPage() {
 									if (userData) {
 										setIsModalOpen(true);
 									} else {
-										router.push("/iniciar-sesion");
+										// NUEVA LÓGICA: Si no hay usuario, abrimos el nuevo modal en vez de redirigir directo
+										setIsAuthModalOpen(true);
 									}
 								}}
 								className="bg-[#EE1120] hover:bg-[#DD1120] cursor-pointer text-white text-2xl lg:text-[32px] py-3 px-8 rounded-full w-full text-center transition-colors shadow-md mt-2"
@@ -267,13 +290,58 @@ function CursoDetailsPage() {
 				</div>
 			</section>
 
-			{/* Modal */}
+			{/* Modal Normal (Usuario Logueado) */}
 			{isModalOpen && (
 				<ConfirmInscription
 					curso={curso}
 					setIsModalOpen={setIsModalOpen}
 					handleConfirmEnrollment={handleConfirmEnrollment}
 				/>
+			)}
+
+			{/* NUEVO: Modal de Autenticación (Usuario No Logueado) */}
+			{isAuthModalOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity">
+					<div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+						<div className="p-8 text-center space-y-5">
+							<div className="w-20 h-20 bg-blue-50 text-[#252d62] rounded-full flex items-center justify-center mx-auto shadow-inner">
+								<User className="w-10 h-10" />
+							</div>
+							<div>
+								<h3 className="text-2xl font-bold text-[#252d62] mb-2">
+									¡Hola!
+								</h3>
+								<p className="text-gray-500 leading-relaxed">
+									Para inscribirte en <strong>{curso.nombre}</strong> necesitas
+									acceder a tu cuenta de English Empire.
+								</p>
+							</div>
+						</div>
+
+						<div className="p-6 bg-gray-50 flex flex-col gap-3 border-t border-gray-100">
+							<button
+								onClick={() => router.push("/iniciar-sesion")}
+								className="w-full bg-[#252d62] hover:bg-[#1a2046] text-white font-bold py-3.5 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98]"
+							>
+								Ya tengo cuenta (Iniciar Sesión)
+							</button>
+
+							<button
+								onClick={() => router.push("/registrarse")}
+								className="w-full bg-white border-2 border-[#252d62] text-[#252d62] hover:bg-blue-50 font-bold py-3.5 rounded-xl transition-all active:scale-[0.98]"
+							>
+								Crear una cuenta nueva
+							</button>
+
+							<button
+								onClick={() => setIsAuthModalOpen(false)}
+								className="w-full text-gray-500 hover:text-gray-800 font-semibold py-2 mt-2 transition-colors"
+							>
+								Cancelar
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 		</>
 	);

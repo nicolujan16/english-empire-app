@@ -26,8 +26,8 @@ export default function Header() {
 	};
 
 	return (
-		<div className="mb-[115px]">
-			<header className="fixed top-0 left-0 w-full h-[115px] z-50">
+		<div className="mb-[100px]">
+			<header className="fixed top-0 left-0 w-full h-[100px] z-50">
 				<nav className="bg-[#f1f1f1] w-full h-full flex justify-between items-center px-3 lg:px-9 shadow-sm">
 					{/* LOGO */}
 					<Link
@@ -66,7 +66,7 @@ export default function Header() {
           /* Estilos MÓVIL */
           ${
 						isMenuOpen
-							? "flex flex-col fixed top-[115px] right-0 w-[314px] max-w-full h-[calc(100vh-115px)] bg-[#f1f1f1] overflow-y-auto z-50 items-start justify-start p-4 gap-6 shadow-xl border-t border-gray-200"
+							? "flex flex-col fixed top-[100px] right-0 w-[314px] max-w-full h-[calc(100vh-100px)] bg-[#f1f1f1] overflow-y-auto z-50 items-start justify-start p-4 gap-6 shadow-xl border-t border-gray-200"
 							: "hidden"
 					}
         `}
@@ -81,9 +81,9 @@ export default function Header() {
 						<NavItem href="/nosotros" onClick={handleLinkClick}>
 							Nosotros
 						</NavItem>
-						<NavItem href="/postulate" onClick={handleLinkClick}>
+						{/* <NavItem href="/postulate" onClick={handleLinkClick}>
 							Trabaja con nosotros
-						</NavItem>
+						</NavItem> */}
 						<NavItem href="/contacto" onClick={handleLinkClick}>
 							Contacto
 						</NavItem>

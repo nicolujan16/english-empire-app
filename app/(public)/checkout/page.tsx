@@ -37,7 +37,6 @@ function CheckoutContent() {
 		message: "",
 	});
 
-	// 1. CORRECCIÓN: Nombres exactos de la URL
 	const cursoId = searchParams.get("curso");
 	const alumnoDni = searchParams.get("alumnoDNI");
 
@@ -184,17 +183,48 @@ function CheckoutContent() {
 	}, [alumnoDni, user, userData, authLoading]);
 
 	const handlePayment = async () => {
-		if (courseInfo.price === 0) return;
+		if (courseInfo.price === 0 || !user || !cursoId || !alumnoDni) return;
 
 		setIsProcessing(true);
-		setModalMessage("Generando link de pago...");
-		await new Promise((resolve) => setTimeout(resolve, 2000));
+		setModalMessage("Validando inscripción y preparando pago...");
 
-		setModalMessage("Redirigiendo a Mercado Pago...");
-		await new Promise((resolve) => setTimeout(resolve, 1500));
+		try {
+			const response = await fetch("/api/checkout", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					userId: user.uid,
+					alumnoDni: alumnoDni,
+					cursoId: cursoId,
+				}),
+			});
 
-		setIsProcessing(false);
-		router.push("/mi-cuenta");
+			const data = await response.json();
+
+			if (!response.ok) {
+				setIsProcessing(false);
+				setErrorState({
+					show: true,
+					message: data.error || "Ocurrió un error al procesar tu solicitud.",
+				});
+				return;
+			}
+
+			setModalMessage("Redirigiendo a Mercado Pago...");
+
+			setTimeout(() => {
+				window.location.href = data.init_point;
+				setIsProcessing(false);
+			}, 1500);
+		} catch (error) {
+			console.error("Error al conectar con la API de checkout:", error);
+			setIsProcessing(false);
+			setErrorState({
+				show: true,
+				message:
+					"Hubo un problema de conexión con el servidor. Inténtalo más tarde.",
+			});
+		}
 	};
 
 	// 3. CORRECCIÓN: Invertimos el orden. El error tiene máxima prioridad visual.

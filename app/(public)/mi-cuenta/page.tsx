@@ -6,7 +6,7 @@ import CoursesList from "@/components/website/userProfile/CoursesList";
 import StudentsList from "@/components/website/userProfile/StudentsList";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button"; // Asegurate de la ruta correcta
 import LogoutButton from "@/components/website/userProfile/LogoutButton";
 import { StudentDetails } from "@/types";
 
@@ -21,7 +21,6 @@ function UserDashboardPage() {
 		}
 	}, [user, router, isLoading]);
 
-	// Si esta cargando, retornamos el esqueleto de la pagina
 	if (isLoading || user === null) {
 		return (
 			<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
@@ -40,6 +39,11 @@ function UserDashboardPage() {
 			</div>
 		);
 	}
+
+	const numHijos = userData?.hijos?.length || 0;
+	const numCursos = userData?.cursos?.length || 0;
+
+	const showHijosFirst = numHijos > numCursos;
 
 	return (
 		<>
@@ -71,13 +75,28 @@ function UserDashboardPage() {
 							<LogoutButton />
 						</div>
 					</div>
+
 					<UserProfile isLoading={isLoading} user={userData} />
 
-					{userData && <CoursesList cursos={userData.cursos} />}
-
-					{userData && (
-						<StudentsList students={userData.hijos as StudentDetails[]} />
-					)}
+					{/* RENDERIZADO CONDICIONAL SEGÚN CANTIDADES */}
+					{userData &&
+						(showHijosFirst ? (
+							<>
+								<StudentsList students={userData.hijos as StudentDetails[]} />
+								<CoursesList
+									cursos={userData.cursos as string[]}
+									cuotasPagadas={userData.cuotasPagadas}
+								/>
+							</>
+						) : (
+							<>
+								<StudentsList students={userData.hijos as StudentDetails[]} />
+								<CoursesList
+									cursos={userData.cursos as string[]}
+									cuotasPagadas={userData.cuotasPagadas}
+								/>
+							</>
+						))}
 				</div>
 			</div>
 		</>

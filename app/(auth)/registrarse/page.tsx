@@ -6,9 +6,19 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
+// --- NUEVO: Importamos los íconos del ojito ---
+import { Eye, EyeOff } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
-import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
+import {
+	collection,
+	query,
+	where,
+	getDocs,
+	addDoc,
+	updateDoc,
+	doc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
 interface HijoForm {
@@ -56,6 +66,9 @@ export default function RegisterPage() {
 
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [errorMsg, setErrorMsg] = useState<string>("");
+
+	// --- NUEVO: Estado para alternar la visibilidad de la contraseña ---
+	const [showPassword, setShowPassword] = useState<boolean>(false);
 
 	const calcularEdad = (fecha: string): number | string => {
 		if (!fecha) return "";
@@ -223,7 +236,7 @@ export default function RegisterPage() {
 					fechaNacimiento: form.fechaNacimiento,
 					edadTitular: edadPadre,
 					isTutor: form.isTutor,
-					hijos: [], // ¡VACÍO!
+					hijos: [],
 					cursos: [],
 					telefono: form.telefono,
 				},
@@ -231,16 +244,25 @@ export default function RegisterPage() {
 
 			if (form.isTutor && form.hijos.length > 0) {
 				const nuevoPadreUid = userCredential.user.uid;
+				const idsHijosCreados: string[] = [];
+
 				for (const hijo of form.hijos) {
-					await addDoc(hijosRef, {
+					const nuevoHijoRef = await addDoc(hijosRef, {
 						tutorId: nuevoPadreUid,
 						nombre: hijo.nombre,
 						apellido: hijo.apellido,
 						dni: hijo.dni,
 						fechaNacimiento: hijo.fechaNacimiento,
-						cursos: [], // Arranca sin cursos
+						cursos: [],
 					});
+
+					idsHijosCreados.push(nuevoHijoRef.id);
 				}
+
+				const padreDocRef = doc(db, "Users", nuevoPadreUid);
+				await updateDoc(padreDocRef, {
+					hijos: idsHijosCreados,
+				});
 			}
 
 			router.push("/mi-cuenta");
@@ -521,16 +543,27 @@ export default function RegisterPage() {
 					<label htmlFor="password" className="font-bold text-gray-700 text-sm">
 						Contraseña
 					</label>
-					<input
-						type="password"
-						id="password"
-						required
-						minLength={6}
-						value={form.password}
-						onChange={handleInputChange}
-						placeholder="Mínimo 6 caracteres"
-						className={inputStyles}
-					/>
+					{/* --- NUEVO: Contenedor relative para el input y el ojito --- */}
+					<div className="relative">
+						<input
+							type={showPassword ? "text" : "password"}
+							id="password"
+							required
+							minLength={6}
+							value={form.password}
+							onChange={handleInputChange}
+							placeholder="Mínimo 6 caracteres"
+							// Agregamos pr-10 para que el texto no se pise con el ícono
+							className={`${inputStyles} pr-10`}
+						/>
+						<button
+							type="button"
+							onClick={() => setShowPassword(!showPassword)}
+							className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#252d62] focus:outline-none transition-colors"
+						>
+							{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+						</button>
+					</div>
 				</div>
 
 				{errorMsg && (

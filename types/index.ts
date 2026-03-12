@@ -42,7 +42,8 @@ export interface UserFirestoreData {
 	edadTitular: number | string;
 	isTutor: boolean;
 	hijos: StudentDetails[];
-	cursos: CursoInscripto[];
+	cuotasPagadas?: Record<string, string[]>;
+	cursos: string[];
 	email?: string;
 	rol?: string;
 	fechaRegistro?: Date | Timestamp | string;
@@ -81,5 +82,5 @@ export interface StudentDetails {
 	apellido: string;
 	dni: string;
 	fechaNacimiento: string;
-	cursos: CursoInscripto[];
+	cursos: string[];
 }

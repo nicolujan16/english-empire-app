@@ -6,15 +6,15 @@ export function MainBanner({ children }: { children: React.ReactNode }) {
 			className="
         /* Layout y Posicionamiento */
         relative flex flex-col justify-center items-center 
-        w-[90%] min-h-[14rem] mx-auto 
-        p-14 /* 3.5rem = 14 en Tailwind (14 * 0.25rem) */
+        w-[90%] min-h-[10rem] mx-auto 
+        p-14 
         
         /* Estilos Visuales */
         bg-[#252653] 
         rounded-b-[40px]
         
         /* Tipografía Base */
-        text-white text-[3rem] /* 3rem fijo como tenías */
+        text-white text-[3rem]
       "
 		>
 			{/* TEXTO DEL BANNER */}

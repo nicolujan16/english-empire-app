@@ -60,14 +60,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 		const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
 			if (firebaseUser) {
-				setUser(firebaseUser);
-
 				const docRef = doc(db, "Users", firebaseUser.uid);
 
 				unsubscribeUserSnapshot = onSnapshot(
 					docRef,
 					(docSnap) => {
 						if (docSnap.exists()) {
+							setUser(firebaseUser);
 							const baseUserData = docSnap.data() as UserFirestoreData;
 
 							if (!baseUserData.isTutor) {
@@ -77,7 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 								if (unsubscribeHijosSnapshot) unsubscribeHijosSnapshot();
 
 								const hijosRef = collection(db, "Hijos");
-								// Buscamos todos los hijos cuyo 'tutorId' coincida con el usuario actual
 								const q = query(
 									hijosRef,
 									where("tutorId", "==", firebaseUser.uid),
@@ -102,15 +100,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 								});
 							}
 						} else {
-							console.warn(
-								"El usuario está en Auth pero no tiene documento en Firestore.",
-							);
+							setUser(null);
 							setUserData(null);
 							setIsLoading(false);
 						}
 					},
 					(error) => {
 						console.error("Error al escuchar los datos de Firestore:", error);
+						setUser(null);
 						setUserData(null);
 						setIsLoading(false);
 					},

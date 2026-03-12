@@ -4,6 +4,7 @@ import { useState, ChangeEvent, SyntheticEvent, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { Eye, EyeOff } from "lucide-react";
 
 interface LoginForm {
 	email: string;
@@ -16,7 +17,6 @@ export default function LoginPage() {
 	const { user, login } = useAuth();
 
 	useEffect(() => {
-		// Si el usuario ya está autenticado, redirigimos a su panel
 		if (user) {
 			router.push("/mi-cuenta");
 		}
@@ -25,14 +25,15 @@ export default function LoginPage() {
 	const [form, setForm] = useState<LoginForm>({
 		email: "",
 		password: "",
-		rememberMe: true, // Por defecto, mantenemos la sesión iniciada
+		rememberMe: true,
 	});
 
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [errorMsg, setErrorMsg] = useState<string>("");
 
+	const [showPassword, setShowPassword] = useState(false);
+
 	const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-		// Manejamos el caso especial del checkbox
 		const value =
 			e.target.type === "checkbox" ? e.target.checked : e.target.value;
 
@@ -106,15 +107,32 @@ export default function LoginPage() {
 					<label htmlFor="password" className="font-bold text-gray-700 text-sm">
 						Contraseña
 					</label>
-					<input
-						type="password"
-						id="password"
-						required
-						value={form.password}
-						onChange={handleInputChange}
-						placeholder="••••••••"
-						className="w-full h-11 px-4 text-base text-gray-900 placeholder:text-gray-400 bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
-					/>
+					<div className="relative">
+						<input
+							type={showPassword ? "text" : "password"}
+							id="password"
+							required
+							value={form.password}
+							onChange={handleInputChange}
+							placeholder="••••••••"
+							className="w-full h-11 pl-4 pr-12 text-base text-gray-900 placeholder:text-gray-400 bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
+						/>
+						{/* --- BOTÓN DEL OJITO --- */}
+						<button
+							type="button"
+							onClick={() => setShowPassword(!showPassword)}
+							className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#1d2355]/20"
+							aria-label={
+								showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+							}
+						>
+							{showPassword ? (
+								<EyeOff className="w-5 h-5" />
+							) : (
+								<Eye className="w-5 h-5" />
+							)}
+						</button>
+					</div>
 				</div>
 
 				{/* Fila: Mantener Sesión y Recuperar Contraseña */}
@@ -133,7 +151,7 @@ export default function LoginPage() {
 					</label>
 
 					<Link
-						href="/recuperar-password"
+						href="/recuperar-clave"
 						className="text-xs text-[#252d62] hover:underline font-medium"
 					>
 						¿Olvidaste tu clave?

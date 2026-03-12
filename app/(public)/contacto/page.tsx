@@ -1,234 +1,117 @@
 "use client";
 
-import { useState } from "react";
 import { MainBanner } from "@/components/website/common/MainBanner";
-import { Facebook, Instagram, MessageCircle } from "lucide-react";
-
-// Importamos Firebase (Comentado o eliminado según pediste)
-// import { addDoc, collection, getFirestore } from 'firebase/firestore'
-
-interface ConsultaForm {
-	nombre: string;
-	apellido: string;
-	email: string;
-	telefono: string;
-	consulta: string;
-}
+import { Facebook, Instagram, MessageCircle, MapPin, Mail } from "lucide-react";
 
 export default function ContactPage() {
-	const [form, setForm] = useState<ConsultaForm>({
-		nombre: "",
-		apellido: "",
-		email: "",
-		telefono: "",
-		consulta: "",
-	});
-
-	const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-
-	const handleInputChange = (
-		e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-	) => {
-		setForm({
-			...form,
-			[e.target.id]: e.target.value,
-		});
-	};
-
-	const submitConsulta = async (e: React.FormEvent<HTMLFormElement>) => {
-		e.preventDefault();
-		setIsSubmitting(true);
-
-		// SIMULACIÓN (Mock)
-		console.log("Enviando consulta...", form);
-		setTimeout(() => {
-			alert("Consulta cargada exitosamente (Modo Prueba)");
-			setIsSubmitting(false);
-			setForm({
-				nombre: "",
-				apellido: "",
-				email: "",
-				telefono: "",
-				consulta: "",
-			});
-		}, 1500);
-
-		/* --- LÓGICA FIREBASE FUTURA ---
-    try {
-      const db = getFirestore()
-      await addDoc(collection(db, 'Consultas'), form)
-      alert('Consulta cargada existosamente')
-      // Redirigir o limpiar
-    } catch (err) {
-      alert('Ha ocurrido un error, intente nuevamente!')
-    }
-    ------------------------------- */
-	};
-
 	return (
-		// Padding top compensa el Header fijo del Layout
-		<div className="flex flex-col gap-10 pb-16">
+		<div className="flex flex-col pb-24 bg-gray-50 min-h-screen">
 			<MainBanner>Contacto</MainBanner>
 
-			{/* SECCIÓN INFORMACIÓN Y REDES */}
-			<div className="w-[90%] md:w-[80%] mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-8 text-[#252D52]">
-				{/* Texto Izquierda */}
-				<div className="flex flex-col gap-2 text-xl md:text-2xl">
-					<p>¿Tenés alguna duda?</p>
-					<p className="font-bold text-3xl">¡Nosotros te podemos ayudar!</p>
-				</div>
-
-				{/* Redes Derecha */}
-				<div className="flex flex-col gap-4">
-					<p className="text-xl md:text-2xl font-medium">
-						¡Usa nuestras redes para comunicarte!
+			<div className="w-[90%] md:w-[80%] max-w-6xl mx-auto mt-10 flex flex-col gap-6">
+				{/* ENCABEZADO */}
+				<div className="text-center flex flex-col gap-4">
+					<h2 className="text-[#EE1120] font-bold tracking-widest uppercase text-sm md:text-base">
+						Estamos para ayudarte
+					</h2>
+					<p className="font-extrabold text-3xl md:text-5xl text-[#252d62]">
+						¿Tenés alguna duda?
 					</p>
-					<div className="flex gap-8 text-4xl text-[#252D52]">
-						<a
-							target="_blank"
-							rel="noreferrer"
-							href="https://www.facebook.com/englishempirelr"
-							className="hover:text-[#1877F2] hover:scale-110 transition-all"
-						>
-							<Facebook />
-						</a>
-						<a
-							target="_blank"
-							rel="noreferrer"
-							href="https://www.instagram.com/englishempirelr/"
-							className="hover:text-[#E4405F] hover:scale-110 transition-all"
-						>
-							<Instagram />
-						</a>
-						<a
-							target="_blank"
-							rel="noreferrer"
-							href="https://wa.me/3804259004"
-							className="hover:text-[#25D366] hover:scale-110 transition-all"
-						>
-							<MessageCircle />
-						</a>
+					<p className="text-gray-500 text-lg md:text-xl max-w-2xl mx-auto">
+						Elegí el canal que te resulte más cómodo. Nuestro equipo te
+						responderá a la brevedad para asesorarte en lo que necesites.
+					</p>
+				</div>
+
+				{/* TARJETAS DE CONTACTO */}
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 mt-4">
+					{/* WhatsApp */}
+					<a
+						target="_blank"
+						rel="noreferrer"
+						href="https://wa.me/3804259004"
+						className="group flex flex-col items-center text-center p-10 bg-white rounded-3xl shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 hover:-translate-y-2"
+					>
+						<div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-[#25D366] transition-colors duration-300">
+							<MessageCircle className="w-10 h-10 text-[#25D366] group-hover:text-white transition-colors" />
+						</div>
+						<h3 className="text-2xl font-bold text-[#252d62] mb-2">WhatsApp</h3>
+						<p className="text-gray-500 mb-6">
+							Respuestas rápidas para consultas sobre inscripciones y horarios.
+						</p>
+						<span className="text-[#25D366] font-bold group-hover:underline">
+							Escribinos ahora &rarr;
+						</span>
+					</a>
+
+					{/* Instagram */}
+					<a
+						target="_blank"
+						rel="noreferrer"
+						href="https://www.instagram.com/englishempirelr/"
+						className="group flex flex-col items-center text-center p-10 bg-white rounded-3xl shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 hover:-translate-y-2"
+					>
+						<div className="w-20 h-20 bg-pink-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-gradient-to-tr group-hover:from-[#FD1D1D] group-hover:to-[#833AB4] transition-all duration-300">
+							<Instagram className="w-10 h-10 text-[#E4405F] group-hover:text-white transition-colors" />
+						</div>
+						<h3 className="text-2xl font-bold text-[#252d62] mb-2">
+							Instagram
+						</h3>
+						<p className="text-gray-500 mb-6">
+							Enterate de todas nuestras novedades, eventos y la vida en el
+							instituto.
+						</p>
+						<span className="text-[#E4405F] font-bold group-hover:underline">
+							Seguinos &rarr;
+						</span>
+					</a>
+
+					{/* Facebook */}
+					<a
+						target="_blank"
+						rel="noreferrer"
+						href="https://www.facebook.com/englishempirelr"
+						className="group flex flex-col items-center text-center p-10 bg-white rounded-3xl shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 hover:-translate-y-2"
+					>
+						<div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-[#1877F2] transition-colors duration-300">
+							<Facebook className="w-10 h-10 text-[#1877F2] group-hover:text-white transition-colors" />
+						</div>
+						<h3 className="text-2xl font-bold text-[#252d62] mb-2">Facebook</h3>
+						<p className="text-gray-500 mb-6">
+							Sumate a nuestra comunidad para ver fotos y comunicados oficiales.
+						</p>
+						<span className="text-[#1877F2] font-bold group-hover:underline">
+							Visitar perfil &rarr;
+						</span>
+					</a>
+				</div>
+
+				{/* INFO ADICIONAL (Opcional, pero queda muy bien) */}
+				<div className="mt-8 bg-white p-4 md:p-12 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-center gap-10 md:gap-20">
+					<div className="flex items-center gap-4 text-[#252d62]">
+						<div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+							<MapPin className="w-6 h-6 text-[#EE1120]" />
+						</div>
+						<div>
+							<p className="font-bold text-lg">Visitanos en</p>
+							<p className="text-gray-600">
+								Padre Caamaño 716, La Rioja, Argentina 5600
+							</p>
+						</div>
+					</div>
+
+					<div className="hidden md:block w-px h-16 bg-gray-200"></div>
+
+					<div className="flex items-center gap-4 text-[#252d62]">
+						<div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+							<Mail className="w-6 h-6 text-[#EE1120]" />
+						</div>
+						<div>
+							<p className="font-bold text-lg">Envíanos un correo</p>
+							<p className="text-gray-600">englishempirelr@gmail.com</p>
+						</div>
 					</div>
 				</div>
-			</div>
-
-			{/* FORMULARIO */}
-			<div className="w-full flex justify-center mt-4">
-				<form
-					onSubmit={submitConsulta}
-					className="w-[90%] md:w-[80%] max-w-5xl p-6 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-6 bg-white shadow-xl rounded-2xl border border-gray-100"
-				>
-					{/* Nombre */}
-					<div className="flex flex-col gap-2">
-						<label
-							htmlFor="nombre"
-							className="font-bold text-lg md:text-xl text-gray-700"
-						>
-							Nombre <span className="text-[#EE1120]">*</span>
-						</label>
-						<input
-							required
-							onChange={handleInputChange}
-							value={form.nombre}
-							type="text"
-							id="nombre"
-							className="w-full h-12 px-4 text-lg bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
-						/>
-					</div>
-
-					{/* Apellido */}
-					<div className="flex flex-col gap-2">
-						<label
-							htmlFor="apellido"
-							className="font-bold text-lg md:text-xl text-gray-700"
-						>
-							Apellido <span className="text-[#EE1120]">*</span>
-						</label>
-						<input
-							required
-							onChange={handleInputChange}
-							value={form.apellido}
-							type="text"
-							id="apellido"
-							className="w-full h-12 px-4 text-lg bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
-						/>
-					</div>
-
-					{/* Email */}
-					<div className="flex flex-col gap-2">
-						<label
-							htmlFor="email"
-							className="font-bold text-lg md:text-xl text-gray-700"
-						>
-							Email <span className="text-[#EE1120]">*</span>
-						</label>
-						<input
-							required
-							onChange={handleInputChange}
-							value={form.email}
-							type="email"
-							id="email"
-							className="w-full h-12 px-4 text-lg bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
-						/>
-					</div>
-
-					{/* Teléfono */}
-					<div className="flex flex-col gap-2">
-						<label
-							htmlFor="telefono"
-							className="font-bold text-lg md:text-xl text-gray-700"
-						>
-							Teléfono <span className="text-[#EE1120]">*</span>
-						</label>
-						<input
-							required
-							onChange={handleInputChange}
-							value={form.telefono}
-							type="number"
-							id="telefono"
-							inputMode="numeric"
-							className="w-full h-12 px-4 text-lg bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all"
-						/>
-					</div>
-
-					{/* Consulta (Ocupa 2 columnas en desktop) */}
-					<div className="flex flex-col gap-2 col-span-1 md:col-span-2">
-						<label
-							htmlFor="consulta"
-							className="font-bold text-lg md:text-xl text-gray-700"
-						>
-							Consulta <span className="text-[#EE1120]">*</span>
-						</label>
-						<textarea
-							minLength={10}
-							maxLength={240}
-							required
-							onChange={handleInputChange}
-							value={form.consulta}
-							name="consulta"
-							id="consulta"
-							rows={6}
-							className="w-full p-4 text-lg bg-[#f1f1f1] rounded-lg border border-transparent focus:border-[#1d2355] focus:bg-white focus:ring-2 focus:ring-[#1d2355]/20 outline-none transition-all resize-none"
-						></textarea>
-						<p className="text-right text-gray-400 text-sm">
-							{form.consulta.length}/240
-						</p>
-					</div>
-
-					{/* Botón */}
-					<div className="col-span-1 md:col-span-2 flex justify-center mt-4">
-						<button
-							disabled={isSubmitting}
-							className={`
-                bg-[#EE1120] text-white text-2xl font-bold py-3 px-12 rounded-full shadow-lg 
-                transition-all duration-300
-                ${isSubmitting ? "opacity-70 cursor-wait" : "hover:bg-[#b30000] hover:scale-105 active:scale-95"}
-              `}
-						>
-							{isSubmitting ? "Enviando..." : "Enviar"}
-						</button>
-					</div>
-				</form>
 			</div>
 		</div>
 	);
