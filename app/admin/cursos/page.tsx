@@ -70,6 +70,9 @@ export default function AdminCoursesPage() {
 						active: data.active !== undefined ? data.active : true,
 						inicio: data.inicio,
 						fin: data.fin,
+						cuota1a10: data.cuota1a10 || 0,
+						cuota11enAdelante: data.cuota11enAdelante || 0,
+						mesInicioCobro: data.mesInicioCobro,
 					});
 				});
 				setCourses(coursesData);
@@ -191,7 +194,7 @@ export default function AdminCoursesPage() {
 										</h3>
 
 										<span className="inline-block px-3 py-1 bg-blue-50 text-[#252d62] text-sm font-semibold rounded-full whitespace-nowrap">
-											Cuota: ${course.cuota.toLocaleString("es-AR")}
+											Cuota: ${course.cuota1a10.toLocaleString("es-AR")}
 										</span>
 									</div>
 

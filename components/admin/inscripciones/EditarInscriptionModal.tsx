@@ -1,9 +1,18 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Save, Loader2, AlertCircle } from "lucide-react";
+import { X, Save, Loader2, AlertCircle, CalendarClock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import {
+	collection,
+	addDoc,
+	getDocs,
+	query,
+	where,
+	serverTimestamp,
+} from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig";
 
 export type InscriptionStatus =
 	| "Confirmado"
@@ -12,28 +21,56 @@ export type InscriptionStatus =
 	| string;
 
 export interface Inscription {
-	id: string; // ID del documento en Firebase
+	id: string;
 	fecha: string;
 	alumnoNombre: string;
 	alumnoDni: string;
+	// ── Campos necesarios para crear la cuota ──────────────────────────────
+	alumnoId: string;
+	alumnoTipo: "adulto" | "menor";
+	cursoId: string;
 	cursoNombre: string;
+	// Snapshot de precios del curso (guardados al crear la inscripción)
+	cuota1a10: number;
+	cuota11enAdelante: number;
+	// ───────────────────────────────────────────────────────────────────────
 	cursoInscripcion: number;
 	status: InscriptionStatus;
-	paymentMethod?: string;
+	metodoPago?: string | null;
+	fechaPromesaPago?: string | null;
 }
 
 interface EditInscriptionModalProps {
 	isOpen: boolean;
 	onClose: () => void;
 	inscriptionToEdit: Inscription | null;
-	// NUEVO: Agregamos nuevoMetodoPago como parámetro a la función onSave
 	onSave: (
 		id: string,
 		nuevoEstado: InscriptionStatus,
 		nuevoMonto: number,
-		nuevoMetodoPago?: string,
+		nuevoMetodoPago?: string | null,
+		nuevaFechaPromesa?: string | null,
 	) => Promise<void>;
 }
+
+const getTomorrow = () => {
+	const tomorrow = new Date();
+	tomorrow.setDate(tomorrow.getDate() + 1);
+	return tomorrow.toISOString().split("T")[0];
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Misma lógica que en ManualInscriptionModal:
+//   · Día < 15  → cuota completa (cuota1a10)
+//   · Día >= 15 → 50% de cuota1a10
+// ─────────────────────────────────────────────────────────────────────────────
+const calcularMontoPrimerMes = (
+	fechaConfirmacion: Date,
+	cuota1a10: number,
+): number => {
+	const dia = fechaConfirmacion.getDate();
+	return dia >= 15 ? cuota1a10 * 0.5 : cuota1a10;
+};
 
 export default function EditInscriptionModal({
 	isOpen,
@@ -42,17 +79,18 @@ export default function EditInscriptionModal({
 	onSave,
 }: EditInscriptionModalProps) {
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [errorMsg, setErrorMsg] = useState(""); // NUEVO: Estado para errores de validación
+	const [errorMsg, setErrorMsg] = useState("");
 
-	// NUEVO: Agregamos paymentMethod al estado
 	const [formData, setFormData] = useState<{
 		status: InscriptionStatus;
 		monto: string;
-		paymentMethod: string;
+		metodoPago: string;
+		fechaPromesaPago: string;
 	}>({
 		status: "Pendiente",
 		monto: "",
-		paymentMethod: "",
+		metodoPago: "",
+		fechaPromesaPago: "",
 	});
 
 	useEffect(() => {
@@ -60,34 +98,138 @@ export default function EditInscriptionModal({
 			setFormData({
 				status: inscriptionToEdit.status,
 				monto: inscriptionToEdit.cursoInscripcion.toString(),
-				paymentMethod: inscriptionToEdit.paymentMethod || "", // Cargamos el dato si ya existía
+				metodoPago: inscriptionToEdit.metodoPago || "",
+				fechaPromesaPago: inscriptionToEdit.fechaPromesaPago || "",
 			});
-			setErrorMsg(""); // Limpiamos errores al abrir
+			setErrorMsg("");
 		}
 	}, [inscriptionToEdit, isOpen]);
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Crea la primera cuota cuando una inscripción pasa de Pendiente a
+	// Confirmado. Incluye una verificación de idempotencia: si ya existe
+	// una cuota con esPrimerMes=true para esta inscripción (ej: el secretario
+	// guardó dos veces por error), no se crea un duplicado.
+	// ─────────────────────────────────────────────────────────────────────────
+	const crearPrimeraCuota = async (inscripcion: Inscription) => {
+		// Verificación de idempotencia: no crear si ya existe
+		const cuotasRef = collection(db, "Cuotas");
+		const qExistente = query(
+			cuotasRef,
+			where("inscripcionId", "==", inscripcion.id),
+			where("esPrimerMes", "==", true),
+		);
+		const snap = await getDocs(qExistente);
+
+		if (!snap.empty) {
+			// Ya existe la primera cuota, no hacemos nada
+			console.warn(
+				`Primera cuota ya existente para inscripción ${inscripcion.id}. Se omite la creación.`,
+			);
+			return;
+		}
+
+		const hoy = new Date();
+		const montoPrimerMes = calcularMontoPrimerMes(hoy, inscripcion.cuota1a10);
+
+		const cuotaData = {
+			// Referencias
+			inscripcionId: inscripcion.id,
+			alumnoId: inscripcion.alumnoId,
+			alumnoTipo: inscripcion.alumnoTipo,
+			alumnoNombre: inscripcion.alumnoNombre,
+			alumnoDni: inscripcion.alumnoDni,
+			cursoId: inscripcion.cursoId,
+			cursoNombre: inscripcion.cursoNombre,
+
+			// Período
+			mes: hoy.getMonth() + 1,
+			anio: hoy.getFullYear(),
+
+			// Snapshot de precios al momento de confirmación
+			cuota1a10: inscripcion.cuota1a10,
+			cuota11enAdelante: inscripcion.cuota11enAdelante,
+
+			// Primer mes con monto pre-calculado
+			esPrimerMes: true,
+			montoPrimerMes,
+
+			// Estado inicial
+			estado: "Pendiente",
+			fechaPago: null,
+			montoPagado: null,
+			metodoPago: null,
+
+			creadoEn: serverTimestamp(),
+			actualizadoEn: serverTimestamp(),
+		};
+
+		await addDoc(cuotasRef, cuotaData);
+	};
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!inscriptionToEdit) return;
 		setErrorMsg("");
 
-		// VALIDACIÓN CRÍTICA CONTABLE
-		if (formData.status === "Confirmado" && !formData.paymentMethod) {
+		// Validación: si es confirmado, exige método de pago
+		if (formData.status === "Confirmado" && !formData.metodoPago) {
 			setErrorMsg(
 				"Debes seleccionar un método de pago para confirmar la inscripción.",
 			);
 			return;
 		}
 
+		// Validación: si es pendiente, exige promesa de pago
+		if (formData.status === "Pendiente" && !formData.fechaPromesaPago) {
+			setErrorMsg(
+				"Debes ingresar una fecha de promesa de pago para inscripciones pendientes.",
+			);
+			return;
+		}
+
+		// Validación: la fecha promesa no puede ser anterior a mañana
+		if (
+			formData.status === "Pendiente" &&
+			formData.fechaPromesaPago < getTomorrow()
+		) {
+			setErrorMsg("La fecha de promesa de pago debe ser a partir de mañana.");
+			return;
+		}
+
 		setIsSubmitting(true);
 		try {
-			// Pasamos los 4 parámetros al padre
+			let finalmetodoPago = null;
+			let finalFechaPromesa = null;
+
+			if (formData.status === "Confirmado") {
+				finalmetodoPago = formData.metodoPago;
+				finalFechaPromesa = null;
+			} else if (formData.status === "Pendiente") {
+				finalmetodoPago = null;
+				finalFechaPromesa = formData.fechaPromesaPago;
+			}
+
+			// 1️⃣ Guardamos los cambios en la inscripción
 			await onSave(
 				inscriptionToEdit.id,
 				formData.status,
 				parseFloat(formData.monto) || 0,
-				formData.status === "Confirmado" ? formData.paymentMethod : undefined,
+				finalmetodoPago,
+				finalFechaPromesa,
 			);
+
+			// 2️⃣ Si la inscripción acaba de pasar a Confirmado desde otro estado,
+			//    creamos la primera cuota. La verificación de idempotencia dentro
+			//    de crearPrimeraCuota evita duplicados si ya existía.
+			const estaConfirmandoAhora =
+				inscriptionToEdit.status !== "Confirmado" &&
+				formData.status === "Confirmado";
+
+			if (estaConfirmandoAhora) {
+				await crearPrimeraCuota(inscriptionToEdit);
+			}
+
 			onClose();
 		} catch (error) {
 			console.error("Error al actualizar inscripción:", error);
@@ -96,6 +238,15 @@ export default function EditInscriptionModal({
 			setIsSubmitting(false);
 		}
 	};
+
+	// Calculamos el preview del monto para mostrárselo al secretario antes de guardar
+	const previewMontoPrimerMes =
+		inscriptionToEdit &&
+		inscriptionToEdit.status !== "Confirmado" &&
+		formData.status === "Confirmado" &&
+		inscriptionToEdit.cuota1a10 > 0
+			? calcularMontoPrimerMes(new Date(), inscriptionToEdit.cuota1a10)
+			: null;
 
 	return (
 		<AnimatePresence>
@@ -172,7 +323,7 @@ export default function EditInscriptionModal({
 												Método Actual
 											</p>
 											<p className="font-semibold text-[#252d62]">
-												{inscriptionToEdit.paymentMethod || "No especificado"}
+												{inscriptionToEdit.metodoPago || "No especificado"}
 											</p>
 										</div>
 
@@ -185,7 +336,7 @@ export default function EditInscriptionModal({
 									</div>
 								</div>
 
-								{/* Mensaje de Error (Si lo hay) */}
+								{/* Mensaje de Error */}
 								{errorMsg && (
 									<div className="mb-4 bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2 font-medium">
 										<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -206,18 +357,14 @@ export default function EditInscriptionModal({
 												Monto Abonado / A Pagar
 											</label>
 											<div className="relative">
-												<span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">
+												<span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">
 													$
 												</span>
 												<input
 													type="number"
-													required
-													disabled={isSubmitting}
+													disabled
 													value={formData.monto}
-													onChange={(e) =>
-														setFormData({ ...formData, monto: e.target.value })
-													}
-													className="block w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-white transition-colors"
+													className="block w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-100 text-gray-500 cursor-not-allowed focus:outline-none"
 												/>
 											</div>
 										</div>
@@ -249,35 +396,87 @@ export default function EditInscriptionModal({
 											</select>
 										</div>
 
-										{/* NUEVO: Selector de Método de Pago Condicional */}
+										{/* MÉTODO DE PAGO (solo si Confirmado) */}
 										{formData.status === "Confirmado" && (
-											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
-												<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-													Método de Pago Utilizado
+											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300 space-y-3">
+												<div>
+													<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+														Método de Pago Utilizado
+													</label>
+													<select
+														required
+														disabled={isSubmitting}
+														value={formData.metodoPago}
+														onChange={(e) =>
+															setFormData({
+																...formData,
+																metodoPago: e.target.value,
+															})
+														}
+														className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-white transition-colors"
+													>
+														<option value="" disabled>
+															-- Seleccione un método --
+														</option>
+														<option value="Efectivo">Efectivo</option>
+														<option value="Transferencia Bancaria (Verificada)">
+															Transferencia Bancaria (Verificada)
+														</option>
+														<option value="Tarjeta (Posnet)">
+															Tarjeta (Posnet)
+														</option>
+													</select>
+												</div>
+
+												{/* Preview de primera cuota (solo si está CONFIRMANDO AHORA) */}
+												{previewMontoPrimerMes !== null && (
+													<motion.div
+														initial={{ opacity: 0, height: 0 }}
+														animate={{ opacity: 1, height: "auto" }}
+														className="bg-blue-50 border border-blue-200 p-3 rounded-lg overflow-hidden"
+													>
+														<p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-1.5">
+															Primera Cuota a Generar
+														</p>
+														<div className="flex justify-between items-center text-sm">
+															<span className="text-blue-600">
+																{new Date().getDate() >= 15
+																	? "Inscripción desde el día 15 → 50%"
+																	: "Inscripción antes del día 15 → 100%"}
+															</span>
+															<span className="font-bold text-blue-800 text-base">
+																${previewMontoPrimerMes.toLocaleString("es-AR")}
+															</span>
+														</div>
+														<p className="text-[11px] text-blue-400 mt-1">
+															Se generará automáticamente al guardar.
+														</p>
+													</motion.div>
+												)}
+											</div>
+										)}
+
+										{/* FECHA PROMESA DE PAGO (solo si Pendiente) */}
+										{formData.status === "Pendiente" && (
+											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300 bg-yellow-50/50 p-4 border border-yellow-200 rounded-xl">
+												<label className="block text-xs font-bold text-yellow-800 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+													<CalendarClock className="w-4 h-4" />
+													Fecha Promesa de Pago
 												</label>
-												<select
+												<input
+													type="date"
 													required
 													disabled={isSubmitting}
-													value={formData.paymentMethod}
+													min={getTomorrow()}
+													value={formData.fechaPromesaPago}
 													onChange={(e) =>
 														setFormData({
 															...formData,
-															paymentMethod: e.target.value,
+															fechaPromesaPago: e.target.value,
 														})
 													}
-													className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-white transition-colors"
-												>
-													<option value="" disabled>
-														-- Seleccione un método --
-													</option>
-													<option value="Efectivo">Efectivo</option>
-													<option value="Transferencia Bancaria (Verificada)">
-														Transferencia Bancaria (Verificada)
-													</option>
-													<option value="Tarjeta (Posnet)">
-														Tarjeta (Posnet)
-													</option>
-												</select>
+													className="block w-full px-3 py-2.5 border border-yellow-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500/20 focus:border-yellow-500 bg-white transition-colors"
+												/>
 											</div>
 										)}
 									</div>

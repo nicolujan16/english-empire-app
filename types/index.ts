@@ -11,7 +11,8 @@ export interface CursoObject {
 	duracion: string;
 	clasesSemanales: number;
 	inscripcion: number;
-	cuota: number;
+	cuota1a10: number;
+	cuota11enAdelante: number;
 	inicio: string;
 	fin: string;
 	categoria: string;

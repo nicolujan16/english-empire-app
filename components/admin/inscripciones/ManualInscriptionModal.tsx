@@ -63,6 +63,10 @@ interface CourseData {
 	nombre: string;
 	inscripcion: number;
 	cuota: number;
+	// ── Nuevos campos para el sistema de cuotas ──
+	cuota1a10: number;
+	cuota11enAdelante: number;
+	// ────────────────────────────────────────────
 	edadMinima: number;
 	edadMaxima: number;
 }
@@ -73,6 +77,25 @@ interface ErrorDialogState {
 	message: string;
 	type: "error" | "success" | "warning";
 }
+
+const getTomorrow = () => {
+	const tomorrow = new Date();
+	tomorrow.setDate(tomorrow.getDate() + 1);
+	return tomorrow.toISOString().split("T")[0];
+};
+
+const calcularMontoPrimerMes = (
+	fechaInscripcion: Date,
+	curso: CourseData,
+): number => {
+	const dia = fechaInscripcion.getDate();
+
+	if (dia >= 15) {
+		return curso.cuota1a10 * 0.5;
+	}
+
+	return curso.cuota1a10;
+};
 
 export default function ManualInscriptionModal({
 	isOpen,
@@ -95,7 +118,7 @@ export default function ManualInscriptionModal({
 	const [courses, setCourses] = useState<CourseData[]>([]);
 	const [isLoadingCourses, setIsLoadingCourses] = useState(false);
 	const [selectedCourseId, setSelectedCourseId] = useState("");
-	const [paymentMethod, setPaymentMethod] = useState("");
+	const [metodoPago, setmetodoPago] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	const [overrideAgeWarning, setOverrideAgeWarning] = useState(false);
@@ -111,7 +134,7 @@ export default function ManualInscriptionModal({
 		setSearchError("");
 		setFoundStudent(null);
 		setSelectedCourseId("");
-		setPaymentMethod("");
+		setmetodoPago("");
 		setPaymentStatus("Confirmado");
 		setPromiseDate("");
 		setOverrideAgeWarning(false);
@@ -234,6 +257,10 @@ export default function ManualInscriptionModal({
 						nombre: data.nombre,
 						inscripcion: data.inscripcion || 0,
 						cuota: data.cuota || 0,
+						// ── Nuevos campos ──────────────────────────────────
+						cuota1a10: data.cuota1a10 || 0,
+						cuota11enAdelante: data.cuota11enAdelante || 0,
+						// ───────────────────────────────────────────────────
 						edadMinima: min,
 						edadMaxima: max,
 					};
@@ -259,6 +286,52 @@ export default function ManualInscriptionModal({
 		setOverrideAgeWarning(false);
 	}, [selectedCourseId]);
 
+	const crearPrimeraCuota = async (
+		inscripcionId: string,
+		curso: CourseData,
+	) => {
+		if (!foundStudent) return;
+
+		const hoy = new Date();
+		const montoPrimerMes = calcularMontoPrimerMes(hoy, curso);
+
+		const cuotaData = {
+			// Referencias
+			inscripcionId,
+			alumnoId: foundStudent.id,
+			alumnoTipo: foundStudent.tipo === "Titular" ? "adulto" : "menor",
+			alumnoNombre: `${foundStudent.nombre} ${foundStudent.apellido}`,
+			alumnoDni: foundStudent.dni,
+			cursoId: curso.id,
+			cursoNombre: curso.nombre,
+
+			// Identificación del período
+			mes: hoy.getMonth() + 1, // 1-indexed (ej: 4 = Abril)
+			anio: hoy.getFullYear(),
+
+			// Snapshot de precios del curso al momento de la inscripción.
+			// Si el curso sube de precio el mes que viene, esta cuota ya
+			// tiene registrado lo que correspondía cobrar en este mes.
+			cuota1a10: curso.cuota1a10,
+			cuota11enAdelante: curso.cuota11enAdelante,
+
+			// Primer mes: monto pre-calculado según reglas de negocio
+			esPrimerMes: true,
+			montoPrimerMes,
+
+			// Estado inicial
+			estado: "Pendiente",
+			fechaPago: null,
+			montoPagado: null,
+			metodoPago: null,
+
+			creadoEn: serverTimestamp(),
+			actualizadoEn: serverTimestamp(),
+		};
+
+		await addDoc(collection(db, "Cuotas"), cuotaData);
+	};
+
 	const processInscription = async () => {
 		setIsSubmitting(true);
 		try {
@@ -273,7 +346,7 @@ export default function ManualInscriptionModal({
 				cursoId: selectedCourseId,
 				cursoNombre: cursoSeleccionado?.nombre || "Desconocido",
 				cursoInscripcion: cursoSeleccionado?.inscripcion || 0,
-				paymentMethod: paymentMethod,
+				metodoPago: metodoPago,
 				status: paymentStatus,
 				fecha: serverTimestamp(),
 				excepcionEdad: overrideAgeWarning,
@@ -283,21 +356,27 @@ export default function ManualInscriptionModal({
 				inscriptionData.fechaPromesaPago = promiseDate;
 			}
 
-			await addDoc(inscripcionesRef, inscriptionData);
+			const inscripcionRef = await addDoc(inscripcionesRef, inscriptionData);
 
-			const collectionName =
-				foundStudent!.tipo === "Titular" ? "Users" : "Hijos";
-			const studentRef = doc(db, collectionName, foundStudent!.id);
+			if (paymentStatus === "Confirmado" && cursoSeleccionado) {
+				await crearPrimeraCuota(inscripcionRef.id, cursoSeleccionado);
+			}
 
-			await updateDoc(studentRef, {
+			// Falta agregar el cursoID al "cursos" del usuario que se inscribió
+			// Nos tenemos que fijar si es tutor o alumno
+			const usersRef = collection(
+				db,
+				foundStudent?.tipo === "Menor" ? "Hijos" : "Users",
+			);
+			const userDocRef = doc(usersRef, foundStudent!.id);
+			await updateDoc(userDocRef, {
 				cursos: arrayUnion(selectedCourseId),
-				[`cuotasPagadas.${selectedCourseId}`]: [],
 			});
 
 			const successMessage =
 				paymentStatus === "Pendiente"
 					? "La inscripción fue registrada correctamente.\n\nRecordá cobrar la inscripción antes de la fecha límite establecida."
-					: "La inscripción y el pago fueron asentados correctamente en el sistema.";
+					: "La inscripción y el pago fueron asentados correctamente en el sistema.\n\nLa primera cuota fue generada y quedó registrada como pendiente de cobro.";
 
 			showAlert("¡Inscripción Exitosa!", successMessage, "success");
 		} catch (error) {
@@ -324,7 +403,7 @@ export default function ManualInscriptionModal({
 			return;
 		}
 
-		if (!foundStudent || !selectedCourseId || !paymentMethod) return;
+		if (!foundStudent || !selectedCourseId || !metodoPago) return;
 
 		processInscription();
 	};
@@ -552,6 +631,49 @@ export default function ManualInscriptionModal({
 														</select>
 													</div>
 
+													{/* --- Preview de cuota del primer mes (Si hay curso seleccionado) --- */}
+													<AnimatePresence>
+														{selectedCourse && selectedCourse.cuota1a10 > 0 && (
+															<motion.div
+																initial={{ opacity: 0, height: 0 }}
+																animate={{ opacity: 1, height: "auto" }}
+																exit={{ opacity: 0, height: 0 }}
+																className="overflow-hidden"
+															>
+																<div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+																	<p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">
+																		Cálculo de 1era Cuota
+																	</p>
+																	<div className="flex justify-between items-center text-sm">
+																		<span className="text-blue-600">
+																			{new Date().getDate() >= 15
+																				? "Inscripción desde el día 15 → 50%"
+																				: "Inscripción antes del día 15 → 100%"}
+																		</span>
+																		<span className="font-bold text-blue-800 text-base">
+																			$
+																			{calcularMontoPrimerMes(
+																				new Date(),
+																				selectedCourse,
+																			).toLocaleString("es-AR")}
+																		</span>
+																	</div>
+																	<p className="text-[11px] text-blue-400 mt-1">
+																		Cuota regular: $
+																		{selectedCourse.cuota1a10.toLocaleString(
+																			"es-AR",
+																		)}{" "}
+																		(del 1 al 10) / $
+																		{selectedCourse.cuota11enAdelante.toLocaleString(
+																			"es-AR",
+																		)}{" "}
+																		(del 11 en adelante)
+																	</p>
+																</div>
+															</motion.div>
+														)}
+													</AnimatePresence>
+
 													{/* --- ALERTA DE EDAD (Si aplica) --- */}
 													<AnimatePresence>
 														{isAgeWarning && selectedCourse && (
@@ -652,9 +774,9 @@ export default function ManualInscriptionModal({
 																<select
 																	required
 																	disabled={isSubmitting}
-																	value={paymentMethod}
+																	value={metodoPago}
 																	onChange={(e) =>
-																		setPaymentMethod(e.target.value)
+																		setmetodoPago(e.target.value)
 																	}
 																	className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white appearance-none cursor-pointer disabled:opacity-50"
 																>
@@ -664,7 +786,7 @@ export default function ManualInscriptionModal({
 																	<option value="Efectivo">
 																		Efectivo en Sede
 																	</option>
-																	<option value="Transferencia">
+																	<option value="Transferencia Bancaria (Verificada)">
 																		Transferencia Bancaria (Verificada)
 																	</option>
 																	<option value="Tarjeta">
@@ -689,9 +811,10 @@ export default function ManualInscriptionModal({
 																	required
 																	disabled={isSubmitting}
 																	value={promiseDate}
+																	min={getTomorrow()}
 																	onChange={(e) => {
 																		setPromiseDate(e.target.value);
-																		setPaymentMethod("A confirmar");
+																		setmetodoPago("A confirmar");
 																	}}
 																	className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white disabled:opacity-50"
 																/>
@@ -721,8 +844,7 @@ export default function ManualInscriptionModal({
 													disabled={
 														isSubmitting ||
 														!selectedCourseId ||
-														(paymentStatus === "Confirmado" &&
-															!paymentMethod) ||
+														(paymentStatus === "Confirmado" && !metodoPago) ||
 														(paymentStatus === "Pendiente" && !promiseDate) ||
 														(isAgeWarning && !overrideAgeWarning) ||
 														false
@@ -750,9 +872,6 @@ export default function ManualInscriptionModal({
 				)}
 			</AnimatePresence>
 
-			{/* =========================================
-          DIALOG DE ALERTAS (ERRORES O ÉXITO)
-      ========================================= */}
 			<Dialog
 				open={alertDialog.isOpen}
 				onOpenChange={(isOpen) => {

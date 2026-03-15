@@ -16,15 +16,9 @@ export default function ConfirmInscription({
 }) {
 	const { userData } = useAuth();
 
-	// --- CAMBIO: Inicializamos vacío para obligar al usuario a elegir ---
 	const [selectedStudentDNI, setSelectedStudentId] = useState<string>("");
 
 	const onConfirm = () => {
-		// Ya no hace falta el if (selectedStudentDNI === "self")
-		// porque ahora el value del titular va a ser su DNI real.
-		// Pero si por algún motivo querés mantener el value "self",
-		// esta lógica que tenías está perfecta.
-
 		if (selectedStudentDNI === "self") {
 			handleConfirmEnrollment(userData?.dni || "");
 			return;
@@ -65,7 +59,7 @@ export default function ConfirmInscription({
 								Valor Inscripción: ${curso.inscripcion.toLocaleString("es-AR")}
 							</div>
 							<div className="mt-3 w-[300px] inline-block bg-green-50 text-green-700 px-4 py-1.5 rounded-full font-bold text-sm sm:text-base border border-green-200">
-								Valor Cuota: ${curso.cuota.toLocaleString("es-AR")}
+								Valor Cuota: ${curso.cuota1a10.toLocaleString("es-AR")}
 							</div>
 						</div>
 					</div>

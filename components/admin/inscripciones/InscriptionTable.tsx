@@ -5,14 +5,14 @@ import {
 	Search,
 	Filter,
 	Pencil,
-	Trash2, // <-- Importamos Trash2
+	Trash2,
 	Loader2,
 	ChevronDown,
 	X,
 	Calendar,
 	CreditCard as CreditCardIcon,
 	Book,
-	AlertTriangle, // <-- Para el ícono de alerta del Modal
+	AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -23,12 +23,11 @@ import {
 	query,
 	doc,
 	updateDoc,
-	deleteDoc, // <-- Importado
-	arrayRemove, // <-- Importado
+	deleteDoc,
+	arrayRemove,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
-// IMPORTAMOS LOS COMPONENTES DE UI PARA EL MODAL
 import {
 	Dialog,
 	DialogContent,
@@ -39,23 +38,19 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-// IMPORTAMOS EL MODAL DE EDICIÓN Y SUS TIPOS
 import EditInscriptionModal, {
 	Inscription,
 	InscriptionStatus,
 } from "./EditarInscriptionModal";
 
-// Extendemos la interfaz para la tabla
 interface InscriptionRow extends Inscription {
-	paymentMethod: string;
+	metodoPago: string;
 	tipoAlumno?: string;
 	fechaPromesaPago?: string;
-	alumnoId?: string; // <-- Súper necesario para el borrado
-	cursoId?: string; // <-- Súper necesario para el borrado
 }
 
 interface InscriptionsTableProps {
-	showTitle?: boolean; // Prop opcional, por defecto true
+	showTitle?: boolean;
 }
 
 const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
@@ -129,12 +124,14 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 						cursoNombre: item.cursoNombre || "Sin curso",
 						cursoInscripcion: item.cursoInscripcion || 0,
 						status: item.status || "Pendiente",
-						paymentMethod: item.paymentMethod || "No especificado",
+						metodoPago: item.metodoPago || "No especificado",
 						tipoAlumno: item.tipoAlumno || "Desconocido",
 						fechaPromesaPago: formattedPromesa,
-						// --- Extraemos los IDs que vimos en tu base de datos ---
-						alumnoId: item.alumnoId,
-						cursoId: item.cursoId,
+						alumnoId: item.alumnoId || "",
+						alumnoTipo: item.alumnoTipo || "adulto",
+						cursoId: item.cursoId || "",
+						cuota1a10: item.cuota1a10 || 0,
+						cuota11enAdelante: item.cuota11enAdelante || 0,
 					});
 				});
 
@@ -156,7 +153,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 	];
 	const uniquePayments = [
 		"Todos",
-		...Array.from(new Set(inscriptions.map((i) => i.paymentMethod))),
+		...Array.from(new Set(inscriptions.map((i) => i.metodoPago))),
 	];
 	const uniqueStatuses = ["Todos", "Confirmado", "Pendiente", "Cancelado"];
 
@@ -171,7 +168,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 			const matchesCourse =
 				courseFilter === "Todos" || item.cursoNombre === courseFilter;
 			const matchesPayment =
-				paymentFilter === "Todos" || item.paymentMethod === paymentFilter;
+				paymentFilter === "Todos" || item.metodoPago === paymentFilter;
 			const matchesStatus =
 				statusFilter === "Todos" || item.status === statusFilter;
 
@@ -197,7 +194,8 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 		id: string,
 		nuevoEstado: InscriptionStatus,
 		nuevoMonto: number,
-		nuevoMetodoPago?: string,
+		nuevoMetodoPago?: string | null,
+		nuevaFechaPromesa?: string | null,
 	) => {
 		try {
 			const docRef = doc(db, "Inscripciones", id);
@@ -206,10 +204,15 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 			const updateData: any = {
 				status: nuevoEstado,
 				cursoInscripcion: nuevoMonto,
+				fechaPromesaPago: nuevaFechaPromesa,
 			};
 
 			if (nuevoMetodoPago) {
-				updateData.paymentMethod = nuevoMetodoPago;
+				updateData.metodoPago = nuevoMetodoPago;
+			}
+
+			if (nuevaFechaPromesa !== undefined) {
+				updateData.fechaPromesaPago = nuevaFechaPromesa;
 			}
 
 			await updateDoc(docRef, updateData);
@@ -218,7 +221,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 			throw error;
 		}
 	};
-	// --- LÓGICA DE BORRADO ---
+
 	const triggerDeleteModal = (inscription: InscriptionRow) => {
 		setInscriptionToDelete(inscription);
 		setIsDeleteModalOpen(true);
@@ -235,11 +238,6 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 			if (inscriptionToDelete.alumnoId && inscriptionToDelete.cursoId) {
 				const collectionName =
 					inscriptionToDelete.tipoAlumno === "Titular" ? "Users" : "Hijos";
-				console.log(
-					"Borrando inscripción del alumno con ID:",
-					inscriptionToDelete.alumnoId,
-				);
-				console.log("Borrando curso con ID:", inscriptionToDelete.cursoId);
 				const studentRef = doc(
 					db,
 					collectionName,
@@ -528,7 +526,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 													{item.cursoNombre}
 												</td>
 												<td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
-													{item.paymentMethod}
+													{item.metodoPago}
 												</td>
 												<td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
 													${item.cursoInscripcion.toLocaleString("es-AR")}

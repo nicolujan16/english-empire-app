@@ -6,7 +6,7 @@ import { CourseCard } from "@/components/website/cursos/CourseCard";
 
 // --- FIRESTORE IMPORTS ---
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebaseConfig"; // Ajustá esta ruta a tu config
+import { db } from "@/lib/firebaseConfig";
 
 export interface Curso {
 	id: string;
@@ -14,11 +14,10 @@ export interface Curso {
 	categoria: string;
 	edades: string;
 	descripcion?: string;
-	imgURL?: string; // Agregado por si el CourseCard luego lo necesita
-	precio?: number; // Agregado por si querés mostrar el precio
+	imgURL?: string;
+	precio?: number;
 }
 
-// Orden preferido para los botones de categorías (pedagógico)
 const PREFERRED_CATEGORY_ORDER = [
 	"Kinder",
 	"Junior",

@@ -8,7 +8,7 @@ import {
 	LayoutDashboard,
 	BookOpen,
 	Users,
-	UserCheck,
+	// UserCheck
 	CreditCard,
 	Briefcase,
 	UserPlus2,
@@ -89,7 +89,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 				/>
 			</div>
 
-			<nav className="pt-16 sm:pt-3 flex-1 py-4 px-3 overflow-y-auto h-[50%]">
+			<nav className="pt-16 sm:pt-3 flex-1 py-4 px-3 overflow-y-auto min-h-0 sidebar-scroll">
 				<ul className="space-y-1.5">
 					{menuItems.map((item, index) => {
 						const Icon = item.icon;
@@ -124,7 +124,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 				</ul>
 
 				{/* --- Tu diseño inferior original --- */}
-				<div className="absolute w-[90%] bottom-4 border-t border-white/10 py-2">
+				<div className="w-full border-t border-white/10 py-2 shrink-0">
 					<div className="pb-4">
 						<ul className="space-y-1.5">
 							<motion.li
