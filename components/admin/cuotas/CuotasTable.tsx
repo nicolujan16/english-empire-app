@@ -13,52 +13,60 @@ import {
 	Smartphone,
 	Landmark,
 	HelpCircle,
+	Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// --- INTERFACES ---
-interface CursoData {
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERFACES
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CuotaDoc {
 	id: string;
-	nombre: string;
-	cuota: number;
-	inicioMes: number;
-	finMes: number;
-}
-
-interface CuotaRowData {
-	idFila: string;
 	alumnoId: string;
-	nombreAlumno: string;
-	dniAlumno: string;
-	tipoAlumno: "Titular" | "Menor";
+	alumnoTipo: "adulto" | "menor";
+	alumnoNombre: string;
+	alumnoDni: string;
 	cursoId: string;
-	nombreCurso: string;
-	montoCuota: number;
-	estado: "Pagado" | "Pendiente";
-	metodoPago: string | null; // null si aún no pagó
+	cursoNombre: string;
+	mes: number;
+	anio: number;
+	cuota1a10: number;
+	cuota11enAdelante: number;
+	esPrimerMes: boolean;
+	montoPrimerMes: number | null;
+	estado: "Pendiente" | "Pagado" | "Eximido";
+	montoPagado: number | null;
+	metodoPago: string | null;
 }
 
+// ── Misma firma que antes, sin cambios ───────────────────────────────────────
 interface CuotasTableProps {
 	searchTerm: string;
-	selectedMonth: string;
+	selectedMonth: string; // Formato "YYYY-MM", ej: "2026-04"
 	statusFilter: string;
 	courseFilter: string;
 	refreshTrigger: number;
 	setIsModalCobrarOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-// --- HELPER: ícono y color según método de pago ---
-function MetodoPagoBadge({ metodo }: { metodo: string | null }) {
-	if (!metodo) {
-		return <span className="text-xs text-gray-400 italic">—</span>;
+function resolverMontoCuota(cuota: CuotaDoc): number {
+	if (cuota.estado === "Pagado" && cuota.montoPagado !== null) {
+		return cuota.montoPagado;
 	}
+	if (cuota.esPrimerMes && cuota.montoPrimerMes !== null) {
+		return cuota.montoPrimerMes;
+	}
+	const diaHoy = new Date().getDate();
+	return diaHoy <= 10 ? cuota.cuota1a10 : cuota.cuota11enAdelante;
+}
 
-	// Normalizamos a minúsculas para comparar
+function MetodoPagoBadge({ metodo }: { metodo: string | null }) {
+	if (!metodo) return <span className="text-xs text-gray-400 italic">—</span>;
+
 	const lower = metodo.toLowerCase();
-
 	let icon = <HelpCircle className="w-3.5 h-3.5" />;
 	let colorClasses = "bg-gray-100 text-gray-700";
-	const label = metodo;
 
 	if (lower.includes("efectivo")) {
 		icon = <Banknote className="w-3.5 h-3.5" />;
@@ -87,12 +95,33 @@ function MetodoPagoBadge({ metodo }: { metodo: string | null }) {
 			className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${colorClasses}`}
 		>
 			{icon}
-			{label}
+			{metodo}
 		</span>
 	);
 }
 
-// --- COMPONENTE PRINCIPAL ---
+function EstadoBadge({ estado }: { estado: CuotaDoc["estado"] }) {
+	if (estado === "Pagado") {
+		return (
+			<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">
+				<CheckCircle2 className="w-3.5 h-3.5" /> Al día
+			</span>
+		);
+	}
+	if (estado === "Eximido") {
+		return (
+			<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-bold">
+				<Tag className="w-3.5 h-3.5" /> Eximido
+			</span>
+		);
+	}
+	return (
+		<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">
+			<AlertCircle className="w-3.5 h-3.5" /> Pendiente
+		</span>
+	);
+}
+
 export default function CuotasTable({
 	searchTerm,
 	selectedMonth,
@@ -101,149 +130,82 @@ export default function CuotasTable({
 	refreshTrigger,
 	setIsModalCobrarOpen,
 }: CuotasTableProps) {
-	const [rows, setRows] = useState<CuotaRowData[]>([]);
+	const [cuotas, setCuotas] = useState<CuotaDoc[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const fetchCuotasData = async () => {
-		setIsLoading(true);
-		try {
-			const cursosSnap = await getDocs(collection(db, "Cursos"));
-			const cursosMap: Record<string, CursoData> = {};
-			cursosSnap.forEach((doc) => {
-				const data = doc.data();
-				cursosMap[doc.id] = {
-					id: doc.id,
-					nombre: data.nombre || "Curso Desconocido",
-					cuota: data.cuota || 0,
-					inicioMes: data.inicioMes || 3,
-					finMes: data.finMes || 12,
-				};
-			});
-
-			const cuotasQuery = query(
-				collection(db, "Cuotas"),
-				where("mes", "==", selectedMonth),
-			);
-			const cuotasSnap = await getDocs(cuotasQuery);
-			const metodoPagoMap: Record<string, string> = {};
-			cuotasSnap.forEach((doc) => {
-				const data = doc.data();
-				if (data.alumnoId && data.curso) {
-					const key = `${data.alumnoId}_${data.curso}`;
-					metodoPagoMap[key] = data.metodoPago || "Desconocido";
-				}
-			});
-
-			// 3. Construir filas para Titulares (Users)
-			const tableRows: CuotaRowData[] = [];
-			const selectedMonthNumber = parseInt(selectedMonth.split("-")[1]);
-
-			const qUsers = query(collection(db, "Users"), where("cursos", "!=", []));
-			const usersSnap = await getDocs(qUsers);
-
-			usersSnap.forEach((doc) => {
-				const data = doc.data();
-				if (data.cursos && data.cursos.length > 0) {
-					data.cursos.forEach((cursoId: string) => {
-						const cursoInfo = cursosMap[cursoId];
-						if (
-							cursoInfo &&
-							selectedMonthNumber >= cursoInfo.inicioMes &&
-							selectedMonthNumber <= cursoInfo.finMes
-						) {
-							const cuotasPagadasDelCurso = data.cuotasPagadas?.[cursoId] || [];
-							const estaPagado = cuotasPagadasDelCurso.includes(selectedMonth);
-							const metodoPago = estaPagado
-								? (metodoPagoMap[`${doc.id}_${cursoId}`] ?? null)
-								: null;
-
-							tableRows.push({
-								idFila: `titular_${doc.id}_${cursoId}`,
-								alumnoId: doc.id,
-								nombreAlumno: `${data.nombre} ${data.apellido}`,
-								dniAlumno: data.dni,
-								tipoAlumno: "Titular",
-								cursoId: cursoId,
-								nombreCurso: cursoInfo.nombre,
-								montoCuota: cursoInfo.cuota,
-								estado: estaPagado ? "Pagado" : "Pendiente",
-								metodoPago,
-							});
-						}
-					});
-				}
-			});
-
-			// 4. Construir filas para Menores (Hijos)
-			const qHijos = query(collection(db, "Hijos"), where("cursos", "!=", []));
-			const hijosSnap = await getDocs(qHijos);
-
-			hijosSnap.forEach((doc) => {
-				const data = doc.data();
-				if (data.cursos && data.cursos.length > 0) {
-					data.cursos.forEach((cursoId: string) => {
-						const cursoInfo = cursosMap[cursoId];
-						if (
-							cursoInfo &&
-							selectedMonthNumber >= cursoInfo.inicioMes &&
-							selectedMonthNumber <= cursoInfo.finMes
-						) {
-							const cuotasPagadasDelCurso = data.cuotasPagadas?.[cursoId] || [];
-							const estaPagado = cuotasPagadasDelCurso.includes(selectedMonth);
-							const metodoPago = estaPagado
-								? (metodoPagoMap[`${doc.id}_${cursoId}`] ?? null)
-								: null;
-
-							tableRows.push({
-								idFila: `menor_${doc.id}_${cursoId}`,
-								alumnoId: doc.id,
-								nombreAlumno: `${data.nombre} ${data.apellido}`,
-								dniAlumno: data.dni,
-								tipoAlumno: "Menor",
-								cursoId: cursoId,
-								nombreCurso: cursoInfo.nombre,
-								montoCuota: cursoInfo.cuota,
-								estado: estaPagado ? "Pagado" : "Pendiente",
-								metodoPago,
-							});
-						}
-					});
-				}
-			});
-
-			tableRows.sort((a, b) => a.nombreAlumno.localeCompare(b.nombreAlumno));
-			setRows(tableRows);
-		} catch (error) {
-			console.error("Error cargando tabla de cuotas:", error);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
 	useEffect(() => {
-		fetchCuotasData();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		const fetchCuotas = async () => {
+			setIsLoading(true);
+			try {
+				// Parseamos "YYYY-MM" → mes y anio para la query
+				const [anioStr, mesStr] = selectedMonth.split("-");
+				const anio = parseInt(anioStr);
+				const mes = parseInt(mesStr);
+
+				// Una sola query — los datos están denormalizados en cada cuota
+				const q = query(
+					collection(db, "Cuotas"),
+					where("mes", "==", mes),
+					where("anio", "==", anio),
+				);
+				const snap = await getDocs(q);
+
+				const fetchedCuotas: CuotaDoc[] = snap.docs.map((docSnap) => {
+					const data = docSnap.data();
+					return {
+						id: docSnap.id,
+						alumnoId: data.alumnoId,
+						alumnoTipo: data.alumnoTipo,
+						alumnoNombre: data.alumnoNombre,
+						alumnoDni: data.alumnoDni,
+						cursoId: data.cursoId,
+						cursoNombre: data.cursoNombre,
+						mes: data.mes,
+						anio: data.anio,
+						cuota1a10: data.cuota1a10 ?? 0,
+						cuota11enAdelante: data.cuota11enAdelante ?? 0,
+						esPrimerMes: data.esPrimerMes ?? false,
+						montoPrimerMes: data.montoPrimerMes ?? null,
+						estado: data.estado ?? "Pendiente",
+						montoPagado: data.montoPagado ?? null,
+						metodoPago: data.metodoPago ?? null,
+					};
+				});
+
+				fetchedCuotas.sort((a, b) =>
+					a.alumnoNombre.localeCompare(b.alumnoNombre),
+				);
+				setCuotas(fetchedCuotas);
+			} catch (error) {
+				console.error("Error cargando tabla de cuotas:", error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchCuotas();
 	}, [selectedMonth, refreshTrigger]);
 
-	// --- FILTROS ---
-	const filteredRows = rows.filter((row) => {
+	// ── Filtros del lado del cliente ──────────────────────────────────────────
+	const filteredCuotas = cuotas.filter((cuota) => {
 		const matchesSearch =
 			searchTerm === "" ||
-			row.nombreAlumno.toLowerCase().includes(searchTerm.toLowerCase()) ||
-			row.dniAlumno.includes(searchTerm);
+			cuota.alumnoNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+			cuota.alumnoDni.includes(searchTerm);
 
 		const matchesStatus =
 			statusFilter === "todos" ||
-			(statusFilter === "pagados" && row.estado === "Pagado") ||
-			(statusFilter === "pendientes" && row.estado === "Pendiente");
+			(statusFilter === "pagados" && cuota.estado === "Pagado") ||
+			(statusFilter === "pendientes" && cuota.estado === "Pendiente") ||
+			(statusFilter === "eximidos" && cuota.estado === "Eximido");
 
 		const matchesCourse =
-			courseFilter === "todos" || row.cursoId === courseFilter;
+			courseFilter === "todos" || cuota.cursoId === courseFilter;
 
 		return matchesSearch && matchesStatus && matchesCourse;
 	});
 
-	// --- ESTADOS DE CARGA Y VACÍO ---
+	// ── Estados de carga y vacío ──────────────────────────────────────────────
 	if (isLoading) {
 		return (
 			<div className="flex-1 flex flex-col items-center justify-center p-10 text-gray-500">
@@ -253,7 +215,7 @@ export default function CuotasTable({
 		);
 	}
 
-	if (filteredRows.length === 0) {
+	if (filteredCuotas.length === 0) {
 		return (
 			<div className="flex-1 flex flex-col items-center justify-center p-10 text-gray-500">
 				<AlertCircle className="w-12 h-12 text-gray-300 mb-3" />
@@ -261,14 +223,15 @@ export default function CuotasTable({
 					No hay cuotas para este mes.
 				</p>
 				<p className="text-sm mt-1 text-center max-w-md">
-					Puede que el curso no se dicte en esta fecha, o los filtros aplicados
-					no arrojaron resultados.
+					{cuotas.length === 0
+						? "No se generaron cuotas para este mes aún."
+						: "Los filtros aplicados no arrojaron resultados."}
 				</p>
 			</div>
 		);
 	}
 
-	// --- TABLA ---
+	// ── Tabla ─────────────────────────────────────────────────────────────────
 	return (
 		<div className="overflow-x-auto">
 			<table className="w-full text-left text-sm">
@@ -283,9 +246,9 @@ export default function CuotasTable({
 					</tr>
 				</thead>
 				<tbody className="divide-y divide-gray-100">
-					{filteredRows.map((row) => (
+					{filteredCuotas.map((cuota) => (
 						<tr
-							key={row.idFila}
+							key={cuota.id}
 							className="hover:bg-gray-50 transition-colors group"
 						>
 							{/* Alumno */}
@@ -293,7 +256,7 @@ export default function CuotasTable({
 								<div className="flex items-center gap-3">
 									<div
 										className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-											row.tipoAlumno === "Titular"
+											cuota.alumnoTipo === "adulto"
 												? "bg-blue-100 text-blue-700"
 												: "bg-purple-100 text-purple-700"
 										}`}
@@ -302,10 +265,10 @@ export default function CuotasTable({
 									</div>
 									<div>
 										<p className="font-bold text-[#252d62]">
-											{row.nombreAlumno}
+											{cuota.alumnoNombre}
 										</p>
 										<p className="text-xs text-gray-500">
-											DNI: {row.dniAlumno}
+											DNI: {cuota.alumnoDni}
 										</p>
 									</div>
 								</div>
@@ -313,37 +276,46 @@ export default function CuotasTable({
 
 							{/* Curso */}
 							<td className="px-6 py-4">
-								<span className="font-medium text-gray-700">
-									{row.nombreCurso}
-								</span>
+								<div className="flex items-center gap-2">
+									<span className="font-medium text-gray-700">
+										{cuota.cursoNombre}
+									</span>
+									{cuota.esPrimerMes && (
+										<span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+											1er mes
+										</span>
+									)}
+								</div>
 							</td>
 
 							{/* Estado */}
 							<td className="px-6 py-4 text-center">
-								{row.estado === "Pagado" ? (
-									<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">
-										<CheckCircle2 className="w-3.5 h-3.5" /> Al día
-									</span>
-								) : (
-									<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">
-										<AlertCircle className="w-3.5 h-3.5" /> Pendiente
-									</span>
-								)}
+								<EstadoBadge estado={cuota.estado} />
 							</td>
 
 							{/* Monto */}
-							<td className="px-6 py-4 font-medium text-gray-700">
-								${row.montoCuota.toLocaleString("es-AR")}
-							</td>
-
-							{/* ✅ NUEVA COLUMNA: Método de Pago */}
 							<td className="px-6 py-4">
-								<MetodoPagoBadge metodo={row.metodoPago} />
+								<div>
+									<span className="font-semibold text-gray-800">
+										${resolverMontoCuota(cuota).toLocaleString("es-AR")}
+									</span>
+									{/* Para cuotas regulares pendientes mostramos el rango */}
+									{cuota.estado === "Pendiente" && !cuota.esPrimerMes && (
+										<p className="text-[11px] text-gray-400 mt-0.5">
+											1-10: ${cuota.cuota1a10.toLocaleString("es-AR")} · 11+: $
+											{cuota.cuota11enAdelante.toLocaleString("es-AR")}
+										</p>
+									)}
+								</div>
 							</td>
 
-							{/* Acciones */}
+							{/* Método de Pago */}
+							<td className="px-6 py-4">
+								<MetodoPagoBadge metodo={cuota.metodoPago} />
+							</td>
+
 							<td className="px-6 py-4 text-center">
-								{row.estado === "Pendiente" ? (
+								{cuota.estado === "Pendiente" ? (
 									<Button
 										size="sm"
 										className="bg-white border border-[#EE1120] text-[#EE1120] hover:bg-[#EE1120] hover:text-white transition-colors"

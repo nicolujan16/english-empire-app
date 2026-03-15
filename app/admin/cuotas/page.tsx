@@ -1,10 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CreditCard, Plus, Filter, Search, BookOpen } from "lucide-react";
+import {
+	CreditCard,
+	Plus,
+	Filter,
+	Search,
+	BookOpen,
+	CalendarClock,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CuotasTable from "@/components/admin/cuotas/CuotasTable";
-import RegistrarPagoModal from "@/components/admin/cuotas/RegistrarPagoModal"; // Asegúrate de que esta ruta sea correcta
+import RegistrarCuotaModal from "@/components/admin/cuotas/RegistrarCuotaModal";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
@@ -13,24 +20,74 @@ interface CursoOption {
 	nombre: string;
 }
 
+const MESES_NOMBRES = [
+	"Enero",
+	"Febrero",
+	"Marzo",
+	"Abril",
+	"Mayo",
+	"Junio",
+	"Julio",
+	"Agosto",
+	"Septiembre",
+	"Octubre",
+	"Noviembre",
+	"Diciembre",
+];
+
+// ⚠️  MODO TEST — poner en false para volver al comportamiento real
+//     Con true: el selector muestra el mes siguiente y lo selecciona por defecto,
+//     ignorando la regla del día 20.
+const TEST_MODE = true;
+
+function calcularMesMaximo(hoy: Date): { anio: number; mes: number } {
+	const dia = hoy.getDate();
+	const mes = hoy.getMonth() + 1;
+	const anio = hoy.getFullYear();
+
+	if (dia >= 20) {
+		if (mes === 12) return { anio: anio + 1, mes: 1 };
+		return { anio, mes: mes + 1 };
+	}
+
+	return { anio, mes };
+}
+
+function calcularAvisoProximoMes(hoy: Date): string | null {
+	const dia = hoy.getDate();
+	if (dia >= 20) return null;
+
+	const mesActualNombre = MESES_NOMBRES[hoy.getMonth()];
+	const mesSiguienteNombre = MESES_NOMBRES[(hoy.getMonth() + 1) % 12];
+
+	return `El calculo de las cuotas de ${mesSiguienteNombre} se habilitarán el 20 de ${mesActualNombre}.`;
+}
+
 export default function CuotasPage() {
-	const [searchTerm, setSearchTerm] = useState("");
-	const [statusFilter, setStatusFilter] = useState("todos");
-
-	// NUEVO ESTADO PARA EL FILTRO DE CURSO
-	const [courseFilter, setCourseFilter] = useState("todos");
-	const [activeCourses, setActiveCourses] = useState<CursoOption[]>([]);
-
-	// ESTADOS PARA EL MODAL DE PAGO
-	const [isModalOpen, setIsModalOpen] = useState(false);
-	const [refreshTrigger, setRefreshTrigger] = useState(0); // Para forzar el re-render de la tabla
-
 	const today = new Date();
 	const currentYear = today.getFullYear();
 	const currentMonthValue = `${currentYear}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-	const [selectedMonth, setSelectedMonth] = useState(currentMonthValue);
 
-	// Cargar cursos dinámicamente para el filtro
+	// En TEST_MODE simulamos que ya pasó el día 20, habilitando el mes siguiente
+	const mesMaximo = TEST_MODE
+		? calcularMesMaximo(new Date(today.getFullYear(), today.getMonth(), 20))
+		: calcularMesMaximo(today);
+
+	const avisoProximoMes = TEST_MODE ? null : calcularAvisoProximoMes(today);
+
+	// En TEST_MODE arrancamos con el mes siguiente seleccionado por defecto
+	const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+	const nextMonthValue = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}`;
+	const defaultMonth = TEST_MODE ? nextMonthValue : currentMonthValue;
+
+	const [searchTerm, setSearchTerm] = useState("");
+	const [statusFilter, setStatusFilter] = useState("todos");
+	const [courseFilter, setCourseFilter] = useState("todos");
+	const [activeCourses, setActiveCourses] = useState<CursoOption[]>([]);
+	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [refreshTrigger, setRefreshTrigger] = useState(0);
+	const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+
 	useEffect(() => {
 		const fetchCourses = async () => {
 			try {
@@ -43,7 +100,6 @@ export default function CuotasPage() {
 					id: doc.id,
 					nombre: doc.data().nombre,
 				}));
-				// Ordenar alfabéticamente
 				cursosList.sort((a, b) => a.nombre.localeCompare(b.nombre));
 				setActiveCourses(cursosList);
 			} catch (error) {
@@ -53,39 +109,34 @@ export default function CuotasPage() {
 		fetchCourses();
 	}, []);
 
-	const generateCurrentYearMonths = () => {
+	const generateMonthOptions = () => {
 		const options = [];
-		const mesesNombres = [
-			"Enero",
-			"Febrero",
-			"Marzo",
-			"Abril",
-			"Mayo",
-			"Junio",
-			"Julio",
-			"Agosto",
-			"Septiembre",
-			"Octubre",
-			"Noviembre",
-			"Diciembre",
-		];
 
 		for (let i = 1; i <= 12; i++) {
-			const monthNumber = String(i).padStart(2, "0");
-			const value = `${currentYear}-${monthNumber}`;
-			const label = `${mesesNombres[i - 1]} ${currentYear}`;
+			const anioMes =
+				i === 1 && mesMaximo.mes === 1 && mesMaximo.anio > currentYear
+					? mesMaximo.anio
+					: currentYear;
 
+			if (
+				anioMes > mesMaximo.anio ||
+				(anioMes === mesMaximo.anio && i > mesMaximo.mes)
+			) {
+				break;
+			}
+
+			const monthNumber = String(i).padStart(2, "0");
+			const value = `${anioMes}-${monthNumber}`;
+			const label = `${MESES_NOMBRES[i - 1]} ${anioMes}`;
 			options.push({ value, label });
 		}
 
 		return options;
 	};
 
-	const monthOptions = generateCurrentYearMonths();
+	const monthOptions = generateMonthOptions();
 
-	// Función que se ejecuta cuando el pago es exitoso
 	const handlePaymentSuccess = () => {
-		// Incrementamos el trigger para que CuotasTable lo note y vuelva a hacer fetch
 		setRefreshTrigger((prev) => prev + 1);
 	};
 
@@ -107,7 +158,6 @@ export default function CuotasPage() {
 					</div>
 				</div>
 
-				{/* BOTÓN REGISTRAR PAGO MANUAL */}
 				<Button
 					onClick={() => setIsModalOpen(true)}
 					className="bg-[#EE1120] hover:bg-[#c4000e] text-white font-bold py-5 px-6 rounded-xl flex items-center gap-2 shadow-md transition-all"
@@ -117,9 +167,27 @@ export default function CuotasPage() {
 				</Button>
 			</div>
 
+			{/* AVISO DE PRÓXIMO MES (solo visible antes del día 20, nunca en TEST_MODE) */}
+			{avisoProximoMes && (
+				<div className="flex items-center gap-2 text-gray-400">
+					<CalendarClock className="w-3.5 h-3.5 shrink-0" />
+					<p className="text-xs">{avisoProximoMes}</p>
+				</div>
+			)}
+
+			{/* INDICADOR VISUAL DE TEST_MODE */}
+			{TEST_MODE && (
+				<div className="flex items-center gap-2 text-amber-500">
+					<CalendarClock className="w-3.5 h-3.5 shrink-0" />
+					<p className="text-xs font-medium">
+						Modo test activo — mostrando mes siguiente. Cambiar TEST_MODE a
+						false para producción.
+					</p>
+				</div>
+			)}
+
 			{/* ZONA DE FILTROS */}
 			<div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col xl:flex-row gap-4 items-center justify-between">
-				{/* GRUPO IZQUIERDO DE FILTROS */}
 				<div className="flex flex-wrap w-full xl:w-auto gap-4">
 					{/* BUSCADOR */}
 					<div className="relative w-full md:w-64">
@@ -151,7 +219,7 @@ export default function CuotasPage() {
 						</select>
 					</div>
 
-					{/* NUEVO SELECTOR DE CURSO */}
+					{/* SELECTOR DE CURSO */}
 					<div className="relative w-full md:w-56">
 						<BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
 						<select
@@ -169,7 +237,7 @@ export default function CuotasPage() {
 					</div>
 				</div>
 
-				{/* SELECTOR DE ESTADO (SEMÁFORO) */}
+				{/* SELECTOR DE ESTADO */}
 				<div className="flex gap-2 w-full xl:w-auto mt-2 xl:mt-0">
 					<select
 						value={statusFilter}
@@ -179,11 +247,12 @@ export default function CuotasPage() {
 						<option value="todos">Todos los estados</option>
 						<option value="pagados">Solo Pagados 🟢</option>
 						<option value="pendientes">Solo Pendientes 🔴</option>
+						<option value="eximidos">Solo Eximidos ⚪</option>
 					</select>
 				</div>
 			</div>
 
-			{/* CONTENEDOR DE LA TABLA */}
+			{/* TABLA */}
 			<div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[400px] flex flex-col relative">
 				<CuotasTable
 					searchTerm={searchTerm}
@@ -195,8 +264,8 @@ export default function CuotasPage() {
 				/>
 			</div>
 
-			{/* MODAL DE REGISTRO DE PAGO */}
-			<RegistrarPagoModal
+			{/* MODAL */}
+			<RegistrarCuotaModal
 				isOpen={isModalOpen}
 				onClose={() => setIsModalOpen(false)}
 				onSuccess={handlePaymentSuccess}
