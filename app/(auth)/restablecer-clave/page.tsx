@@ -113,7 +113,7 @@ function RestablecerForm() {
 					Ya puedes iniciar sesión en tu cuenta con tu nueva contraseña.
 				</p>
 				<Button
-					onClick={() => router.push("/iniciar-sesion")}
+					onClick={() => router.push("/")}
 					className="w-full bg-[#EE1120] hover:bg-[#c4000e] text-white py-6 rounded-xl font-bold text-lg shadow-md"
 				>
 					Ir a Iniciar Sesión

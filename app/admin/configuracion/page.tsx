@@ -10,10 +10,13 @@ import {
 	Loader2,
 	AlertCircle,
 	CheckCircle2,
-	ShieldCheck, // Icono para la contraseña actual
+	ShieldCheck,
+	UserCog, // Icono para la contraseña actual
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import AddNewAdmin from "@/components/admin/configuracion/AddNewAdmin";
+import AdminListModal from "@/components/admin/configuracion/AdminListModal";
 
 // --- FIREBASE ---
 import {
@@ -28,11 +31,14 @@ import { useAdminAuth } from "@/context/AdminAuthContext";
 export default function ConfiguracionPage() {
 	const { adminData } = useAdminAuth();
 
+	// Estados
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
+	const [isAddPersonalOpen, setIsAddPersonalOpen] = useState(false);
+	const [isAdminListOpen, setIsAdminListOpen] = useState(false);
 
-	// Estados para los ojitos
+	// Estados para los ojos de la contraseña
 	const [showCurrentPassword, setShowCurrentPassword] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -145,6 +151,48 @@ export default function ConfiguracionPage() {
 					</p>
 				</div>
 			</div>
+
+			{adminData?.rol === "admin" && (
+				<motion.div
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: 0.1 }}
+					className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+				>
+					<div className="flex items-center gap-3">
+						<div className="p-2 bg-[#252d62]/10 rounded-lg">
+							<UserCog className="w-5 h-5 text-[#252d62]" />
+						</div>
+						<div>
+							<h3 className="font-bold text-[#252d62]">
+								Personal del instituto
+							</h3>
+							<p className="text-xs text-gray-500 mt-0.5">
+								Creá cuentas para secretarios y administradores
+							</p>
+						</div>
+					</div>
+					<div className="flex flex-row gap-2">
+						<Button
+							onClick={() => setIsAddPersonalOpen(true)}
+							className="bg-[#252d62] hover:bg-[#1a204d] text-white font-bold rounded-xl flex items-center gap-2 w-full sm:w-auto"
+						>
+							<UserCog className="w-4 h-4" />
+							Añadir nuevo personal
+						</Button>
+						{adminData?.esDirector && (
+							<Button
+								onClick={() => setIsAdminListOpen(true)}
+								variant="outline"
+								className="border-[#252d62] text-[#252d62] hover:bg-[#252d62] hover:text-white font-bold rounded-xl flex items-center gap-2 w-full sm:w-auto"
+							>
+								<ShieldCheck className="w-4 h-4" />
+								Gestionar accesos
+							</Button>
+						)}
+					</div>
+				</motion.div>
+			)}
 
 			{/* CONTENIDO */}
 			<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -330,6 +378,16 @@ export default function ConfiguracionPage() {
 					</motion.div>
 				</div>
 			</div>
+
+			{/* modales */}
+			<AddNewAdmin
+				isOpen={isAddPersonalOpen}
+				onClose={() => setIsAddPersonalOpen(false)}
+			></AddNewAdmin>
+			<AdminListModal
+				isOpen={isAdminListOpen}
+				onClose={() => setIsAdminListOpen(false)}
+			/>
 		</div>
 	);
 }

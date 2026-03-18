@@ -195,7 +195,7 @@ export default function EditProfilePage() {
 									className="w-full px-3 py-2.5 sm:px-4 sm:py-3 rounded-lg sm:rounded-xl border border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed outline-none text-sm sm:text-base font-medium"
 								/>
 								<p className="text-[10px] sm:text-[11px] text-gray-500 mt-1.5 leading-tight">
-									Por seguridad y consistencia en inscripciones, el DNI no puede
+									Por seguridad y consistencia de datos, el DNI no puede
 									modificarse desde aquí. Contacta a administración si hay un
 									error.
 								</p>

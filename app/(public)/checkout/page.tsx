@@ -49,6 +49,7 @@ function CheckoutContent() {
 	const [studentInfo, setStudentInfo] = useState({
 		name: "Validando estudiante...",
 		dni: "---",
+		alumnoId: "",
 		isLoading: true,
 	});
 
@@ -120,6 +121,7 @@ function CheckoutContent() {
 					setStudentInfo({
 						name: `${userData.nombre} ${userData.apellido}`,
 						dni: userData.dni,
+						alumnoId: user.uid, // ID del doc en Users
 						isLoading: false,
 					});
 					return;
@@ -145,6 +147,7 @@ function CheckoutContent() {
 					setStudentInfo({
 						name: `${hijoData.nombre} ${hijoData.apellido}`,
 						dni: hijoData.dni,
+						alumnoId: hijoSnapshot.docs[0].id, // ID del doc en Hijos ✅
 						isLoading: false,
 					});
 					return;
@@ -196,6 +199,7 @@ function CheckoutContent() {
 					userId: user.uid,
 					alumnoDni: alumnoDni,
 					cursoId: cursoId,
+					alumnoId: studentInfo.alumnoId,
 				}),
 			});
 

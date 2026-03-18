@@ -125,10 +125,14 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 						cursoInscripcion: item.cursoInscripcion || 0,
 						status: item.status || "Pendiente",
 						metodoPago: item.metodoPago || "No especificado",
-						tipoAlumno: item.tipoAlumno || "Desconocido",
+						alumnoTipo:
+							item.alumnoTipo === "adulto" || item.alumnoTipo === "menor"
+								? (item.alumnoTipo as "adulto" | "menor")
+								: item.tipoAlumno === "Titular"
+									? "adulto"
+									: "menor",
 						fechaPromesaPago: formattedPromesa,
 						alumnoId: item.alumnoId || "",
-						alumnoTipo: item.alumnoTipo || "adulto",
 						cursoId: item.cursoId || "",
 						cuota1a10: item.cuota1a10 || 0,
 						cuota11enAdelante: item.cuota11enAdelante || 0,
@@ -594,7 +598,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 				onSave={handleSaveInscription}
 			/>
 
-			{/* --- NUEVO: MODAL DIALOG DE BORRADO --- */}
+			{/* --- MODAL DIALOG DE BORRADO --- */}
 			<AnimatePresence>
 				{isDeleteModalOpen && (
 					<Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>

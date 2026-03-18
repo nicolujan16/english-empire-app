@@ -33,19 +33,33 @@ export default function AdminLoginPage() {
 
 		try {
 			await loginAdmin(email, password, rememberMe);
-			console.log("Login exitoso, redirigiendo a panel...");
-			router.push("/admin");
 
+			// ✅ Verificar si quedó logueado (si activo:false, el contexto hizo signOut)
+			const { getAuth } = await import("firebase/auth");
+			const currentUser = getAuth().currentUser;
+
+			if (!currentUser) {
+				setError(
+					"Tu cuenta está inhabilitada. Contactá al director del instituto si creés que es un error.",
+				);
+				return;
+			}
+
+			router.push("/admin");
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		} catch (err: any) {
-			console.error("Error en login admin:", err);
-			if (
+			if (err.code === "auth/account-disabled") {
+				setError(
+					"Tu cuenta está inhabilitada. Comunicáte con el director del instituto si creés que es un error.",
+				);
+			} else if (
 				err.code === "auth/wrong-password" ||
 				err.code === "auth/user-not-found" ||
-				err.code === "auth/invalid-credential"
+				err.code === "auth/invalid-credential" ||
+				err.code === "auth/not-admin"
 			) {
 				setError(
-					"Credenciales incorrectas o no tienes permisos de administrador.",
+					"Credenciales incorrectas o no tenés permisos de administrador.",
 				);
 			} else {
 				setError("Hubo un error al intentar iniciar sesión.");

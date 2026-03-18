@@ -87,6 +87,7 @@ export default function CuotasPage() {
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [refreshTrigger, setRefreshTrigger] = useState(0);
 	const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+	const [preloadedDni, setPreloadedDni] = useState("");
 
 	useEffect(() => {
 		const fetchCourses = async () => {
@@ -261,13 +262,21 @@ export default function CuotasPage() {
 					courseFilter={courseFilter}
 					refreshTrigger={refreshTrigger}
 					setIsModalCobrarOpen={setIsModalOpen}
+					onCobrar={(dni) => {
+						setPreloadedDni(dni);
+						setIsModalOpen(true);
+					}}
 				/>
 			</div>
 
 			{/* MODAL */}
 			<RegistrarCuotaModal
 				isOpen={isModalOpen}
-				onClose={() => setIsModalOpen(false)}
+				onClose={() => {
+					setIsModalOpen(false);
+					setPreloadedDni("");
+				}}
+				preloadedDni={preloadedDni}
 				onSuccess={handlePaymentSuccess}
 			/>
 		</div>

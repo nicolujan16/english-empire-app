@@ -9,9 +9,6 @@ import {
 	updateDoc,
 	arrayUnion,
 	collection,
-	query,
-	where,
-	getDocs,
 	serverTimestamp,
 } from "firebase/firestore";
 
@@ -19,11 +16,6 @@ const client = new MercadoPagoConfig({
 	accessToken: process.env.MP_ACCESS_TOKEN || "",
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Calcula el monto de la primera cuota según la fecha de inscripción:
-//   · Día < 15  → cuota completa (cuota1a10)
-//   · Día >= 15 → 50% de cuota1a10
-// ─────────────────────────────────────────────────────────────────────────────
 function calcularMontoPrimerMes(
 	fechaInscripcion: Date,
 	cuota1a10: number,
@@ -57,10 +49,10 @@ export async function POST(request: Request) {
 					const metadata = paymentInfo.metadata;
 
 					if (metadata) {
-						// ── 1. Guardar la inscripción ──────────────────────────────────
+						// ── 1. Guardar la inscripción ─────────────────────────────────
 						const nuevaInscripcion = {
 							alumnoDni: metadata.alumno_dni,
-							alumnoId: metadata.user_id,
+							alumnoId: metadata.alumno_id,
 							alumnoNombre: metadata.alumno_nombre,
 							cursoId: metadata.curso_id,
 							cursoNombre: metadata.curso_nombre,
@@ -77,7 +69,7 @@ export async function POST(request: Request) {
 						await setDoc(inscripcionRef, nuevaInscripcion);
 						console.log("✅ INSCRIPCIÓN GUARDADA:", inscripcionId);
 
-						// ── 2. Agregar el curso al array del alumno (se mantiene) ──────
+						// ── 2. Agregar el curso al array del alumno ───────────────────
 						try {
 							if (metadata.tipo_alumno === "Titular") {
 								const userRef = doc(db, "Users", metadata.user_id);
@@ -88,25 +80,11 @@ export async function POST(request: Request) {
 									`✅ CURSO ${metadata.curso_id} AGREGADO AL TITULAR`,
 								);
 							} else {
-								const hijosRef = collection(db, "Hijos");
-								const qHijos = query(
-									hijosRef,
-									where("tutorId", "==", metadata.user_id),
-									where("dni", "==", metadata.alumno_dni),
-								);
-								const hijosSnap = await getDocs(qHijos);
-
-								if (!hijosSnap.empty) {
-									const hijoRef = doc(db, "Hijos", hijosSnap.docs[0].id);
-									await updateDoc(hijoRef, {
-										cursos: arrayUnion(metadata.curso_id),
-									});
-									console.log(`✅ CURSO ${metadata.curso_id} AGREGADO AL HIJO`);
-								} else {
-									console.warn(
-										"⚠️ No se encontró al hijo para actualizar sus cursos.",
-									);
-								}
+								const hijoRef = doc(db, "Hijos", metadata.alumno_id);
+								await updateDoc(hijoRef, {
+									cursos: arrayUnion(metadata.curso_id),
+								});
+								console.log(`✅ CURSO ${metadata.curso_id} AGREGADO AL HIJO`);
 							}
 						} catch (updateError) {
 							console.error(
@@ -115,9 +93,8 @@ export async function POST(request: Request) {
 							);
 						}
 
-						// ── 3. Crear la primera cuota ──────────────────────────────────
+						// ── 3. Crear cuotas ───────────────────────────────────────────
 						try {
-							// Necesitamos cuota1a10 y cuota11enAdelante del curso
 							const cursoSnap = await getDoc(
 								doc(db, "Cursos", metadata.curso_id),
 							);
@@ -131,54 +108,72 @@ export async function POST(request: Request) {
 								const cuota1a10: number = cursoData.cuota1a10 ?? 0;
 								const cuota11enAdelante: number =
 									cursoData.cuota11enAdelante ?? 0;
+								const finMes: number = cursoData.finMes ?? 12;
 
 								const hoy = new Date();
+								const dia = hoy.getDate();
 								const montoPrimerMes = calcularMontoPrimerMes(hoy, cuota1a10);
-
-								// Determinamos el tipo normalizado
 								const alumnoTipo =
 									metadata.tipo_alumno === "Titular" ? "adulto" : "menor";
 
-								const cuotaData = {
-									// Referencias
+								const datosComunesAlumno = {
 									inscripcionId,
-									alumnoId: metadata.user_id,
+									alumnoId: metadata.alumno_id,
 									alumnoTipo,
 									alumnoNombre: metadata.alumno_nombre,
 									alumnoDni: metadata.alumno_dni,
 									cursoId: metadata.curso_id,
 									cursoNombre: metadata.curso_nombre,
-
-									// Período
-									mes: hoy.getMonth() + 1, // 1-indexed
-									anio: hoy.getFullYear(),
-
-									// Snapshot de precios del curso al momento de la inscripción
 									cuota1a10,
 									cuota11enAdelante,
-
-									// Primer mes: monto pre-calculado según reglas de negocio
-									esPrimerMes: true,
-									montoPrimerMes,
-
-									// Estado inicial — el alumno ya pagó la inscripción,
-									// pero la CUOTA mensual arranca pendiente de cobro
 									estado: "Pendiente",
 									fechaPago: null,
 									montoPagado: null,
 									metodoPago: null,
-
-									creadoEn: serverTimestamp(),
-									actualizadoEn: serverTimestamp(),
 								};
 
-								await addDoc(collection(db, "Cuotas"), cuotaData);
+								// ── 3a. Cuota del mes actual ──────────────────────────────
+								await addDoc(collection(db, "Cuotas"), {
+									...datosComunesAlumno,
+									mes: hoy.getMonth() + 1,
+									anio: hoy.getFullYear(),
+									esPrimerMes: true,
+									montoPrimerMes,
+									creadoEn: serverTimestamp(),
+									actualizadoEn: serverTimestamp(),
+								});
 								console.log(
-									`✅ PRIMERA CUOTA CREADA — Alumno: ${metadata.alumno_nombre} | Curso: ${metadata.curso_nombre} | Monto: $${montoPrimerMes}`,
+									`✅ PRIMERA CUOTA CREADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Monto: $${montoPrimerMes}`,
 								);
+
+								// ── 3b. Si día >= 20, la CF ya corrió → crear mes siguiente
+								if (dia >= 20) {
+									const fechaSiguiente = new Date(
+										hoy.getFullYear(),
+										hoy.getMonth() + 1,
+										1,
+									);
+									const mesSiguiente = fechaSiguiente.getMonth() + 1;
+									const anioSiguiente = fechaSiguiente.getFullYear();
+
+									if (mesSiguiente <= finMes) {
+										await addDoc(collection(db, "Cuotas"), {
+											...datosComunesAlumno,
+											mes: mesSiguiente,
+											anio: anioSiguiente,
+											esPrimerMes: false,
+											montoPrimerMes: null,
+											creadoEn: serverTimestamp(),
+											actualizadoEn: serverTimestamp(),
+										});
+										console.log(
+											`✅ CUOTA ADICIONAL CREADA — ${mesSiguiente}/${anioSiguiente} (inscripción post-CF)`,
+										);
+									}
+								}
 							}
 						} catch (cuotaError) {
-							console.error("❌ Error al crear la primera cuota:", cuotaError);
+							console.error("❌ Error al crear las cuotas:", cuotaError);
 						}
 					}
 				}

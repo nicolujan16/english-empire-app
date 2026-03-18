@@ -63,10 +63,9 @@ interface CourseData {
 	nombre: string;
 	inscripcion: number;
 	cuota: number;
-	// ── Nuevos campos para el sistema de cuotas ──
 	cuota1a10: number;
 	cuota11enAdelante: number;
-	// ────────────────────────────────────────────
+	finMes: number;
 	edadMinima: number;
 	edadMaxima: number;
 }
@@ -89,12 +88,7 @@ const calcularMontoPrimerMes = (
 	curso: CourseData,
 ): number => {
 	const dia = fechaInscripcion.getDate();
-
-	if (dia >= 15) {
-		return curso.cuota1a10 * 0.5;
-	}
-
-	return curso.cuota1a10;
+	return dia >= 15 ? curso.cuota1a10 * 0.5 : curso.cuota1a10;
 };
 
 export default function ManualInscriptionModal({
@@ -155,9 +149,7 @@ export default function ManualInscriptionModal({
 		const cumple = new Date(fechaNacimiento);
 		let edad = hoy.getFullYear() - cumple.getFullYear();
 		const m = hoy.getMonth() - cumple.getMonth();
-		if (m < 0 || (m === 0 && hoy.getDate() < cumple.getDate())) {
-			edad--;
-		}
+		if (m < 0 || (m === 0 && hoy.getDate() < cumple.getDate())) edad--;
 		return Math.max(0, edad);
 	};
 
@@ -177,7 +169,6 @@ export default function ManualInscriptionModal({
 			if (!userSnap.empty) {
 				const documento = userSnap.docs[0];
 				const data = documento.data();
-
 				if (data.cursos && data.cursos.length > 0) {
 					setSearchError(
 						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
@@ -185,7 +176,6 @@ export default function ManualInscriptionModal({
 					setIsSearching(false);
 					return;
 				}
-
 				setFoundStudent({
 					id: documento.id,
 					nombre: data.nombre,
@@ -205,7 +195,6 @@ export default function ManualInscriptionModal({
 			if (!hijoSnap.empty) {
 				const documento = hijoSnap.docs[0];
 				const data = documento.data();
-
 				if (data.cursos && data.cursos.length > 0) {
 					setSearchError(
 						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
@@ -213,7 +202,6 @@ export default function ManualInscriptionModal({
 					setIsSearching(false);
 					return;
 				}
-
 				setFoundStudent({
 					id: documento.id,
 					nombre: data.nombre,
@@ -238,7 +226,6 @@ export default function ManualInscriptionModal({
 	useEffect(() => {
 		const fetchCourses = async () => {
 			if (step !== 2) return;
-
 			setIsLoadingCourses(true);
 			try {
 				const cursosRef = collection(db, "Cursos");
@@ -251,16 +238,14 @@ export default function ManualInscriptionModal({
 						data.edades && data.edades.length > 0 ? data.edades[0] : 0;
 					const max =
 						data.edades && data.edades.length > 1 ? data.edades[1] : 99;
-
 					return {
 						id: doc.id,
 						nombre: data.nombre,
 						inscripcion: data.inscripcion || 0,
 						cuota: data.cuota || 0,
-						// ── Nuevos campos ──────────────────────────────────
 						cuota1a10: data.cuota1a10 || 0,
 						cuota11enAdelante: data.cuota11enAdelante || 0,
-						// ───────────────────────────────────────────────────
+						finMes: data.finMes ?? 12, // ← nuevo campo
 						edadMinima: min,
 						edadMaxima: max,
 					};
@@ -278,7 +263,6 @@ export default function ManualInscriptionModal({
 				setIsLoadingCourses(false);
 			}
 		};
-
 		fetchCourses();
 	}, [step]);
 
@@ -293,10 +277,10 @@ export default function ManualInscriptionModal({
 		if (!foundStudent) return;
 
 		const hoy = new Date();
+		const dia = hoy.getDate();
 		const montoPrimerMes = calcularMontoPrimerMes(hoy, curso);
 
-		const cuotaData = {
-			// Referencias
+		const datosComunesAlumno = {
 			inscripcionId,
 			alumnoId: foundStudent.id,
 			alumnoTipo: foundStudent.tipo === "Titular" ? "adulto" : "menor",
@@ -304,32 +288,48 @@ export default function ManualInscriptionModal({
 			alumnoDni: foundStudent.dni,
 			cursoId: curso.id,
 			cursoNombre: curso.nombre,
-
-			// Identificación del período
-			mes: hoy.getMonth() + 1, // 1-indexed (ej: 4 = Abril)
-			anio: hoy.getFullYear(),
-
-			// Snapshot de precios del curso al momento de la inscripción.
-			// Si el curso sube de precio el mes que viene, esta cuota ya
-			// tiene registrado lo que correspondía cobrar en este mes.
 			cuota1a10: curso.cuota1a10,
 			cuota11enAdelante: curso.cuota11enAdelante,
-
-			// Primer mes: monto pre-calculado según reglas de negocio
-			esPrimerMes: true,
-			montoPrimerMes,
-
-			// Estado inicial
 			estado: "Pendiente",
 			fechaPago: null,
 			montoPagado: null,
 			metodoPago: null,
-
-			creadoEn: serverTimestamp(),
-			actualizadoEn: serverTimestamp(),
 		};
 
-		await addDoc(collection(db, "Cuotas"), cuotaData);
+		// ── 1. Cuota del mes actual (siempre) ────────────────────────────────
+		await addDoc(collection(db, "Cuotas"), {
+			...datosComunesAlumno,
+			mes: hoy.getMonth() + 1,
+			anio: hoy.getFullYear(),
+			esPrimerMes: true,
+			montoPrimerMes,
+			creadoEn: serverTimestamp(),
+			actualizadoEn: serverTimestamp(),
+		});
+
+		// ── 2. Si es día >= 20, la CF ya corrió este mes sin esta inscripción ─
+		//       → creamos también la cuota del mes siguiente
+		if (dia >= 20) {
+			const fechaSiguiente = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+			const mesSiguiente = fechaSiguiente.getMonth() + 1; // 1-indexed
+			const anioSiguiente = fechaSiguiente.getFullYear();
+
+			// Solo si el mes siguiente está dentro del rango de cobro del curso
+			if (mesSiguiente <= curso.finMes) {
+				await addDoc(collection(db, "Cuotas"), {
+					...datosComunesAlumno,
+					mes: mesSiguiente,
+					anio: anioSiguiente,
+					esPrimerMes: false,
+					montoPrimerMes: null,
+					creadoEn: serverTimestamp(),
+					actualizadoEn: serverTimestamp(),
+				});
+				console.log(
+					`✅ Cuota adicional creada para ${mesSiguiente}/${anioSiguiente} (inscripción post-CF)`,
+				);
+			}
+		}
 	};
 
 	const processInscription = async () => {
@@ -343,6 +343,15 @@ export default function ManualInscriptionModal({
 				alumnoNombre: `${foundStudent!.nombre} ${foundStudent!.apellido}`,
 				alumnoDni: foundStudent!.dni,
 				tipoAlumno: foundStudent!.tipo,
+
+				// Guardamos alumnoTipo normalizado directamente para que EditInscriptionModal
+				// y cualquier otra parte del sistema no tenga que adivinar ni convertir.
+				alumnoTipo: foundStudent!.tipo === "Titular" ? "adulto" : "menor",
+				// Guardamos snapshot de precios del curso para poder crear la cuota
+				// cuando la inscripción pase de Pendiente a Confirmado desde EditInscriptionModal.
+				cuota1a10: cursoSeleccionado?.cuota1a10 || 0,
+				cuota11enAdelante: cursoSeleccionado?.cuota11enAdelante || 0,
+
 				cursoId: selectedCourseId,
 				cursoNombre: cursoSeleccionado?.nombre || "Desconocido",
 				cursoInscripcion: cursoSeleccionado?.inscripcion || 0,
@@ -362,8 +371,6 @@ export default function ManualInscriptionModal({
 				await crearPrimeraCuota(inscripcionRef.id, cursoSeleccionado);
 			}
 
-			// Falta agregar el cursoID al "cursos" del usuario que se inscribió
-			// Nos tenemos que fijar si es tutor o alumno
 			const usersRef = collection(
 				db,
 				foundStudent?.tipo === "Menor" ? "Hijos" : "Users",
@@ -404,7 +411,6 @@ export default function ManualInscriptionModal({
 		}
 
 		if (!foundStudent || !selectedCourseId || !metodoPago) return;
-
 		processInscription();
 	};
 
@@ -444,14 +450,10 @@ export default function ManualInscriptionModal({
 										</h2>
 										<div className="flex items-center gap-2 mt-1">
 											<span
-												className={`h-2 w-2 rounded-full ${
-													step === 1 ? "bg-[#EE1120]" : "bg-gray-300"
-												}`}
+												className={`h-2 w-2 rounded-full ${step === 1 ? "bg-[#EE1120]" : "bg-gray-300"}`}
 											></span>
 											<span
-												className={`h-2 w-2 rounded-full ${
-													step === 2 ? "bg-[#EE1120]" : "bg-gray-300"
-												}`}
+												className={`h-2 w-2 rounded-full ${step === 2 ? "bg-[#EE1120]" : "bg-gray-300"}`}
 											></span>
 											<span className="text-xs text-gray-500 font-medium ml-1">
 												Paso {step} de 2
@@ -482,7 +484,6 @@ export default function ManualInscriptionModal({
 													Ingresa el DNI para buscar si el alumno ya se
 													encuentra en nuestra base de datos.
 												</p>
-
 												<div className="flex gap-3">
 													<div className="relative flex-1">
 														<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -631,7 +632,7 @@ export default function ManualInscriptionModal({
 														</select>
 													</div>
 
-													{/* --- Preview de cuota del primer mes (Si hay curso seleccionado) --- */}
+													{/* Preview primer mes */}
 													<AnimatePresence>
 														{selectedCourse && selectedCourse.cuota1a10 > 0 && (
 															<motion.div
@@ -669,12 +670,19 @@ export default function ManualInscriptionModal({
 																		)}{" "}
 																		(del 11 en adelante)
 																	</p>
+																	{/* Aviso de cuota siguiente si aplica */}
+																	{new Date().getDate() >= 20 && (
+																		<p className="text-[11px] text-blue-500 font-medium mt-1.5 border-t border-blue-200 pt-1.5">
+																			⚡ Se generará también la cuota del mes
+																			siguiente
+																		</p>
+																	)}
 																</div>
 															</motion.div>
 														)}
 													</AnimatePresence>
 
-													{/* --- ALERTA DE EDAD (Si aplica) --- */}
+													{/* Alerta de edad */}
 													<AnimatePresence>
 														{isAgeWarning && selectedCourse && (
 															<motion.div
@@ -877,9 +885,7 @@ export default function ManualInscriptionModal({
 				onOpenChange={(isOpen) => {
 					if (!isOpen) {
 						setAlertDialog({ ...alertDialog, isOpen: false });
-						if (alertDialog.type === "success") {
-							handleClose();
-						}
+						if (alertDialog.type === "success") handleClose();
 					}
 				}}
 			>
@@ -887,13 +893,7 @@ export default function ManualInscriptionModal({
 					<DialogHeader>
 						<div className="flex items-center gap-3 mb-2">
 							<div
-								className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-									alertDialog.type === "error"
-										? "bg-red-100"
-										: alertDialog.type === "warning"
-											? "bg-orange-100"
-											: "bg-green-100"
-								}`}
+								className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${alertDialog.type === "error" ? "bg-red-100" : alertDialog.type === "warning" ? "bg-orange-100" : "bg-green-100"}`}
 							>
 								{alertDialog.type === "error" && (
 									<AlertCircle className="w-5 h-5 text-red-600" />
@@ -919,13 +919,7 @@ export default function ManualInscriptionModal({
 								setAlertDialog({ ...alertDialog, isOpen: false });
 								if (alertDialog.type === "success") handleClose();
 							}}
-							className={`${
-								alertDialog.type === "error"
-									? "bg-red-600 hover:bg-red-700"
-									: alertDialog.type === "warning"
-										? "bg-orange-600 hover:bg-orange-700"
-										: "bg-green-600 hover:bg-green-700"
-							} text-white w-full sm:w-auto`}
+							className={`${alertDialog.type === "error" ? "bg-red-600 hover:bg-red-700" : alertDialog.type === "warning" ? "bg-orange-600 hover:bg-orange-700" : "bg-green-600 hover:bg-green-700"} text-white w-full sm:w-auto`}
 						>
 							Entendido
 						</Button>

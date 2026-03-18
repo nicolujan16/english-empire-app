@@ -4,8 +4,6 @@ import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button"; // Asegúrate de que la ruta apunte bien a tus botones
 import ManualInscriptionModal from "@/components/admin/inscripciones/ManualInscriptionModal";
-
-// --- FIRESTORE IMPORTS ---
 import InscriptionsTable from "@/components/admin/inscripciones/InscriptionTable";
 
 export default function AdminInscripcionesPage() {

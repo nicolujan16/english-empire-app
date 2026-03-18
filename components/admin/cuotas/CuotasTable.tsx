@@ -17,10 +17,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INTERFACES
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface CuotaDoc {
 	id: string;
 	alumnoId: string;
@@ -38,16 +34,20 @@ interface CuotaDoc {
 	estado: "Pendiente" | "Pagado" | "Eximido";
 	montoPagado: number | null;
 	metodoPago: string | null;
+	// ── Campos de descuento (opcionales, solo existen si se aplicó uno) ──────
+	descuentoAplicado?: boolean;
+	montoOriginal?: number;
+	porcentajeDescuento?: number;
 }
 
-// ── Misma firma que antes, sin cambios ───────────────────────────────────────
 interface CuotasTableProps {
 	searchTerm: string;
-	selectedMonth: string; // Formato "YYYY-MM", ej: "2026-04"
+	selectedMonth: string;
 	statusFilter: string;
 	courseFilter: string;
 	refreshTrigger: number;
 	setIsModalCobrarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+	onCobrar: (dni: string) => void;
 }
 
 function resolverMontoCuota(cuota: CuotaDoc): number {
@@ -57,8 +57,13 @@ function resolverMontoCuota(cuota: CuotaDoc): number {
 	if (cuota.esPrimerMes && cuota.montoPrimerMes !== null) {
 		return cuota.montoPrimerMes;
 	}
-	const diaHoy = new Date().getDate();
-	return diaHoy <= 10 ? cuota.cuota1a10 : cuota.cuota11enAdelante;
+	const hoy = new Date();
+	const mesHoy = hoy.getMonth() + 1;
+	const anioHoy = hoy.getFullYear();
+	const esMesFuturo =
+		anioHoy < cuota.anio || (anioHoy === cuota.anio && mesHoy < cuota.mes);
+	if (esMesFuturo) return cuota.cuota1a10;
+	return hoy.getDate() <= 10 ? cuota.cuota1a10 : cuota.cuota11enAdelante;
 }
 
 function MetodoPagoBadge({ metodo }: { metodo: string | null }) {
@@ -128,7 +133,7 @@ export default function CuotasTable({
 	statusFilter,
 	courseFilter,
 	refreshTrigger,
-	setIsModalCobrarOpen,
+	onCobrar,
 }: CuotasTableProps) {
 	const [cuotas, setCuotas] = useState<CuotaDoc[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -137,12 +142,10 @@ export default function CuotasTable({
 		const fetchCuotas = async () => {
 			setIsLoading(true);
 			try {
-				// Parseamos "YYYY-MM" → mes y anio para la query
 				const [anioStr, mesStr] = selectedMonth.split("-");
 				const anio = parseInt(anioStr);
 				const mes = parseInt(mesStr);
 
-				// Una sola query — los datos están denormalizados en cada cuota
 				const q = query(
 					collection(db, "Cuotas"),
 					where("mes", "==", mes),
@@ -169,6 +172,10 @@ export default function CuotasTable({
 						estado: data.estado ?? "Pendiente",
 						montoPagado: data.montoPagado ?? null,
 						metodoPago: data.metodoPago ?? null,
+						// ── Campos de descuento ──────────────────────────────
+						descuentoAplicado: data.descuentoAplicado ?? false,
+						montoOriginal: data.montoOriginal ?? undefined,
+						porcentajeDescuento: data.porcentajeDescuento ?? undefined,
 					};
 				});
 
@@ -186,7 +193,6 @@ export default function CuotasTable({
 		fetchCuotas();
 	}, [selectedMonth, refreshTrigger]);
 
-	// ── Filtros del lado del cliente ──────────────────────────────────────────
 	const filteredCuotas = cuotas.filter((cuota) => {
 		const matchesSearch =
 			searchTerm === "" ||
@@ -205,7 +211,6 @@ export default function CuotasTable({
 		return matchesSearch && matchesStatus && matchesCourse;
 	});
 
-	// ── Estados de carga y vacío ──────────────────────────────────────────────
 	if (isLoading) {
 		return (
 			<div className="flex-1 flex flex-col items-center justify-center p-10 text-gray-500">
@@ -231,7 +236,6 @@ export default function CuotasTable({
 		);
 	}
 
-	// ── Tabla ─────────────────────────────────────────────────────────────────
 	return (
 		<div className="overflow-x-auto">
 			<table className="w-full text-left text-sm">
@@ -295,17 +299,29 @@ export default function CuotasTable({
 
 							{/* Monto */}
 							<td className="px-6 py-4">
-								<div>
+								<div className="flex justify-center items-center flex-col gap-1">
 									<span className="font-semibold text-gray-800">
 										${resolverMontoCuota(cuota).toLocaleString("es-AR")}
 									</span>
-									{/* Para cuotas regulares pendientes mostramos el rango */}
+
+									{/* Cuota pendiente regular: rango de precios */}
 									{cuota.estado === "Pendiente" && !cuota.esPrimerMes && (
-										<p className="text-[11px] text-gray-400 mt-0.5">
+										<p className="text-[11px] text-gray-400 mt-0.5 text-center">
 											1-10: ${cuota.cuota1a10.toLocaleString("es-AR")} · 11+: $
 											{cuota.cuota11enAdelante.toLocaleString("es-AR")}
 										</p>
 									)}
+
+									{/* Cuota pagada con descuento */}
+									{cuota.estado === "Pagado" &&
+										cuota.descuentoAplicado &&
+										cuota.montoOriginal && (
+											<p className="text-[11px] text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+												<Tag className="w-3 h-3 shrink-0" />
+												Desc. {cuota.porcentajeDescuento}% · original $
+												{cuota.montoOriginal.toLocaleString("es-AR")}
+											</p>
+										)}
 								</div>
 							</td>
 
@@ -314,12 +330,13 @@ export default function CuotasTable({
 								<MetodoPagoBadge metodo={cuota.metodoPago} />
 							</td>
 
+							{/* Acciones */}
 							<td className="px-6 py-4 text-center">
 								{cuota.estado === "Pendiente" ? (
 									<Button
 										size="sm"
 										className="bg-white border border-[#EE1120] text-[#EE1120] hover:bg-[#EE1120] hover:text-white transition-colors"
-										onClick={() => setIsModalCobrarOpen(true)}
+										onClick={() => onCobrar(cuota.alumnoDni)}
 									>
 										<CreditCard className="w-4 h-4 mr-2" />
 										Cobrar

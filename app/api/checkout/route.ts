@@ -21,7 +21,7 @@ const client = new MercadoPagoConfig({
 export async function POST(request: Request) {
 	try {
 		const body = await request.json();
-		const { userId, alumnoDni, cursoId } = body;
+		const { userId, alumnoDni, cursoId, alumnoId } = body;
 
 		if (!userId || !alumnoDni || !cursoId) {
 			return NextResponse.json(
@@ -165,9 +165,9 @@ export async function POST(request: Request) {
 					},
 				],
 				back_urls: {
-					success: "https://englishempire.com.ar?pago=exitoso",
-					failure: "https://englishempire.com.ar?pago=fallido",
-					pending: "https://englishempire.com.ar?pago=pendiente",
+					success: `${process.env.NEXT_PUBLIC_APP_URL}?pago=exitoso`,
+					failure: `${process.env.NEXT_PUBLIC_APP_URL}?pago=fallido`,
+					pending: `${process.env.NEXT_PUBLIC_APP_URL}?pago=pendiente`,
 				},
 				auto_return: "approved",
 
@@ -175,12 +175,13 @@ export async function POST(request: Request) {
 				metadata: {
 					user_id: userId,
 					alumno_dni: alumnoDni,
+					alumno_id: alumnoId,
 					alumno_nombre: nombreAlumno,
 					curso_id: cursoId,
 					curso_nombre: cursoData.nombre,
 					tipo_alumno: tipoAlumno,
 				},
-				notification_url: "https://w4w8vc0r-3000.brs.devtunnels.ms/api/webhook",
+				notification_url: `${process.env.WEBHOOK_URL}/api/webhook`,
 			},
 		});
 

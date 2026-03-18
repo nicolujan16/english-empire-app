@@ -16,6 +16,8 @@ import {
 	LogOut,
 	AlertTriangle,
 	MoveLeft,
+	TrendingUp,
+	TrendingDown,
 } from "lucide-react";
 
 import {
@@ -51,7 +53,8 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 		{ icon: UserPlus2, label: "Inscripciones", path: "/admin/inscripciones" },
 		{ icon: CreditCard, label: "Cuotas", path: "/admin/cuotas" },
 		{ icon: Users, label: "Alumnos", path: "/admin/alumnos" },
-		// { icon: UserCheck, label: "Tutores", path: "/admin/tutores" },
+		{ icon: TrendingUp, label: "Ingresos", path: "/admin/ingresos" },
+		{ icon: TrendingDown, label: "Egresos", path: "/admin/egresos" },
 	];
 
 	const handleConfirmLogout = async () => {
@@ -90,7 +93,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 			</div>
 
 			<nav className="pt-16 sm:pt-3 flex-1 py-4 px-3 overflow-y-auto min-h-0 sidebar-scroll">
-				<ul className="space-y-1.5">
+				<ul className="space-y-1.5 mb-2">
 					{menuItems.map((item, index) => {
 						const Icon = item.icon;
 						const isActive = pathname === item.path;
@@ -124,7 +127,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 				</ul>
 
 				{/* --- Tu diseño inferior original --- */}
-				<div className="w-full border-t border-white/10 py-2 shrink-0">
+				<div className="w-full border-t border-white/10 py-2 shrink-0 mt-2">
 					<div className="pb-4">
 						<ul className="space-y-1.5">
 							<motion.li

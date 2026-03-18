@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link"; // Link oficial de Next.js
-import Image from "next/image"; // Image oficial de Next.js
+import Link from "next/link";
+import Image from "next/image";
 
-// Asegúrate de que las rutas a tus assets sean correctas según tu nueva estructura
 import logo from "@/assets/logo-empire.png";
 import menulistsvg from "@/assets/svgs/menu-list.svg";
 import exitmenulistsvg from "@/assets/svgs/exit-menu-list.svg";
@@ -20,7 +19,6 @@ export default function Header() {
 	};
 
 	const handleLinkClick = () => {
-		// Cerramos el menú al hacer click en un link (UX móvil)
 		setIsMenuOpen(false);
 		window.scrollTo({ top: 0, behavior: "smooth" });
 	};
@@ -39,7 +37,7 @@ export default function Header() {
 							src={logo}
 							alt="English Empire Logo"
 							className="w-[150px] lg:w-[200px] h-auto object-contain"
-							priority // El logo es prioridad alta
+							priority
 						/>
 					</Link>
 
@@ -50,7 +48,7 @@ export default function Header() {
 							onClick={toggleMenu}
 							alt="Menu Toggle"
 							className="w-full h-full"
-							priority // Para que el botón esté listo de inmediato
+							priority
 						/>
 					</div>
 
@@ -87,18 +85,20 @@ export default function Header() {
 						<NavItem href="/contacto" onClick={handleLinkClick}>
 							Contacto
 						</NavItem>
-						<li className="w-full lg:w-auto mt-4 lg:mt-0 flex justify-center">
+
+						{/* Botón Mi Cuenta / Iniciar Sesión */}
+						<li className="w-full lg:w-auto mt-2 lg:mt-0 flex justify-center">
 							<Link
 								href={user ? "/mi-cuenta" : "/iniciar-sesion"}
 								onClick={handleLinkClick}
 								className="
-                    block w-full lg:w-auto text-center
-                    bg-[#d30000] text-white 
-                    px-6 py-2 rounded-lg 
-                    hover:bg-[#b30000] transition-colors 
-                    font-medium shadow-sm hover:no-underline
-                    text-lg lg:text-base
-                  "
+										block w-full lg:w-auto text-center
+										bg-[#d30000] text-white
+										px-6 py-2 rounded-lg
+										hover:bg-[#d30000] transition-colors
+										font-bold shadow-sm hover:no-underline
+										text-lg lg:text-base
+								"
 							>
 								<p className="font-bold">
 									{user ? "Mi Cuenta" : "Iniciar Sesión"}

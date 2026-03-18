@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
 	X,
 	AlertCircle,
@@ -14,6 +14,9 @@ import {
 	CalendarDays,
 	ChevronRight,
 	AlertTriangle,
+	Pencil,
+	RotateCcw,
+	Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,17 +53,14 @@ interface CuotaDoc {
 	metodoPago: string | null;
 }
 
-// Info del alumno extraída de las cuotas (ya está denormalizada)
 interface AlumnoInfo {
 	id: string;
 	nombre: string;
 	tipo: "adulto" | "menor";
 	dni: string;
-	// Mapa de cursoId → nombre de curso (para el selector)
 	cursos: Record<string, string>;
 }
 
-// ── Misma firma que antes, sin cambios ───────────────────────────────────────
 interface RegistrarPagoModalProps {
 	isOpen: boolean;
 	onClose: () => void;
@@ -95,8 +95,25 @@ function resolverMontoCobro(cuota: CuotaDoc): number {
 	if (cuota.esPrimerMes && cuota.montoPrimerMes !== null) {
 		return cuota.montoPrimerMes;
 	}
-	const dia = new Date().getDate();
-	return dia <= 10 ? cuota.cuota1a10 : cuota.cuota11enAdelante;
+	const hoy = new Date();
+	const mesHoy = hoy.getMonth() + 1;
+	const anioHoy = hoy.getFullYear();
+	const esMesFuturo =
+		cuota.anio > anioHoy || (cuota.anio === anioHoy && cuota.mes > mesHoy);
+	if (esMesFuturo) return cuota.cuota1a10;
+	const diaHoy = hoy.getDate();
+	return diaHoy <= 10 ? cuota.cuota1a10 : cuota.cuota11enAdelante;
+}
+
+function resolverTextoCobro(cuota: CuotaDoc): string {
+	if (cuota.esPrimerMes) return "Monto de primer mes";
+	const hoy = new Date();
+	const mesHoy = hoy.getMonth() + 1;
+	const anioHoy = hoy.getFullYear();
+	const esMesFuturo =
+		cuota.anio > anioHoy || (cuota.anio === anioHoy && cuota.mes > mesHoy);
+	if (esMesFuturo) return "Cobro del 1 al 10 (mes futuro)";
+	return hoy.getDate() <= 10 ? "Cobro del 1 al 10" : "Cobro del 11 en adelante";
 }
 
 function formatCurrency(amount: number): string {
@@ -151,34 +168,45 @@ export default function RegistrarCuotaModal({
 }: RegistrarPagoModalProps) {
 	const [dniSearch, setDniSearch] = useState("");
 	const [isSearching, setIsSearching] = useState(false);
-
-	// Info del alumno extraída de las cuotas
 	const [alumnoInfo, setAlumnoInfo] = useState<AlumnoInfo | null>(null);
-
-	// Todas las cuotas pendientes del alumno (todos los cursos)
 	const [todasCuotasPendientes, setTodasCuotasPendientes] = useState<
 		CuotaDoc[]
 	>([]);
-
-	// Curso seleccionado en el selector
 	const [selectedCursoId, setSelectedCursoId] = useState("");
 
-	// Cuotas pendientes filtradas por el curso seleccionado, ordenadas asc
 	const cuotasPendientesCurso = sortCuotasAsc(
 		todasCuotasPendientes.filter((c) => c.cursoId === selectedCursoId),
 	);
-
-	// La cuota más antigua del curso: la única cobrable ahora
 	const cuotaACobrar = cuotasPendientesCurso[0] ?? null;
 	const cuotasEnDeuda = cuotasPendientesCurso.slice(1);
-	const montoCobrar = cuotaACobrar ? resolverMontoCobro(cuotaACobrar) : 0;
+
+	// Monto base calculado por las reglas de negocio
+	const montoBase = cuotaACobrar ? resolverMontoCobro(cuotaACobrar) : 0;
+
+	// ── Estado del descuento ─────────────────────────────────────────────────
+	const [editandoMonto, setEditandoMonto] = useState(false);
+	const [montoEditado, setMontoEditado] = useState<string>("");
+	const inputMontoRef = useRef<HTMLInputElement>(null);
+
+	// Determina si se aplicó un descuento (monto editado válido y diferente al base)
+	const descuentoAplicado =
+		montoEditado !== "" &&
+		parseFloat(montoEditado) > 0 &&
+		parseFloat(montoEditado) !== montoBase;
+
+	const montoDescuento = descuentoAplicado
+		? montoBase - parseFloat(montoEditado)
+		: 0;
+	const porcentajeDescuento = descuentoAplicado
+		? Math.round((montoDescuento / montoBase) * 100)
+		: 0;
+	// ────────────────────────────────────────────────────────────────────────
 
 	const [paymentMethod, setPaymentMethod] = useState("");
 	const [allowException, setAllowException] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-	// Aviso si la cuota a cobrar es de un mes futuro
 	const isFutureMonthWarning = (() => {
 		if (!cuotaACobrar) return false;
 		const hoy = new Date();
@@ -190,17 +218,25 @@ export default function RegistrarCuotaModal({
 		);
 	})();
 
-	// ── Reset al abrir ───────────────────────────────────────────────────────
+	// Foco automático al abrir el input de edición
+	useEffect(() => {
+		if (editandoMonto && inputMontoRef.current) {
+			inputMontoRef.current.focus();
+			inputMontoRef.current.select();
+		}
+	}, [editandoMonto]);
+
+	// Reset completo al abrir el modal
 	useEffect(() => {
 		if (!isOpen) return;
-
 		setAlumnoInfo(null);
 		setTodasCuotasPendientes([]);
 		setSelectedCursoId("");
 		setPaymentMethod("");
 		setAllowException(false);
 		setErrorMsg(null);
-
+		setEditandoMonto(false);
+		setMontoEditado("");
 		if (preloadedDni) {
 			setDniSearch(preloadedDni);
 			searchByDni(preloadedDni);
@@ -209,16 +245,13 @@ export default function RegistrarCuotaModal({
 		}
 	}, [isOpen, preloadedDni]);
 
-	// Resetea excepción si cambia la cuota a cobrar
+	// Resetea descuento y excepción al cambiar de cuota
 	useEffect(() => {
 		setAllowException(false);
+		setEditandoMonto(false);
+		setMontoEditado("");
 	}, [cuotaACobrar?.id]);
 
-	// ── Búsqueda: una sola query a Cuotas por alumnoDni ─────────────────────
-	//
-	// Ya no necesitamos ir a Users ni a Hijos. Toda la info del alumno
-	// (nombre, tipo, cursos) está denormalizada en los documentos de Cuotas.
-	// ────────────────────────────────────────────────────────────────────────
 	const searchByDni = async (dni: string) => {
 		setIsSearching(true);
 		setErrorMsg(null);
@@ -227,8 +260,6 @@ export default function RegistrarCuotaModal({
 		setSelectedCursoId("");
 
 		try {
-			// Traemos TODAS las cuotas del alumno (cualquier estado)
-			// para poder determinar si existe y qué cursos tiene
 			const snapTodas = await getDocs(
 				query(collection(db, "Cuotas"), where("alumnoDni", "==", dni)),
 			);
@@ -240,13 +271,11 @@ export default function RegistrarCuotaModal({
 				return;
 			}
 
-			// Extraemos info del alumno de la primera cuota encontrada
 			const primerDoc = snapTodas.docs[0].data();
 			const cursosMap: Record<string, string> = {};
 
 			snapTodas.docs.forEach((d) => {
 				const data = d.data();
-				// Construimos el mapa cursoId → cursoNombre
 				if (data.cursoId && data.cursoNombre) {
 					cursosMap[data.cursoId] = data.cursoNombre;
 				}
@@ -260,16 +289,12 @@ export default function RegistrarCuotaModal({
 				cursos: cursosMap,
 			});
 
-			// Filtramos solo las pendientes para el cobro
 			const pendientes = snapTodas.docs
 				.filter((d) => d.data().estado === "Pendiente")
 				.map(mapDocToCuota);
 
 			setTodasCuotasPendientes(pendientes);
-
-			// Seleccionamos automáticamente el primer curso del mapa
-			const primerCursoId = Object.keys(cursosMap)[0];
-			setSelectedCursoId(primerCursoId);
+			setSelectedCursoId(Object.keys(cursosMap)[0]);
 		} catch (error) {
 			console.error("Error al buscar alumno por DNI:", error);
 			setErrorMsg("Error de conexión al buscar el DNI.");
@@ -286,7 +311,25 @@ export default function RegistrarCuotaModal({
 		searchByDni(dniSearch.trim());
 	};
 
-	// ── Registrar pago ───────────────────────────────────────────────────────
+	const handleAplicarMonto = () => {
+		const valor = parseFloat(montoEditado);
+		if (isNaN(valor) || valor <= 0) {
+			setErrorMsg("Ingresá un monto válido mayor a cero.");
+			return;
+		}
+		if (valor > montoBase) {
+			setErrorMsg("El monto editado no puede ser mayor al monto original.");
+			return;
+		}
+		setErrorMsg(null);
+		setEditandoMonto(false);
+	};
+
+	const handleCancelarEdicion = () => {
+		setMontoEditado("");
+		setEditandoMonto(false);
+	};
+
 	const handleRegistrarPago = async () => {
 		if (!paymentMethod) {
 			setErrorMsg("Por favor, seleccioná un método de pago.");
@@ -294,16 +337,29 @@ export default function RegistrarCuotaModal({
 		}
 		if (!cuotaACobrar) return;
 
+		const montoACobrar = descuentoAplicado
+			? parseFloat(montoEditado)
+			: montoBase;
+
 		setIsLoading(true);
 		setErrorMsg(null);
 
 		try {
-			// Siempre actualizamos la cuota más antigua del curso (orden forzado)
 			await updateDoc(doc(db, "Cuotas", cuotaACobrar.id), {
 				estado: "Pagado",
 				fechaPago: serverTimestamp(),
 				metodoPago: paymentMethod,
-				montoPagado: montoCobrar,
+				montoPagado: montoACobrar,
+				// ── Campos de descuento ──────────────────────────────────────
+				// Solo se guardan cuando realmente se aplicó un descuento,
+				// así queda trazabilidad completa en la BD.
+				...(descuentoAplicado && {
+					descuentoAplicado: true,
+					montoOriginal: montoBase,
+					montoDescuento,
+					porcentajeDescuento,
+				}),
+				// ────────────────────────────────────────────────────────────
 				actualizadoEn: serverTimestamp(),
 			});
 
@@ -320,6 +376,7 @@ export default function RegistrarCuotaModal({
 	if (!isOpen) return null;
 
 	const cursosIds = alumnoInfo ? Object.keys(alumnoInfo.cursos) : [];
+	const montoMostrar = descuentoAplicado ? parseFloat(montoEditado) : montoBase;
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -337,7 +394,7 @@ export default function RegistrarCuotaModal({
 				</div>
 
 				<div className="p-6 space-y-6 overflow-y-auto">
-					{/* ── Búsqueda por DNI ── */}
+					{/* Búsqueda por DNI */}
 					<div className="space-y-2">
 						<label className="text-sm font-semibold text-gray-700">
 							Buscar Alumno por DNI
@@ -368,7 +425,7 @@ export default function RegistrarCuotaModal({
 						</div>
 					</div>
 
-					{/* ── Resultado ── */}
+					{/* Resultado */}
 					{alumnoInfo && (
 						<div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
 							{/* Card alumno */}
@@ -391,7 +448,7 @@ export default function RegistrarCuotaModal({
 								</div>
 							</div>
 
-							{/* Selector de curso (solo si tiene más de uno) */}
+							{/* Selector de curso */}
 							<div className="space-y-2">
 								<label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
 									<BookOpen className="w-4 h-4" /> Curso
@@ -402,6 +459,8 @@ export default function RegistrarCuotaModal({
 										onChange={(e) => {
 											setSelectedCursoId(e.target.value);
 											setPaymentMethod("");
+											setMontoEditado("");
+											setEditandoMonto(false);
 										}}
 										className="w-full px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 font-medium"
 									>
@@ -418,7 +477,7 @@ export default function RegistrarCuotaModal({
 								)}
 							</div>
 
-							{/* ── Estado de cuotas del curso seleccionado ── */}
+							{/* Estado de cuotas */}
 							{cuotasPendientesCurso.length === 0 ? (
 								<div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm flex items-center gap-2">
 									<CheckCircle className="w-4 h-4" />
@@ -426,7 +485,7 @@ export default function RegistrarCuotaModal({
 								</div>
 							) : (
 								<>
-									{/* Resumen de deuda si hay más de una cuota atrasada */}
+									{/* Resumen de deuda */}
 									{cuotasEnDeuda.length > 0 && (
 										<div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
 											<div className="flex items-start gap-2">
@@ -532,28 +591,132 @@ export default function RegistrarCuotaModal({
 										</div>
 									)}
 
-									{/* Monto a cobrar */}
-									<div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between">
-										<div className="flex items-center gap-2">
-											<div className="p-2 bg-green-100 rounded-lg">
-												<DollarSign className="w-5 h-5 text-green-700" />
+									{/* ── Monto a cobrar con opción de descuento ── */}
+									<div className="space-y-2">
+										<div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+											{/* Fila principal: ícono + monto + botón editar */}
+											<div className="flex items-center justify-between">
+												<div className="flex items-center gap-2">
+													<div className="p-2 bg-green-100 rounded-lg shrink-0">
+														<DollarSign className="w-5 h-5 text-green-700" />
+													</div>
+													<div>
+														<p className="text-sm font-medium text-gray-500">
+															Monto a Cobrar
+														</p>
+														<div className="flex items-center gap-2">
+															<p
+																className={`text-lg font-bold ${descuentoAplicado ? "text-green-600" : "text-[#252d62]"}`}
+															>
+																{formatCurrency(montoMostrar)}
+															</p>
+															{descuentoAplicado && (
+																<span className="text-xs text-gray-400 line-through">
+																	{formatCurrency(montoBase)}
+																</span>
+															)}
+														</div>
+													</div>
+												</div>
+
+												{/* Botón para editar o revertir */}
+												{!editandoMonto ? (
+													<button
+														onClick={() => {
+															setMontoEditado(
+																descuentoAplicado
+																	? montoEditado
+																	: String(montoBase),
+															);
+															setEditandoMonto(true);
+														}}
+														className="flex items-center gap-1.5 text-xs font-semibold text-[#252d62] hover:text-[#EE1120] border border-gray-200 hover:border-[#EE1120] px-2.5 py-1.5 rounded-lg transition-colors"
+													>
+														<Pencil className="w-3 h-3" />
+														{descuentoAplicado
+															? "Editar descuento"
+															: "Aplicar descuento"}
+													</button>
+												) : (
+													<button
+														onClick={handleCancelarEdicion}
+														className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-600 border border-gray-200 px-2.5 py-1.5 rounded-lg transition-colors"
+													>
+														<RotateCcw className="w-3 h-3" />
+														Cancelar
+													</button>
+												)}
 											</div>
-											<div>
-												<p className="text-sm font-medium text-gray-500">
-													Monto a Cobrar
+
+											{/* Detalle del criterio base */}
+											{!editandoMonto && (
+												<p className="text-[11px] text-gray-400">
+													{resolverTextoCobro(cuotaACobrar)}
 												</p>
-												<p className="text-lg font-bold text-[#252d62]">
-													{formatCurrency(montoCobrar)}
-												</p>
-											</div>
+											)}
+
+											{/* Input de edición de monto */}
+											{editandoMonto && (
+												<div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+													<p className="text-xs text-gray-500">
+														Monto original:{" "}
+														<span className="font-semibold">
+															{formatCurrency(montoBase)}
+														</span>
+														. Ingresá el monto con descuento:
+													</p>
+													<div className="flex gap-2">
+														<div className="relative flex-1">
+															<span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-sm">
+																$
+															</span>
+															<input
+																ref={inputMontoRef}
+																type="number"
+																min={1}
+																max={montoBase}
+																value={montoEditado}
+																onChange={(e) =>
+																	setMontoEditado(e.target.value)
+																}
+																onKeyDown={(e) =>
+																	e.key === "Enter" && handleAplicarMonto()
+																}
+																className="w-full pl-7 pr-3 py-2 border border-[#252d62] rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#252d62]/20"
+																placeholder={String(montoBase)}
+															/>
+														</div>
+														<Button
+															onClick={handleAplicarMonto}
+															className="bg-[#252d62] hover:bg-[#1a2046] text-white rounded-lg text-sm px-3"
+														>
+															Aplicar
+														</Button>
+													</div>
+												</div>
+											)}
+
+											{/* Badge de descuento aplicado */}
+											{descuentoAplicado && !editandoMonto && (
+												<div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+													<Tag className="w-3.5 h-3.5 text-green-600 shrink-0" />
+													<p className="text-xs text-green-700 font-medium">
+														Descuento aplicado: {formatCurrency(montoDescuento)}{" "}
+														({porcentajeDescuento}% off)
+													</p>
+													<button
+														onClick={() => {
+															setMontoEditado("");
+															setEditandoMonto(false);
+														}}
+														className="ml-auto text-green-500 hover:text-green-700 transition-colors"
+														title="Quitar descuento"
+													>
+														<X className="w-3.5 h-3.5" />
+													</button>
+												</div>
+											)}
 										</div>
-										<p className="text-[11px] text-gray-400 text-right max-w-[120px]">
-											{cuotaACobrar.esPrimerMes
-												? "Monto de primer mes"
-												: new Date().getDate() <= 10
-													? "Cobro del 1 al 10"
-													: "Cobro del 11 en adelante"}
-										</p>
 									</div>
 
 									{/* Método de pago */}
@@ -582,7 +745,7 @@ export default function RegistrarCuotaModal({
 					)}
 				</div>
 
-				{/* Mensaje de error */}
+				{/* Error */}
 				{errorMsg && (
 					<div className="mx-6 mb-2 flex items-start gap-3 p-3 bg-red-50 text-red-700 rounded-lg text-sm border border-red-100">
 						<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -607,6 +770,7 @@ export default function RegistrarCuotaModal({
 							!cuotaACobrar ||
 							!paymentMethod ||
 							isSearching ||
+							editandoMonto || // bloqueamos si el input está abierto pero no se aplicó
 							(isFutureMonthWarning && !allowException)
 						}
 						className="bg-[#252d62] hover:bg-[#1a2046] text-white rounded-xl flex items-center gap-2"

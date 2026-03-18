@@ -14,11 +14,13 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseConfig";
 
 export interface AdminData {
+	uid: string;
 	email: string;
 	rol: string;
 	nombre: string;
+	esDirector?: boolean;
+	activo?: boolean;
 }
-
 interface AdminAuthContextType {
 	adminUser: User | null;
 	adminData: AdminData | null;
@@ -47,11 +49,19 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 				const adminDocSnap = await getDoc(adminDocRef);
 
 				if (adminDocSnap.exists()) {
+					const data = adminDocSnap.data();
+
+					// Verificar si la cuenta está inhabilitada
+					if (data.activo === false) {
+						await signOut(auth);
+						setAdminUser(null);
+						setAdminData(null);
+						setIsLoading(false);
+						return;
+					}
+
 					setAdminUser(currentUser);
-					setAdminData(adminDocSnap.data() as AdminData);
-				} else {
-					setAdminUser(null);
-					setAdminData(null);
+					setAdminData({ uid: currentUser.uid, ...data } as AdminData);
 				}
 			} else {
 				setAdminUser(null);
@@ -68,13 +78,26 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 		pass: string,
 		rememberMe: boolean,
 	) => {
-		console.log("INICIAR SESION");
 		const persistenceType = rememberMe
 			? browserLocalPersistence
 			: browserSessionPersistence;
 		await setPersistence(auth, persistenceType);
 
-		await signInWithEmailAndPassword(auth, email, pass);
+		const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+
+		// ✅ Verificar activo ANTES de resolver
+		const adminDocRef = doc(db, "Admins", userCredential.user.uid);
+		const adminDocSnap = await getDoc(adminDocRef);
+
+		if (!adminDocSnap.exists()) {
+			await signOut(auth);
+			throw { code: "auth/not-admin" };
+		}
+
+		if (adminDocSnap.data().activo === false) {
+			await signOut(auth);
+			throw { code: "auth/account-disabled" };
+		}
 	};
 
 	const logoutAdmin = async () => {
