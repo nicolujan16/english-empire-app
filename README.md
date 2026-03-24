@@ -1,84 +1,85 @@
 # English Empire Institute - ERP & LMS Platform
 
-Plataforma integral de gestión educativa, administrativa y financiera desarrollada a medida para el instituto de idiomas **English Empire**. Este sistema centraliza la operativa diaria del instituto, ofreciendo portales dedicados para la administración, el equipo docente y los alumnos/tutores.
+Comprehensive educational, administrative, and financial management platform custom-developed for the **English Empire** language institute. This system centralizes the institute's daily operations, offering dedicated portals for administration, teaching staff, and students/guardians.
 
-## 🚀 Características Principales
+## 🚀 Key Features
 
-El sistema está dividido en tres ecosistemas principales con Control de Acceso Basado en Roles (RBAC):
+The system is divided into three main ecosystems with Role-Based Access Control (RBAC):
 
-### 🛡️ Portal de Administración
-- **Gestión Académica:** ABM de cursos, control de cupos, rangos de edades, horarios dinámicos y categorización.
-- **Gestión de Usuarios:** Administración de alumnos titulares y menores a cargo (Grupo Familiar).
-- **Módulo Financiero Core:** - Generación automática de cuotas mensuales.
-  - Gestión de pagos manuales, ingresos especiales y egresos con soporte para **pagos divididos (Split Payments)**.
-  - Sistema avanzado de **Etiquetas de Descuento** (ej. Becas, Hermanos, Convenios) con cálculo inteligente de máximo beneficio.
-- **Gestión Docente:** Alta de profesores y asignación/desasignación de cursos en tiempo real.
+### 🛡️ Admin Portal
+- **Academic Management:** Course CRUD, capacity control, age ranges, dynamic scheduling, and categorization.
+- **User Management:** Administration of primary students and dependents (Family Groups).
+- **Core Financial Module:**
+  - Automatic generation of monthly tuition fees.
+  - Management of manual payments, special incomes, and expenses with support for **Split Payments**.
+  - Advanced **Discount Tags** system (e.g., Scholarships, Siblings, Partnerships) with smart calculation for maximum benefit.
+- **Staff Management:** Teacher onboarding and real-time course assignment/unassignment.
 
-### 🧑‍🏫 Portal Docente
-- **Dashboard Personalizado:** Los profesores visualizan únicamente los cursos que tienen asignados.
-- **Registro de Clases:** Creación de instancias de clases por día (ID idempotente para evitar duplicados).
-- **Asistencia Digital:** Toma de lista interactiva con estados definidos (Presente, Tarde, Ausente) y guardado atómico.
+### 🧑‍🏫 Teacher Portal
+- **Custom Dashboard:** Teachers only have access to their assigned courses.
+- **Class Logging:** Creation of daily class instances (using idempotent IDs to prevent duplicates).
+- **Digital Attendance:** Interactive attendance tracking with predefined states (Present, Late, Absent) and atomic saving.
 
-### 🎓 Portal de Usuarios (Alumnos / Tutores)
-- **Inscripciones Inteligentes:** Proceso de inscripción automatizado que valida la edad del alumno y aplica descuentos correspondientes.
-- **Pasarela de Pagos:** Integración completa con **Mercado Pago** (Checkout Pro y Webhooks) para abonar inscripciones y cuotas.
-- **Historial Transparente:** Acceso a comprobantes de pago, estado de cuenta y visualización en tiempo real del registro de asistencia de los alumnos a cargo.
+### 🎓 User Portal (Students / Guardians)
+- **Smart Enrollments:** Automated enrollment process that validates the student's age and applies the corresponding discounts.
+- **Payment Gateway:** Full integration with **Mercado Pago** (Checkout Pro and Webhooks) for paying enrollments and monthly fees.
+- **Transparent History:** Access to payment receipts, account statements, and real-time viewing of their dependents' attendance records.
 
-## 💻 Stack Tecnológico
+## 💻 Tech Stack
 
 **Frontend:**
 - [Next.js](https://nextjs.org/) (App Router)
 - [React 18](https://react.dev/)
 - [Tailwind CSS](https://tailwindcss.com/)
-- [Framer Motion](https://www.framer.com/motion/) (Animaciones fluidas)
-- [Shadcn UI](https://ui.shadcn.com/) & [Lucide React](https://lucide.dev/) (Componentes e iconografía)
+- [Framer Motion](https://www.framer.com/motion/) (Fluid animations)
+- [Shadcn UI](https://ui.shadcn.com/) & [Lucide React](https://lucide.dev/) (Components and iconography)
 
-**Backend & Base de Datos:**
-- [Firebase Firestore](https://firebase.google.com/docs/firestore) (Base de datos NoSQL en tiempo real)
-- [Firebase Authentication](https://firebase.google.com/docs/auth) (Gestión de sesiones y seguridad)
-- [Firebase Storage](https://firebase.google.com/docs/storage) (Alojamiento de imágenes y comprobantes)
+**Backend & Database:**
+- [Firebase Firestore](https://firebase.google.com/docs/firestore) (Real-time NoSQL Database)
+- [Firebase Authentication](https://firebase.google.com/docs/auth) (Session management and security)
+- [Firebase Storage](https://firebase.google.com/docs/storage) (Image and receipt hosting)
 
-**Pagos & APIs:**
+**Payments & APIs:**
 - [Mercado Pago SDK](https://www.mercadopago.com.ar/developers/)
 
-## ⚙️ Arquitectura y Diseño
+## ⚙️ Architecture & Design
 
-- **Single Source of Truth:** Diseño de base de datos NoSQL optimizado para lecturas rápidas y consistencia de datos (ej. historiales de asistencia inmutables).
-- **Subdominios (Middleware):** Enrutamiento gestionado vía Middleware de Next.js para separar el tráfico entre `admin.`, `teachers.` y el dominio principal.
-- **UI/UX:** Interfaces diseñadas con foco en la usabilidad en dispositivos móviles (Mobile-first para el portal docente) y prevención de errores mediante tooltips y estados derivados.
+- **Single Source of Truth:** NoSQL database design optimized for fast reads and data consistency (e.g., immutable attendance histories).
+- **Subdomains (Middleware):** Routing managed via Next.js Middleware to seamlessly route traffic between `admin.`, `teachers.`, and the main domain.
+- **UI/UX:** Interfaces designed with a focus on mobile usability (Mobile-first approach for the teacher portal) and error prevention through tooltips and derived states.
 
-## 🛠️ Instalación y Configuración Local
+## 🛠️ Local Installation & Setup
 
-1. Clonar el repositorio:
+1. Clone the repository:
 ```bash
-git clone https://github.com/tu-usuario/english-empire.git
+git clone https://github.com/your-username/english-empire.git
 cd english-empire
 ```
 
-2. Instalar dependencias:
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Configurar las variables de entorno. Crea un archivo `.env.local` en la raíz del proyecto basado en el siguiente esquema:
+3. Configure environment variables. Create a `.env.local` file in the root of the project based on the following schema:
 ```env
-# Firebase Client (Públicas)
-NEXT_PUBLIC_FIREBASE_API_KEY=tu_api_key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=tu_auth_domain
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=tu_project_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=tu_storage_bucket
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=tu_messaging_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=tu_app_id
+# Firebase Client (Public)
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 
 # Mercado Pago
-MP_ACCESS_TOKEN=tu_access_token_de_produccion_o_prueba
+MP_ACCESS_TOKEN=your_production_or_test_access_token
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-WEBHOOK_URL=tu_url_de_ngrok_o_produccion
+WEBHOOK_URL=your_ngrok_or_production_url
 ```
 
-4. Iniciar el servidor de desarrollo:
+4. Start the development server:
 ```bash
 npm run dev
 ```
 
-El proyecto estará disponible en `http://localhost:3000`.
+The project will be available at `http://localhost:3000`.
