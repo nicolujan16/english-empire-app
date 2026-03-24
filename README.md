@@ -1,4 +1,4 @@
-# 🇬🇧 English Empire Institute - ERP & LMS Platform
+# English Empire Institute - ERP & LMS Platform
 
 Plataforma integral de gestión educativa, administrativa y financiera desarrollada a medida para el instituto de idiomas **English Empire**. Este sistema centraliza la operativa diaria del instituto, ofreciendo portales dedicados para la administración, el equipo docente y los alumnos/tutores.
 
