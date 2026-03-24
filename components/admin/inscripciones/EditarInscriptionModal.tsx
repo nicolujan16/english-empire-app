@@ -1,20 +1,36 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Save, Loader2, AlertCircle, CalendarClock } from "lucide-react";
+import {
+	X,
+	Save,
+	Loader2,
+	AlertCircle,
+	CalendarClock,
+	ShieldAlert,
+	Trash2,
+	Users,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
 	collection,
-	addDoc,
-	getDoc,
-	getDocs,
 	query,
 	where,
+	getDocs,
 	doc,
-	serverTimestamp,
+	getDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
+
+// ─── IMPORTAMOS EL SERVICIO DE CUOTAS ─────────────────────────────────────────
+import {
+	crearPrimeraCuota,
+	aplicarDescuentoAlGrupo,
+	calcularMontoPrimerMes,
+} from "@/lib/services/cuotasServices";
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 export type InscriptionStatus =
 	| "Confirmado"
@@ -28,7 +44,7 @@ export interface Inscription {
 	alumnoNombre: string;
 	alumnoDni: string;
 	alumnoId: string;
-	alumnoTipo: "adulto" | "menor";
+	alumnoTipo: "adulto" | "menor" | string;
 	cursoId: string;
 	cursoNombre: string;
 	cuota1a10: number;
@@ -37,6 +53,7 @@ export interface Inscription {
 	status: InscriptionStatus;
 	metodoPago?: string | null;
 	fechaPromesaPago?: string | null;
+	etiquetas?: string[];
 }
 
 interface EditInscriptionModalProps {
@@ -52,19 +69,110 @@ interface EditInscriptionModalProps {
 	) => Promise<void>;
 }
 
+interface GrupoFamiliarInfo {
+	aplica: boolean;
+	miembrosActivos: { nombre: string; cursoNombre: string }[];
+	tutorId: string;
+}
+
+const MESES_NOMBRES = [
+	"Enero",
+	"Febrero",
+	"Marzo",
+	"Abril",
+	"Mayo",
+	"Junio",
+	"Julio",
+	"Agosto",
+	"Septiembre",
+	"Octubre",
+	"Noviembre",
+	"Diciembre",
+];
+
+// ─── Helpers Locales ──────────────────────────────────────────────────────────
+
 const getTomorrow = () => {
 	const tomorrow = new Date();
 	tomorrow.setDate(tomorrow.getDate() + 1);
 	return tomorrow.toISOString().split("T")[0];
 };
 
-const calcularMontoPrimerMes = (
-	fechaConfirmacion: Date,
-	cuota1a10: number,
-): number => {
-	const dia = fechaConfirmacion.getDate();
-	return dia >= 15 ? cuota1a10 * 0.5 : cuota1a10;
-};
+async function getCursoNombre(cursoId: string): Promise<string> {
+	try {
+		const snap = await getDoc(doc(db, "Cursos", cursoId));
+		return snap.exists() ? (snap.data().nombre ?? cursoId) : cursoId;
+	} catch {
+		return cursoId;
+	}
+}
+
+// ─── Aviso de acción irreversible ─────────────────────────────────────────────
+
+function IrreversibleWarning({
+	type,
+	alumnoNombre,
+	cursoNombre,
+}: {
+	type: "confirmar" | "cancelar";
+	alumnoNombre: string;
+	cursoNombre: string;
+}) {
+	const isConfirm = type === "confirmar";
+	return (
+		<motion.div
+			initial={{ opacity: 0, y: -6 }}
+			animate={{ opacity: 1, y: 0 }}
+			className={`rounded-xl border p-4 mb-4 ${isConfirm ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
+		>
+			<div className="flex items-start gap-3">
+				<div
+					className={`shrink-0 mt-0.5 ${isConfirm ? "text-green-600" : "text-red-600"}`}
+				>
+					{isConfirm ? (
+						<ShieldAlert className="w-5 h-5" />
+					) : (
+						<Trash2 className="w-5 h-5" />
+					)}
+				</div>
+				<div>
+					<p
+						className={`text-sm font-bold mb-1 ${isConfirm ? "text-green-800" : "text-red-800"}`}
+					>
+						{isConfirm
+							? "⚠️ Esta acción no se puede deshacer"
+							: "🗑️ Esta inscripción se eliminará"}
+					</p>
+					<p
+						className={`text-xs leading-relaxed ${isConfirm ? "text-green-700" : "text-red-700"}`}
+					>
+						{isConfirm ? (
+							<>
+								Estás por <strong>confirmar</strong> la inscripción de{" "}
+								<strong>{alumnoNombre}</strong> al curso{" "}
+								<strong>{cursoNombre}</strong>. Una vez confirmada, la
+								inscripción quedará bloqueada y{" "}
+								<strong>no podrá modificarse ni eliminarse</strong>. Verificá el
+								método de pago y los datos antes de continuar.
+							</>
+						) : (
+							<>
+								Estás por <strong>cancelar</strong> la inscripción de{" "}
+								<strong>{alumnoNombre}</strong> al curso{" "}
+								<strong>{cursoNombre}</strong>. Esta acción{" "}
+								<strong>eliminará permanentemente</strong> el registro del
+								sistema y quitará el curso del perfil del alumno. No hay forma
+								de recuperarlo.
+							</>
+						)}
+					</p>
+				</div>
+			</div>
+		</motion.div>
+	);
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function EditInscriptionModal({
 	isOpen,
@@ -87,6 +195,20 @@ export default function EditInscriptionModal({
 		fechaPromesaPago: "",
 	});
 
+	const [grupoFamiliar, setGrupoFamiliar] = useState<GrupoFamiliarInfo>({
+		aplica: false,
+		miembrosActivos: [],
+		tutorId: "",
+	});
+	const [isCheckingGrupo, setIsCheckingGrupo] = useState(false);
+	const [aplicarDescuentoMesActual, setAplicarDescuentoMesActual] =
+		useState(true);
+
+	// Variable de estado para guardar la información del curso desde Firebase (necesaria para `finMes`)
+	const [cursoDetails, setCursoDetails] = useState<{ finMes: number } | null>(
+		null,
+	);
+
 	useEffect(() => {
 		if (inscriptionToEdit && isOpen) {
 			setFormData({
@@ -96,108 +218,107 @@ export default function EditInscriptionModal({
 				fechaPromesaPago: inscriptionToEdit.fechaPromesaPago || "",
 			});
 			setErrorMsg("");
+			setGrupoFamiliar({ aplica: false, miembrosActivos: [], tutorId: "" });
+			setAplicarDescuentoMesActual(true);
+
+			// Vamos a buscar los detalles del curso (como el `finMes`) a Firebase
+			const fetchCursoDetails = async () => {
+				try {
+					const snap = await getDoc(
+						doc(db, "Cursos", inscriptionToEdit.cursoId),
+					);
+					if (snap.exists())
+						setCursoDetails({ finMes: snap.data().finMes ?? 12 });
+				} catch (e) {
+					console.error("Error fetching curso:", e);
+				}
+			};
+			fetchCursoDetails();
 		}
 	}, [inscriptionToEdit, isOpen]);
 
-	const crearPrimeraCuota = async (inscripcion: Inscription) => {
-		const cuotasRef = collection(db, "Cuotas");
+	const detectarGrupoFamiliar = async (inscripcion: Inscription) => {
+		setIsCheckingGrupo(true);
+		try {
+			const miembrosActivos: { nombre: string; cursoNombre: string }[] = [];
+			let tutorId = inscripcion.alumnoId;
+			const esMenor =
+				inscripcion.alumnoTipo === "menor" ||
+				(inscripcion.alumnoTipo as string) === "Menor";
 
-		// Idempotencia: no crear si ya existe la primera cuota
-		const qExistente = query(
-			cuotasRef,
-			where("inscripcionId", "==", inscripcion.id),
-			where("esPrimerMes", "==", true),
-		);
-		const snap = await getDocs(qExistente);
-
-		if (!snap.empty) {
-			console.warn(
-				`Primera cuota ya existente para inscripción ${inscripcion.id}. Se omite.`,
-			);
-			return;
-		}
-
-		const hoy = new Date();
-		const dia = hoy.getDate();
-		const montoPrimerMes = calcularMontoPrimerMes(hoy, inscripcion.cuota1a10);
-
-		const alumnoTipoNormalizado: "adulto" | "menor" =
-			inscripcion.alumnoTipo === "adulto" ||
-			(inscripcion.alumnoTipo as string) === "Titular"
-				? "adulto"
-				: "menor";
-
-		const datosComunesAlumno = {
-			inscripcionId: inscripcion.id,
-			alumnoId: inscripcion.alumnoId,
-			alumnoTipo: alumnoTipoNormalizado,
-			alumnoNombre: inscripcion.alumnoNombre,
-			alumnoDni: inscripcion.alumnoDni,
-			cursoId: inscripcion.cursoId,
-			cursoNombre: inscripcion.cursoNombre,
-			cuota1a10: inscripcion.cuota1a10,
-			cuota11enAdelante: inscripcion.cuota11enAdelante,
-			estado: "Pendiente",
-			fechaPago: null,
-			montoPagado: null,
-			metodoPago: null,
-		};
-
-		// ── 1. Cuota del mes actual ───────────────────────────────────────────
-		await addDoc(cuotasRef, {
-			...datosComunesAlumno,
-			mes: hoy.getMonth() + 1,
-			anio: hoy.getFullYear(),
-			esPrimerMes: true,
-			montoPrimerMes,
-			creadoEn: serverTimestamp(),
-			actualizadoEn: serverTimestamp(),
-		});
-
-		// ── 2. Si día >= 20, la CF ya corrió → crear cuota del mes siguiente ─
-		if (dia >= 20) {
-			const fechaSiguiente = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
-			const mesSiguiente = fechaSiguiente.getMonth() + 1;
-			const anioSiguiente = fechaSiguiente.getFullYear();
-
-			// Idempotencia para el mes siguiente
-			const qSiguiente = query(
-				cuotasRef,
-				where("inscripcionId", "==", inscripcion.id),
-				where("mes", "==", mesSiguiente),
-				where("anio", "==", anioSiguiente),
-			);
-			const snapSiguiente = await getDocs(qSiguiente);
-
-			if (!snapSiguiente.empty) {
-				console.warn(
-					`Cuota de ${mesSiguiente}/${anioSiguiente} ya existe. Se omite.`,
+			if (!esMenor) {
+				const hijosSnap = await getDocs(
+					query(
+						collection(db, "Hijos"),
+						where("tutorId", "==", inscripcion.alumnoId),
+					),
 				);
-				return;
+				for (const h of hijosSnap.docs) {
+					const data = h.data();
+					if ((data.cursos ?? []).length > 0)
+						miembrosActivos.push({
+							nombre: `${data.nombre} ${data.apellido}`,
+							cursoNombre: await getCursoNombre(data.cursos[0]),
+						});
+				}
+			} else {
+				const hijoSnap = await getDoc(doc(db, "Hijos", inscripcion.alumnoId));
+				if (hijoSnap.exists())
+					tutorId = hijoSnap.data().tutorId ?? inscripcion.alumnoId;
+
+				const tutorSnap = await getDoc(doc(db, "Users", tutorId));
+				if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
+					const td = tutorSnap.data();
+					miembrosActivos.push({
+						nombre: `${td.nombre} ${td.apellido}`,
+						cursoNombre: await getCursoNombre(td.cursos[0]),
+					});
+				}
+
+				const hermanosSnap = await getDocs(
+					query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
+				);
+				for (const h of hermanosSnap.docs) {
+					if (h.id === inscripcion.alumnoId) continue;
+					const data = h.data();
+					if ((data.cursos ?? []).length > 0)
+						miembrosActivos.push({
+							nombre: `${data.nombre} ${data.apellido}`,
+							cursoNombre: await getCursoNombre(data.cursos[0]),
+						});
+				}
 			}
 
-			// Necesitamos finMes del curso para no crear cuotas fuera de rango
-			const cursoSnap = await getDoc(doc(db, "Cursos", inscripcion.cursoId));
-			const finMes: number = cursoSnap.exists()
-				? (cursoSnap.data().finMes ?? 12)
-				: 12;
-
-			if (mesSiguiente <= finMes) {
-				await addDoc(cuotasRef, {
-					...datosComunesAlumno,
-					mes: mesSiguiente,
-					anio: anioSiguiente,
-					esPrimerMes: false,
-					montoPrimerMes: null,
-					creadoEn: serverTimestamp(),
-					actualizadoEn: serverTimestamp(),
-				});
-				console.log(
-					`✅ Cuota adicional creada para ${mesSiguiente}/${anioSiguiente} (inscripción post-CF)`,
-				);
-			}
+			setGrupoFamiliar({
+				aplica: miembrosActivos.length > 0,
+				miembrosActivos,
+				tutorId,
+			});
+		} catch (error) {
+			console.error("Error:", error);
+			setGrupoFamiliar({
+				aplica: false,
+				miembrosActivos: [],
+				tutorId: inscripcion.alumnoId,
+			});
+		} finally {
+			setIsCheckingGrupo(false);
 		}
 	};
+
+	useEffect(() => {
+		if (!inscriptionToEdit) return;
+		const vaAConfirmar =
+			inscriptionToEdit.status !== "Confirmado" &&
+			formData.status === "Confirmado";
+
+		if (vaAConfirmar) {
+			detectarGrupoFamiliar(inscriptionToEdit);
+		} else {
+			setGrupoFamiliar({ aplica: false, miembrosActivos: [], tutorId: "" });
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [formData.status]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -205,24 +326,18 @@ export default function EditInscriptionModal({
 		setErrorMsg("");
 
 		if (formData.status === "Confirmado" && !formData.metodoPago) {
-			setErrorMsg(
-				"Debes seleccionar un método de pago para confirmar la inscripción.",
-			);
+			setErrorMsg("Debes seleccionar un método de pago.");
 			return;
 		}
-
 		if (formData.status === "Pendiente" && !formData.fechaPromesaPago) {
-			setErrorMsg(
-				"Debes ingresar una fecha de promesa de pago para inscripciones pendientes.",
-			);
+			setErrorMsg("Debes ingresar una fecha de promesa.");
 			return;
 		}
-
 		if (
 			formData.status === "Pendiente" &&
 			formData.fechaPromesaPago < getTomorrow()
 		) {
-			setErrorMsg("La fecha de promesa de pago debe ser a partir de mañana.");
+			setErrorMsg("La fecha debe ser a partir de mañana.");
 			return;
 		}
 
@@ -231,13 +346,10 @@ export default function EditInscriptionModal({
 			let finalmetodoPago = null;
 			let finalFechaPromesa = null;
 
-			if (formData.status === "Confirmado") {
+			if (formData.status === "Confirmado")
 				finalmetodoPago = formData.metodoPago;
-				finalFechaPromesa = null;
-			} else if (formData.status === "Pendiente") {
-				finalmetodoPago = null;
+			else if (formData.status === "Pendiente")
 				finalFechaPromesa = formData.fechaPromesaPago;
-			}
 
 			await onSave(
 				inscriptionToEdit.id,
@@ -252,12 +364,52 @@ export default function EditInscriptionModal({
 				formData.status === "Confirmado";
 
 			if (estaConfirmandoAhora) {
-				await crearPrimeraCuota(inscriptionToEdit);
+				const descuentos = grupoFamiliar.aplica
+					? [{ porcentaje: 10, detalle: "Grupo Familiar" }]
+					: [];
+
+				// ─── LLAMAMOS A LOS SERVICIOS CENTRALIZADOS ───
+
+				// Adaptamos los objetos para el servicio
+				const alumnoSrv = {
+					id: inscriptionToEdit.alumnoId,
+					dni: inscriptionToEdit.alumnoDni,
+					nombre: inscriptionToEdit.alumnoNombre,
+					apellido: "",
+					tipo: inscriptionToEdit.alumnoTipo,
+					etiquetas: inscriptionToEdit?.etiquetas,
+				};
+
+				const cursoSrv = {
+					id: inscriptionToEdit.cursoId,
+					nombre: inscriptionToEdit.cursoNombre,
+					cuota1a10: inscriptionToEdit.cuota1a10,
+					cuota11enAdelante: inscriptionToEdit.cuota11enAdelante,
+					finMes: cursoDetails?.finMes || 12, // Usamos el finMes recuperado
+				};
+
+				// Creamos la cuota
+				await crearPrimeraCuota(
+					inscriptionToEdit.id,
+					alumnoSrv,
+					cursoSrv,
+					descuentos,
+				);
+
+				// Aplicamos el descuento al grupo
+				if (grupoFamiliar.aplica) {
+					await aplicarDescuentoAlGrupo(
+						inscriptionToEdit.alumnoId,
+						inscriptionToEdit.alumnoTipo,
+						grupoFamiliar.tutorId,
+						aplicarDescuentoMesActual,
+					);
+				}
 			}
 
 			onClose();
 		} catch (error) {
-			console.error("Error al actualizar inscripción:", error);
+			console.error("Error al actualizar:", error);
 			setErrorMsg("Hubo un error al guardar los cambios en la base de datos.");
 		} finally {
 			setIsSubmitting(false);
@@ -271,6 +423,13 @@ export default function EditInscriptionModal({
 		inscriptionToEdit.cuota1a10 > 0
 			? calcularMontoPrimerMes(new Date(), inscriptionToEdit.cuota1a10)
 			: null;
+
+	const isConfirming =
+		inscriptionToEdit?.status !== "Confirmado" &&
+		formData.status === "Confirmado";
+	const isCancelling =
+		inscriptionToEdit?.status !== "Cancelado" &&
+		formData.status === "Cancelado";
 
 	return (
 		<AnimatePresence>
@@ -291,7 +450,6 @@ export default function EditInscriptionModal({
 							exit={{ opacity: 0, scale: 0.95, y: 20 }}
 							className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col"
 						>
-							{/* HEADER */}
 							<div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
 								<div>
 									<h2 className="text-xl font-bold text-[#252d62]">
@@ -310,10 +468,8 @@ export default function EditInscriptionModal({
 								</button>
 							</div>
 
-							{/* BODY */}
-							<div className="p-6">
-								{/* Datos de solo lectura */}
-								<div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-6">
+							<div className="p-6 overflow-y-auto max-h-[70vh]">
+								<div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-5">
 									<div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
 										<div>
 											<p className="text-gray-500 text-[11px] font-bold uppercase tracking-wider mb-0.5">
@@ -347,14 +503,72 @@ export default function EditInscriptionModal({
 												{inscriptionToEdit.metodoPago || "No especificado"}
 											</p>
 										</div>
-										<div className="col-span-2 pt-3 mt-1 border-t border-blue-200/60">
-											<p className="text-gray-400 text-[11px] flex items-center gap-1.5">
-												<AlertCircle className="w-3.5 h-3.5" /> Estos datos no
-												pueden modificarse desde aquí.
-											</p>
-										</div>
 									</div>
 								</div>
+
+								{isConfirming && (
+									<IrreversibleWarning
+										type="confirmar"
+										alumnoNombre={inscriptionToEdit.alumnoNombre}
+										cursoNombre={inscriptionToEdit.cursoNombre}
+									/>
+								)}
+								{isCancelling && (
+									<IrreversibleWarning
+										type="cancelar"
+										alumnoNombre={inscriptionToEdit.alumnoNombre}
+										cursoNombre={inscriptionToEdit.cursoNombre}
+									/>
+								)}
+
+								{isConfirming && (
+									<>
+										{isCheckingGrupo && (
+											<div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-50 border border-gray-200 p-3 rounded-lg mb-4">
+												<Loader2 className="w-4 h-4 animate-spin text-[#252d62]" />{" "}
+												Verificando beneficios del grupo familiar...
+											</div>
+										)}
+
+										{!isCheckingGrupo && grupoFamiliar.aplica && (
+											<motion.div
+												initial={{ opacity: 0, y: -6 }}
+												animate={{ opacity: 1, y: 0 }}
+												className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-3 mb-4"
+											>
+												<div className="flex items-start gap-2">
+													<Users className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+													<div>
+														<p className="text-sm font-bold text-emerald-800">
+															¡Descuento por Grupo Familiar disponible!
+														</p>
+														<p className="text-xs text-emerald-700 mt-0.5">
+															Al confirmar, todos recibirán un{" "}
+															<span className="font-bold">
+																10% de descuento
+															</span>{" "}
+															en sus cuotas.
+														</p>
+													</div>
+												</div>
+												<label className="flex items-center gap-2.5 cursor-pointer select-none border-t border-emerald-200 pt-2">
+													<input
+														type="checkbox"
+														checked={aplicarDescuentoMesActual}
+														onChange={(e) =>
+															setAplicarDescuentoMesActual(e.target.checked)
+														}
+														className="w-4 h-4 text-emerald-600 rounded border-emerald-300"
+													/>
+													<span className="text-xs font-semibold text-emerald-800">
+														Aplicar descuento en cuotas de{" "}
+														{MESES_NOMBRES[new Date().getMonth()]} (mes actual)
+													</span>
+												</label>
+											</motion.div>
+										)}
+									</>
+								)}
 
 								{errorMsg && (
 									<div className="mb-4 bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2 font-medium">
@@ -369,7 +583,6 @@ export default function EditInscriptionModal({
 									className="space-y-5"
 								>
 									<div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-										{/* Monto */}
 										<div>
 											<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
 												Monto Abonado / A Pagar
@@ -387,7 +600,6 @@ export default function EditInscriptionModal({
 											</div>
 										</div>
 
-										{/* Estado */}
 										<div>
 											<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
 												Estado de Inscripción
@@ -400,26 +612,31 @@ export default function EditInscriptionModal({
 													setFormData({
 														...formData,
 														status: e.target.value as InscriptionStatus,
+														metodoPago:
+															e.target.value !== "Confirmado"
+																? ""
+																: formData.metodoPago,
+														fechaPromesaPago:
+															e.target.value !== "Pendiente"
+																? ""
+																: formData.fechaPromesaPago,
 													})
 												}
-												className={`block w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 transition-colors font-bold
-                          ${formData.status === "Confirmado" ? "border-green-200 bg-green-50 text-green-700 focus:ring-green-500/20 focus:border-green-500" : ""}
-                          ${formData.status === "Pendiente" ? "border-yellow-200 bg-yellow-50 text-yellow-700 focus:ring-yellow-500/20 focus:border-yellow-500" : ""}
-                          ${formData.status === "Cancelado" ? "border-red-200 bg-red-100 text-red-700 focus:ring-red-500/20 focus:border-red-500" : ""}
-                        `}
+												className={`block w-full px-3 py-2.5 border rounded-lg text-sm font-bold ${formData.status === "Confirmado" ? "border-green-200 bg-green-50 text-green-700" : ""} ${formData.status === "Pendiente" ? "border-yellow-200 bg-yellow-50 text-yellow-700" : ""} ${formData.status === "Cancelado" ? "border-red-200 bg-red-100 text-red-700" : ""}`}
 											>
 												<option value="Pendiente">🟡 Pendiente</option>
 												<option value="Confirmado">🟢 Confirmado</option>
-												<option value="Cancelado">🔴 Cancelado</option>
+												<option value="Cancelado">
+													🔴 Cancelar y eliminar
+												</option>
 											</select>
 										</div>
 
-										{/* Método de pago (si Confirmado) */}
 										{formData.status === "Confirmado" && (
-											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300 space-y-3">
+											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in space-y-3">
 												<div>
 													<label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-														Método de Pago Utilizado
+														Método de Pago
 													</label>
 													<select
 														required
@@ -431,7 +648,7 @@ export default function EditInscriptionModal({
 																metodoPago: e.target.value,
 															})
 														}
-														className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-white transition-colors"
+														className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white"
 													>
 														<option value="" disabled>
 															-- Seleccione un método --
@@ -445,14 +662,8 @@ export default function EditInscriptionModal({
 														</option>
 													</select>
 												</div>
-
-												{/* Preview primera cuota */}
 												{previewMontoPrimerMes !== null && (
-													<motion.div
-														initial={{ opacity: 0, height: 0 }}
-														animate={{ opacity: 1, height: "auto" }}
-														className="bg-blue-50 border border-blue-200 p-3 rounded-lg overflow-hidden"
-													>
+													<div className="bg-blue-50 border border-blue-200 p-3 rounded-lg mt-3">
 														<p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-1.5">
 															Primera Cuota a Generar
 														</p>
@@ -462,31 +673,40 @@ export default function EditInscriptionModal({
 																	? "Inscripción desde el día 15 → 50%"
 																	: "Inscripción antes del día 15 → 100%"}
 															</span>
-															<span className="font-bold text-blue-800 text-base">
-																${previewMontoPrimerMes.toLocaleString("es-AR")}
-															</span>
+															{grupoFamiliar.aplica ? (
+																<div className="flex flex-col items-end">
+																	<span className="font-bold text-blue-800 text-base">
+																		$
+																		{Math.round(
+																			previewMontoPrimerMes * 0.9,
+																		).toLocaleString("es-AR")}
+																	</span>
+																	<span className="text-[10px] text-blue-400 line-through">
+																		$
+																		{previewMontoPrimerMes.toLocaleString(
+																			"es-AR",
+																		)}
+																	</span>
+																</div>
+															) : (
+																<span className="font-bold text-blue-800 text-base">
+																	$
+																	{previewMontoPrimerMes.toLocaleString(
+																		"es-AR",
+																	)}
+																</span>
+															)}
 														</div>
-														<p className="text-[11px] text-blue-400 mt-1">
-															Se generará automáticamente al guardar.
-														</p>
-														{new Date().getDate() >= 20 && (
-															<p className="text-[11px] text-blue-500 font-medium mt-1.5 border-t border-blue-200 pt-1.5">
-																⚡ Se generará también la cuota del mes
-																siguiente (la Cloud Function ya corrió este
-																mes).
-															</p>
-														)}
-													</motion.div>
+													</div>
 												)}
 											</div>
 										)}
 
-										{/* Fecha promesa (si Pendiente) */}
 										{formData.status === "Pendiente" && (
-											<div className="col-span-1 sm:col-span-2 mt-2 animate-in fade-in slide-in-from-top-2 duration-300 bg-yellow-50/50 p-4 border border-yellow-200 rounded-xl">
+											<div className="col-span-1 sm:col-span-2 mt-2 bg-yellow-50/50 p-4 border border-yellow-200 rounded-xl">
 												<label className="block text-xs font-bold text-yellow-800 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-													<CalendarClock className="w-4 h-4" />
-													Fecha Promesa de Pago
+													<CalendarClock className="w-4 h-4" /> Fecha Promesa de
+													Pago
 												</label>
 												<input
 													type="date"
@@ -500,7 +720,7 @@ export default function EditInscriptionModal({
 															fechaPromesaPago: e.target.value,
 														})
 													}
-													className="block w-full px-3 py-2.5 border border-yellow-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500/20 focus:border-yellow-500 bg-white transition-colors"
+													className="block w-full px-3 py-2.5 border border-yellow-300 rounded-lg text-sm bg-white"
 												/>
 											</div>
 										)}
@@ -508,29 +728,35 @@ export default function EditInscriptionModal({
 								</form>
 							</div>
 
-							{/* FOOTER */}
 							<div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
 								<Button
 									type="button"
 									variant="outline"
 									onClick={onClose}
 									disabled={isSubmitting}
-									className="border-gray-300 text-gray-700 hover:bg-gray-100"
+									className="border-gray-300 text-gray-700"
 								>
 									Cancelar
 								</Button>
 								<Button
 									type="submit"
 									form="edit-inscription-form"
-									disabled={isSubmitting}
-									className="bg-[#252d62] hover:bg-[#1d2355] text-white shadow-md min-w-[140px] flex items-center justify-center"
+									disabled={isSubmitting || (isConfirming && isCheckingGrupo)}
+									className={`shadow-md min-w-[160px] text-white ${isCancelling ? "bg-red-600" : isConfirming ? "bg-green-600" : "bg-[#252d62]"}`}
 								>
-									{isSubmitting ? (
+									{isSubmitting || (isCheckingGrupo && isConfirming) ? (
 										<Loader2 className="w-4 h-4 animate-spin" />
+									) : isCancelling ? (
+										<>
+											<Trash2 className="w-4 h-4 mr-2" /> Eliminar
+										</>
+									) : isConfirming ? (
+										<>
+											<ShieldAlert className="w-4 h-4 mr-2" /> Confirmar
+										</>
 									) : (
 										<>
-											<Save className="w-4 h-4 mr-2" />
-											Guardar
+											<Save className="w-4 h-4 mr-2" /> Guardar
 										</>
 									)}
 								</Button>

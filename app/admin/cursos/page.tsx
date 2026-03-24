@@ -62,7 +62,7 @@ export default function AdminCoursesPage() {
 						nombre: data.nombre || "",
 						categoria: data.categoria || "",
 						descripcion: data.descripcion || "",
-						edades: data.edades || [0, 99],
+						edades: data.edades || [0, 999], // Por defecto usamos el valor sentinela
 						horarios: data.horarios || {},
 						imgURL: data.imgURL || cursoDefaultIMG.src,
 						cuota: data.cuota || 0,
@@ -201,8 +201,12 @@ export default function AdminCoursesPage() {
 									<div className="space-y-2 mt-4">
 										<div className="flex items-center text-gray-600 text-sm">
 											<Users className="w-4 h-4 mr-2 text-gray-400" />
+											{/* 🚀 EL CONDICIONAL MAGICO DE LAS EDADES ACÁ */}
 											<span>
-												Edades: {course.edades[0]} a {course.edades[1]} años
+												Edades:{" "}
+												{course.edades[1] === 999
+													? `+${course.edades[0]} años`
+													: `${course.edades[0]} a ${course.edades[1]} años`}
 											</span>
 										</div>
 										<div className="flex items-center text-gray-600 text-sm">
@@ -242,7 +246,7 @@ export default function AdminCoursesPage() {
 						</motion.div>
 					))}
 
-					{courses.length === 0 && (
+					{courses.length === 0 && !isLoading && (
 						<div className="col-span-full py-12 text-center text-gray-500">
 							No hay cursos registrados.
 						</div>

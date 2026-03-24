@@ -8,7 +8,6 @@ import {
 	LayoutDashboard,
 	BookOpen,
 	Users,
-	// UserCheck
 	CreditCard,
 	Briefcase,
 	UserPlus2,
@@ -18,6 +17,7 @@ import {
 	MoveLeft,
 	TrendingUp,
 	TrendingDown,
+	Tags,
 } from "lucide-react";
 
 import {
@@ -47,15 +47,59 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 	const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
 	const menuItems = [
-		{ icon: LayoutDashboard, label: "Resumen", path: "/admin" },
-		{ icon: BookOpen, label: "Cursos", path: "/admin/cursos" },
-		{ icon: Briefcase, label: "Personal", path: "/admin/personal" },
-		{ icon: UserPlus2, label: "Inscripciones", path: "/admin/inscripciones" },
-		{ icon: CreditCard, label: "Cuotas", path: "/admin/cuotas" },
-		{ icon: Users, label: "Alumnos", path: "/admin/alumnos" },
-		{ icon: TrendingUp, label: "Ingresos", path: "/admin/ingresos" },
-		{ icon: TrendingDown, label: "Egresos", path: "/admin/egresos" },
+		{
+			icon: LayoutDashboard,
+			label: "Resumen",
+			path: "/admin",
+			adminOnly: true,
+		},
+		{ icon: BookOpen, label: "Cursos", path: "/admin/cursos", adminOnly: true },
+		{
+			icon: Briefcase,
+			label: "Personal",
+			path: "/admin/personal",
+			adminOnly: true,
+		},
+		{
+			icon: UserPlus2,
+			label: "Inscripciones",
+			path: "/admin/inscripciones",
+			adminOnly: false,
+		},
+		{
+			icon: CreditCard,
+			label: "Cuotas",
+			path: "/admin/cuotas",
+			adminOnly: false,
+		},
+		{
+			icon: Users,
+			label: "Usuarios",
+			path: "/admin/usuarios",
+			adminOnly: false,
+		},
+		{
+			icon: Tags,
+			label: "Etiquetas",
+			path: "/admin/etiquetas",
+			adminOnly: false,
+		},
+		{
+			icon: TrendingUp,
+			label: "Ingresos",
+			path: "/admin/ingresos",
+			adminOnly: false,
+		},
+		{
+			icon: TrendingDown,
+			label: "Egresos",
+			path: "/admin/egresos",
+			adminOnly: false,
+		},
 	];
+
+	const isAdmin = adminData?.rol === "admin";
+	const itemsVisibles = menuItems.filter((item) => !item.adminOnly || isAdmin);
 
 	const handleConfirmLogout = async () => {
 		try {
@@ -94,7 +138,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 
 			<nav className="pt-16 sm:pt-3 flex-1 py-4 px-3 overflow-y-auto min-h-0 sidebar-scroll">
 				<ul className="space-y-1.5 mb-2">
-					{menuItems.map((item, index) => {
+					{itemsVisibles.map((item, index) => {
 						const Icon = item.icon;
 						const isActive = pathname === item.path;
 
@@ -107,7 +151,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 							>
 								<Link
 									href={item.path}
-									onClick={() => setIsOpen(false)} // <-- Cerramos al hacer clic en móvil
+									onClick={() => setIsOpen(false)}
 									className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
 										isActive
 											? "bg-white/15 text-white shadow-sm"
@@ -126,7 +170,6 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 					})}
 				</ul>
 
-				{/* --- Tu diseño inferior original --- */}
 				<div className="w-full border-t border-white/10 py-2 shrink-0 mt-2">
 					<div className="pb-4">
 						<ul className="space-y-1.5">
@@ -137,7 +180,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 							>
 								<Link
 									href="/admin/configuracion"
-									onClick={() => setIsOpen(false)} // <-- Cerramos al hacer clic en móvil
+									onClick={() => setIsOpen(false)}
 									className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
 										pathname === "/admin/configuracion"
 											? "bg-white/15 text-white shadow-sm"

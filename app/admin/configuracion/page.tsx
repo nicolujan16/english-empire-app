@@ -11,12 +11,16 @@ import {
 	AlertCircle,
 	CheckCircle2,
 	ShieldCheck,
-	UserCog, // Icono para la contraseña actual
+	UserCog,
+	GraduationCap,
+	Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import AddNewAdmin from "@/components/admin/configuracion/AddNewAdmin";
 import AdminListModal from "@/components/admin/configuracion/AdminListModal";
+import AddNewTeacherModal from "@/components/admin/configuracion/AddNewTeacherModal";
+import TeacherListModal from "@/components/admin/configuracion/TeacherListModal";
 
 // --- FIREBASE ---
 import {
@@ -31,14 +35,20 @@ import { useAdminAuth } from "@/context/AdminAuthContext";
 export default function ConfiguracionPage() {
 	const { adminData } = useAdminAuth();
 
-	// Estados
+	// Estados de contraseña
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
+
+	// Modales de personal
 	const [isAddPersonalOpen, setIsAddPersonalOpen] = useState(false);
 	const [isAdminListOpen, setIsAdminListOpen] = useState(false);
 
-	// Estados para los ojos de la contraseña
+	// Modales de profesores (listos para conectar)
+	const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
+	const [isTeacherListOpen, setIsTeacherListOpen] = useState(false);
+
+	// Toggle visibilidad contraseñas
 	const [showCurrentPassword, setShowCurrentPassword] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -50,7 +60,6 @@ export default function ConfiguracionPage() {
 		e.preventDefault();
 		setMessage({ type: "", text: "" });
 
-		// Validaciones básicas de frontend
 		if (!currentPassword) {
 			setMessage({
 				type: "error",
@@ -86,33 +95,25 @@ export default function ConfiguracionPage() {
 			const auth = getAuth(app);
 			const user = auth.currentUser;
 
-			if (!user || !user.email) {
-				throw new Error("No_User");
-			}
+			if (!user || !user.email) throw new Error("No_User");
 
-			// 1. Re-autenticar al usuario para probar que la contraseña actual es correcta
 			const credential = EmailAuthProvider.credential(
 				user.email,
 				currentPassword,
 			);
 			await reauthenticateWithCredential(user, credential);
-
-			// 2. Si la re-autenticación es exitosa, actualizamos la contraseña
 			await updatePassword(user, newPassword);
 
 			setMessage({
 				type: "success",
 				text: "¡Tu contraseña ha sido actualizada exitosamente!",
 			});
-
-			// Limpiar el formulario
 			setCurrentPassword("");
 			setNewPassword("");
 			setConfirmPassword("");
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		} catch (error: any) {
 			console.error("Error al cambiar contraseña:", error);
-
 			if (
 				error.code === "auth/invalid-credential" ||
 				error.code === "auth/wrong-password"
@@ -152,6 +153,7 @@ export default function ConfiguracionPage() {
 				</div>
 			</div>
 
+			{/* ── Sección: Personal del instituto ── */}
 			{adminData?.rol === "admin" && (
 				<motion.div
 					initial={{ opacity: 0, y: 10 }}
@@ -194,9 +196,48 @@ export default function ConfiguracionPage() {
 				</motion.div>
 			)}
 
-			{/* CONTENIDO */}
+			{/* ── Sección: Profesores ── */}
+			{adminData?.rol === "admin" && (
+				<motion.div
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: 0.15 }}
+					className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+				>
+					<div className="flex items-center gap-3">
+						<div className="p-2 bg-indigo-50 rounded-lg">
+							<GraduationCap className="w-5 h-5 text-[#4338ca]" />
+						</div>
+						<div>
+							<h3 className="font-bold text-[#252d62]">Profesores</h3>
+							<p className="text-xs text-gray-500 mt-0.5">
+								Creá cuentas docentes y asignales cursos
+							</p>
+						</div>
+					</div>
+					<div className="flex flex-row gap-2">
+						<Button
+							onClick={() => setIsAddTeacherOpen(true)}
+							className="bg-[#4338ca] hover:bg-[#3730a3] text-white font-bold rounded-xl flex items-center gap-2 w-full sm:w-auto"
+						>
+							<GraduationCap className="w-4 h-4" />
+							Añadir profesor
+						</Button>
+						<Button
+							onClick={() => setIsTeacherListOpen(true)}
+							variant="outline"
+							className="border-[#4338ca] text-[#4338ca] hover:bg-[#4338ca] hover:text-white font-bold rounded-xl flex items-center gap-2 w-full sm:w-auto"
+						>
+							<Users className="w-4 h-4" />
+							Gestionar profesores
+						</Button>
+					</div>
+				</motion.div>
+			)}
+
+			{/* ── Perfil + Cambiar contraseña ── */}
 			<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-				{/* COLUMNA IZQUIERDA: Info de la cuenta */}
+				{/* Columna izquierda: Info de la cuenta */}
 				<div className="md:col-span-1 flex flex-col gap-4">
 					<div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
 						<h3 className="font-bold text-[#252d62] border-b border-gray-100 pb-3 mb-4">
@@ -231,7 +272,7 @@ export default function ConfiguracionPage() {
 					</div>
 				</div>
 
-				{/* COLUMNA DERECHA: Formulario de Contraseña */}
+				{/* Columna derecha: Formulario contraseña */}
 				<div className="md:col-span-2">
 					<motion.div
 						initial={{ opacity: 0, y: 10 }}
@@ -263,7 +304,7 @@ export default function ConfiguracionPage() {
 						)}
 
 						<form onSubmit={handleChangePassword} className="space-y-5">
-							{/* --- CONTRASEÑA ACTUAL --- */}
+							{/* Contraseña actual */}
 							<div>
 								<label className="block text-sm font-bold text-gray-700 mb-2">
 									Contraseña Actual
@@ -292,10 +333,9 @@ export default function ConfiguracionPage() {
 								</div>
 							</div>
 
-							{/* LÍNEA SEPARADORA */}
-							<div className="border-t border-gray-100 my-4"></div>
+							<div className="border-t border-gray-100 my-4" />
 
-							{/* --- NUEVA CONTRASEÑA --- */}
+							{/* Nueva contraseña */}
 							<div>
 								<label className="block text-sm font-bold text-gray-700 mb-2">
 									Nueva Contraseña
@@ -324,7 +364,7 @@ export default function ConfiguracionPage() {
 								</div>
 							</div>
 
-							{/* --- CONFIRMAR NUEVA CONTRASEÑA --- */}
+							{/* Confirmar nueva contraseña */}
 							<div>
 								<label className="block text-sm font-bold text-gray-700 mb-2">
 									Confirmar Nueva Contraseña
@@ -379,14 +419,25 @@ export default function ConfiguracionPage() {
 				</div>
 			</div>
 
-			{/* modales */}
+			{/* Modales de personal */}
 			<AddNewAdmin
 				isOpen={isAddPersonalOpen}
 				onClose={() => setIsAddPersonalOpen(false)}
-			></AddNewAdmin>
+			/>
 			<AdminListModal
 				isOpen={isAdminListOpen}
 				onClose={() => setIsAdminListOpen(false)}
+			/>
+
+			{/* Modales de profesores — descomentar cuando estén listos: */}
+
+			<AddNewTeacherModal
+				isOpen={isAddTeacherOpen}
+				onClose={() => setIsAddTeacherOpen(false)}
+			/>
+			<TeacherListModal
+				isOpen={isTeacherListOpen}
+				onClose={() => setIsTeacherListOpen(false)}
 			/>
 		</div>
 	);

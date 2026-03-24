@@ -13,7 +13,6 @@ import {
 import { MercadoPagoConfig, Preference } from "mercadopago";
 
 // 2. INICIALIZAMOS EL CLIENTE CON TU TOKEN
-// Asegurate de tener MP_ACCESS_TOKEN en tu archivo .env.local
 const client = new MercadoPagoConfig({
 	accessToken: process.env.MP_ACCESS_TOKEN || "FALTA_TOKEN",
 });
@@ -32,9 +31,10 @@ export async function POST(request: Request) {
 
 		let fechaNacimientoAlumno = "";
 		let nombreAlumno = "";
-		let tipoAlumno = "Titular"; // Para guardarlo luego en la BD
+		let tipoAlumno = "Titular";
+		let etiquetasAlumno: string[] = [];
 
-		// --- VALIDACIONES DE NEGOCIO (Igual que antes) ---
+		// --- VALIDACIONES DE NEGOCIO ---
 		const userRef = doc(db, "Users", userId);
 		const userSnap = await getDoc(userRef);
 
@@ -50,6 +50,7 @@ export async function POST(request: Request) {
 		if (userData.dni === alumnoDni) {
 			fechaNacimientoAlumno = userData.fechaNacimiento;
 			nombreAlumno = `${userData.nombre} ${userData.apellido}`;
+			etiquetasAlumno = userData.etiquetas || []; // Extraemos etiquetas del titular
 		} else {
 			const hijosRef = collection(db, "Hijos");
 			const qHijos = query(
@@ -61,7 +62,10 @@ export async function POST(request: Request) {
 
 			if (hijosSnap.empty) {
 				return NextResponse.json(
-					{ error: "Permiso denegado sobre este DNI." },
+					{
+						error:
+							"Permiso denegado sobre este DNI. Inicie sesión como el tutor.",
+					},
 					{ status: 403 },
 				);
 			}
@@ -69,11 +73,15 @@ export async function POST(request: Request) {
 			fechaNacimientoAlumno = hijoData.fechaNacimiento;
 			nombreAlumno = `${hijoData.nombre} ${hijoData.apellido}`;
 			tipoAlumno = "Menor/A cargo";
+			etiquetasAlumno = hijoData.etiquetas || []; // Extraemos etiquetas del menor
 		}
 
 		if (!fechaNacimientoAlumno) {
 			return NextResponse.json(
-				{ error: "El alumno no tiene fecha de nacimiento." },
+				{
+					error:
+						"El alumno no tiene fecha de nacimiento, consulte en administración.",
+				},
 				{ status: 400 },
 			);
 		}
@@ -113,12 +121,17 @@ export async function POST(request: Request) {
 			edadReal--;
 		}
 
-		const [edadMin, edadMax] = cursoData.edades || [0, 99];
+		const [edadMin, edadMax] = cursoData.edades || [0, 999];
 
 		if (edadCalendario < edadMin || edadReal > edadMax) {
+			const mensajeEdad =
+				edadMax === 999
+					? `de ${edadMin} años en adelante`
+					: `de ${edadMin} a ${edadMax} años`;
+
 			return NextResponse.json(
 				{
-					error: `Edad no permitida. El curso es para alumnos de ${edadMin} a ${edadMax} años.`,
+					error: `Edad no permitida. El curso es para alumnos ${mensajeEdad}.`,
 				},
 				{ status: 400 },
 			);
@@ -144,11 +157,50 @@ export async function POST(request: Request) {
 		}
 
 		// ====================================================================
+		// ✅ LÓGICA DE ETIQUETAS Y DESCUENTOS (El "Buscador de Máximo Beneficio")
+		// ====================================================================
+		let maxDescuentoPorcentaje = 0;
+		let nombreDescuentoAplicado = "Ninguno";
+
+		if (etiquetasAlumno.length > 0) {
+			const promesasEtiquetas = etiquetasAlumno.map((idEtiqueta) =>
+				getDoc(doc(db, "EtiquetasDescuento", idEtiqueta)),
+			);
+
+			const snapsEtiquetas = await Promise.all(promesasEtiquetas);
+
+			snapsEtiquetas.forEach((snap) => {
+				if (snap.exists()) {
+					const dataEtiqueta = snap.data();
+					if (dataEtiqueta.descuentoInscripcion > maxDescuentoPorcentaje) {
+						maxDescuentoPorcentaje = dataEtiqueta.descuentoInscripcion;
+						nombreDescuentoAplicado = dataEtiqueta.nombre;
+					}
+				}
+			});
+		}
+
+		// Calculamos el monto base
+		let montoACobrar =
+			cursoData.inscripcion > 0 ? cursoData.inscripcion : cursoData.cuota;
+
+		// Aplicamos el descuento si encontramos alguno mayor a 0%
+		if (maxDescuentoPorcentaje > 0) {
+			const descuentoEnPesos = montoACobrar * (maxDescuentoPorcentaje / 100);
+			montoACobrar = montoACobrar - descuentoEnPesos;
+			// Redondeamos para evitar problemas de centavos con MercadoPago (ARS no usa centavos en la práctica)
+			montoACobrar = Math.round(montoACobrar);
+		}
+
+		// ====================================================================
 		// ✅ CREACIÓN DE LA PREFERENCIA EN MERCADO PAGO
 		// ====================================================================
 
-		const montoACobrar =
-			cursoData.inscripcion > 0 ? cursoData.inscripcion : cursoData.cuota;
+		// Personalizamos el título del ítem para que el alumno vea el descuento aplicado en MP
+		const itemTitle =
+			maxDescuentoPorcentaje > 0
+				? `Inscripción: ${cursoData.nombre} (Desc. ${maxDescuentoPorcentaje}%)`
+				: `Inscripción: ${cursoData.nombre}`;
 
 		const preference = new Preference(client);
 
@@ -157,7 +209,7 @@ export async function POST(request: Request) {
 				items: [
 					{
 						id: cursoId,
-						title: `Inscripción: ${cursoData.nombre}`,
+						title: itemTitle,
 						description: `Inscripción de ${nombreAlumno} al curso ${cursoData.nombre}`,
 						quantity: 1,
 						unit_price: Number(montoACobrar),
@@ -171,7 +223,6 @@ export async function POST(request: Request) {
 				},
 				auto_return: "approved",
 
-				// La metadata sigue intacta para que nuestro Webhook la lea después
 				metadata: {
 					user_id: userId,
 					alumno_dni: alumnoDni,
@@ -180,12 +231,13 @@ export async function POST(request: Request) {
 					curso_id: cursoId,
 					curso_nombre: cursoData.nombre,
 					tipo_alumno: tipoAlumno,
+					descuento_aplicado: nombreDescuentoAplicado,
+					descuento_porcentaje: maxDescuentoPorcentaje,
 				},
 				notification_url: `${process.env.WEBHOOK_URL}/api/webhook`,
 			},
 		});
 
-		// Devolvemos el link que nos dio MP
 		return NextResponse.json({
 			success: true,
 			init_point: result.init_point,

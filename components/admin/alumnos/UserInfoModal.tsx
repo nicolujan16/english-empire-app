@@ -17,7 +17,7 @@ import {
 	Clock,
 	Loader2,
 	BadgeCheck,
-	Hash,
+	// Hash,
 } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
@@ -313,7 +313,6 @@ export default function UserInfoModal({
 	coursesMap,
 }: UserInfoModalProps) {
 	const [hijos, setHijos] = useState<HijoDetalle[]>([]);
-	const [cuotasPagadas, setCuotasPagadas] = useState<CuotasPagadas>({});
 	const [courseDetails, setCourseDetails] = useState<CourseDetailsMap>({});
 	const [isLoadingHijos, setIsLoadingHijos] = useState(false);
 	const [tutorInfo, setTutorInfo] = useState<{
@@ -327,7 +326,6 @@ export default function UserInfoModal({
 	useEffect(() => {
 		if (!isOpen || !student) {
 			setHijos([]);
-			setCuotasPagadas({});
 			setCourseDetails({});
 			setTutorInfo(null);
 			return;
@@ -343,20 +341,15 @@ export default function UserInfoModal({
 				);
 				if (userDoc.exists()) {
 					const data = userDoc.data();
-					setCuotasPagadas(data.cuotasPagadas || {});
-
-					if (student.tipo === "Menor" && data.tutorId) {
-						const tutorDoc = await getDoc(doc(db, "Users", data.tutorId));
-						if (tutorDoc.exists()) {
-							const t = tutorDoc.data();
-							setTutorInfo({
-								nombre: t.nombre,
-								apellido: t.apellido,
-								email: t.email,
-								telefono: t.telefono,
-								dni: t.dni,
-							});
-						}
+					if (student.tipo === "Menor" && data.datosTutor) {
+						const t = data.datosTutor;
+						setTutorInfo({
+							nombre: t.nombre,
+							apellido: t.apellido,
+							email: t.email,
+							telefono: t.telefono,
+							dni: t.dni,
+						});
 					}
 
 					if (student.isTutor && data.hijos?.length > 0) {
@@ -569,7 +562,7 @@ export default function UserInfoModal({
 									)}
 
 									{/* CUOTAS */}
-									{student.cursos.length > 0 && (
+									{/* {student.cursos.length > 0 && (
 										<>
 											<h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
 												<Hash className="w-3.5 h-3.5" /> Estado de Cuotas
@@ -592,7 +585,7 @@ export default function UserInfoModal({
 												</div>
 											)}
 										</>
-									)}
+									)} */}
 								</section>
 
 								{/* ALUMNOS A CARGO (solo si es tutor) */}

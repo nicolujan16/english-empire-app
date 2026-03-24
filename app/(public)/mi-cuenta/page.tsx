@@ -42,6 +42,13 @@ function UserDashboardPage() {
 	const numCursos = userData?.cursos?.length || 0;
 	const showHijosFirst = numHijos > numCursos;
 
+	// 🚀 Lógica para saber si el titular o algún hijo tiene cursos
+	const hasCourses =
+		(userData?.cursos && userData.cursos.length > 0) ||
+		(userData?.hijos as StudentDetails[])?.some(
+			(h) => h.cursos && h.cursos.length > 0,
+		);
+
 	return (
 		<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
 			<div className="max-w-7xl mx-auto px-6 space-y-8">
@@ -70,27 +77,44 @@ function UserDashboardPage() {
 				{/* Perfil */}
 				<UserProfile isLoading={isLoading} user={userData} />
 
-				{/* Acceso rápido a Cuotas — solo si el usuario o algún hijo tiene cursos */}
-				{((userData?.cursos && userData.cursos.length > 0) ||
-					(userData?.hijos as StudentDetails[])?.some(
-						(h) => h.cursos && h.cursos.length > 0,
-					)) && (
-					<div className="bg-white rounded-xl shadow-md border border-gray-100 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-						<div>
-							<h3 className="text-lg font-bold text-[#252d62]">
-								Historial de pagos
-							</h3>
-							<p className="text-sm text-gray-500">
-								Consultá el historial de inscripciones y cuotas de todos los
-								alumnos a tu cargo.
-							</p>
+				{/* 🚀 Accesos rápidos (Pagos y Asistencias) — solo si hay cursos */}
+				{hasCourses && (
+					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+						{/* Tarjeta de Pagos */}
+						<div className="bg-white rounded-xl shadow-md border border-gray-100 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all hover:shadow-lg">
+							<div>
+								<h3 className="text-lg font-bold text-[#252d62]">
+									Historial de pagos
+								</h3>
+								<p className="text-sm text-gray-500">
+									Consultá las inscripciones y cuotas.
+								</p>
+							</div>
+							<Button
+								onClick={() => router.push("/mi-cuenta/pagos")}
+								className="bg-[#EE1120] hover:bg-[#c4000e] text-white font-bold px-6 whitespace-nowrap cursor-pointer w-full sm:w-auto"
+							>
+								Ver Pagos
+							</Button>
 						</div>
-						<Button
-							onClick={() => router.push("/mi-cuenta/pagos")}
-							className="bg-[#EE1120] hover:bg-[#c4000e] text-white font-bold px-6 whitespace-nowrap cursor-pointer w-full sm:w-auto"
-						>
-							Ver Mis Pagos
-						</Button>
+
+						{/* Tarjeta de Asistencias */}
+						<div className="bg-white rounded-xl shadow-md border border-gray-100 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all hover:shadow-lg">
+							<div>
+								<h3 className="text-lg font-bold text-[#252d62]">
+									Asistencia a clases
+								</h3>
+								<p className="text-sm text-gray-500">
+									Revisá los presentes, faltas y llegadas tarde.
+								</p>
+							</div>
+							<Button
+								onClick={() => router.push("/mi-cuenta/asistencias")}
+								className="bg-[#EE1120] hover:bg-[#c4000e] text-white font-bold px-6 whitespace-nowrap cursor-pointer w-full sm:w-auto"
+							>
+								Ver Asistencias
+							</Button>
+						</div>
 					</div>
 				)}
 

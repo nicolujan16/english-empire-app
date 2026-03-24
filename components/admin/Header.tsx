@@ -25,7 +25,7 @@ const Header = ({
 	};
 
 	return (
-		<header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-2 ">
+		<header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-2 print:hidden">
 			<div className="px-8 py-4 flex items-center justify-between">
 				<div className="flex gap-4 justify-center items-center">
 					<button

@@ -39,6 +39,7 @@ import {
 	setDoc,
 	addDoc,
 	serverTimestamp,
+	arrayUnion,
 } from "firebase/firestore";
 import {
 	getAuth,
@@ -240,17 +241,31 @@ export default function CreateStudentModal({
 			} else {
 				// --- 2. CREAR MENOR ---
 				const hijosRef = collection(db, "Hijos");
-				await addDoc(hijosRef, {
+				const nuevoHijoRef = await addDoc(hijosRef, {
 					nombre: menorData.nombre,
 					apellido: menorData.apellido,
 					dni: menorData.dni,
 					fechaNacimiento: menorData.fechaNacimiento,
 					tutorId: foundTutor.id,
 					cursos: [],
+					datosTutor: {
+						nombre: foundTutor.nombre,
+						apellido: foundTutor.apellido,
+						dni: foundTutor.dni,
+						email: foundTutor.email,
+						telefono: foundTutor.telefono,
+					},
 				});
 
 				const tutorRef = doc(db, "Users", foundTutor.id);
-				await setDoc(tutorRef, { isTutor: true }, { merge: true });
+				await setDoc(
+					tutorRef,
+					{
+						isTutor: true,
+						hijos: arrayUnion(nuevoHijoRef.id), // ← agrega el ID al array
+					},
+					{ merge: true },
+				);
 
 				showAlert(
 					"¡Alumno Creado!",

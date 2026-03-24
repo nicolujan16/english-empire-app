@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
 	Dialog,
 	DialogContent,
@@ -13,10 +13,15 @@ import {
 	FileText,
 	CheckCircle2,
 	AlertCircle,
+	CreditCard,
+	SplitSquareHorizontal, // NUEVO
+	Plus, // NUEVO
+	Trash2, // NUEVO
 } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { useAdminAuth } from "@/context/AdminAuthContext";
+import { Button } from "@/components/ui/button";
 
 interface RegistrarEgresoModalProps {
 	isOpen: boolean;
@@ -41,15 +46,77 @@ export default function RegistrarEgresoModal({
 
 	const [descripcion, setDescripcion] = useState("");
 	const [monto, setMonto] = useState("");
+	const [metodoPago, setMetodoPago] = useState("");
 	const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [exito, setExito] = useState(false);
 
+	// ─── LÓGICA DE PAGOS MÚLTIPLES (Split Payment) ───────────────────────────
+	const [isSplitPayment, setIsSplitPayment] = useState(false);
+	const [partialPayments, setPartialPayments] = useState<
+		{ method: string; amount: number }[]
+	>([{ method: "", amount: 0 }]);
+
+	const montoNum = Number(monto) || 0;
+	const totalEgresado = partialPayments.reduce(
+		(acc, curr) => acc + (curr.amount || 0),
+		0,
+	);
+	const saldoRestante = montoNum - totalEgresado;
+
+	// Efecto Concatenador para Split Payment
+	useEffect(() => {
+		if (isSplitPayment) {
+			const allMethodsSelected = partialPayments.every((p) => p.method !== "");
+
+			if (
+				montoNum > 0 &&
+				totalEgresado === montoNum &&
+				allMethodsSelected &&
+				partialPayments.length > 0
+			) {
+				const stringFormateado = partialPayments
+					.map((p) => `${p.method} ($${p.amount.toLocaleString("es-AR")})`)
+					.join(" + ");
+				setMetodoPago(stringFormateado);
+			} else {
+				setMetodoPago("");
+			}
+		}
+	}, [partialPayments, isSplitPayment, montoNum, totalEgresado]);
+
+	const addPartialPayment = () => {
+		setPartialPayments([
+			...partialPayments,
+			{ method: "", amount: saldoRestante > 0 ? saldoRestante : 0 },
+		]);
+	};
+
+	const updatePartialPayment = (
+		index: number,
+		field: "method" | "amount",
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		value: any,
+	) => {
+		const newPayments = [...partialPayments];
+		newPayments[index] = { ...newPayments[index], [field]: value };
+		setPartialPayments(newPayments);
+	};
+
+	const removePartialPayment = (index: number) => {
+		const newPayments = partialPayments.filter((_, i) => i !== index);
+		setPartialPayments(newPayments);
+	};
+	// ─────────────────────────────────────────────────────────────────────────
+
 	const handleClose = () => {
 		if (isLoading) return;
 		setDescripcion("");
 		setMonto("");
+		setMetodoPago("");
+		setIsSplitPayment(false);
+		setPartialPayments([{ method: "", amount: 0 }]);
 		setFecha(new Date().toISOString().split("T")[0]);
 		setError(null);
 		setExito(false);
@@ -63,8 +130,16 @@ export default function RegistrarEgresoModal({
 			setError("La descripción es obligatoria.");
 			return;
 		}
-		if (!monto || isNaN(Number(monto)) || Number(monto) <= 0) {
+		if (!monto || isNaN(montoNum) || montoNum <= 0) {
 			setError("El monto debe ser un número mayor a cero.");
+			return;
+		}
+		if (isSplitPayment && !metodoPago) {
+			setError("Los montos de los métodos de pago no coinciden con el total.");
+			return;
+		}
+		if (!metodoPago) {
+			setError("Debes seleccionar un método de pago.");
 			return;
 		}
 		if (!fecha) {
@@ -76,7 +151,8 @@ export default function RegistrarEgresoModal({
 		try {
 			await addDoc(collection(db, "Egresos"), {
 				descripcion: descripcion.trim(),
-				monto: Number(monto),
+				monto: montoNum,
+				metodoPago: metodoPago, // GUARDA EL STRING FINAL (Simple o Mixto)
 				fecha: new Date(fecha + "T12:00:00"),
 				registradoPor: adminData?.nombre || adminData?.email || "Admin",
 				creadoEn: serverTimestamp(),
@@ -99,7 +175,7 @@ export default function RegistrarEgresoModal({
 		<Dialog open={isOpen} onOpenChange={handleClose}>
 			<DialogContent className="sm:max-w-[480px] p-0 overflow-hidden">
 				{/* Header */}
-				<DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
+				<DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-100 bg-gray-50/50">
 					<div className="flex items-center gap-3">
 						<div className="bg-[#EE1120] p-2 rounded-lg">
 							<TrendingDown className="w-4 h-4 text-white" />
@@ -116,7 +192,7 @@ export default function RegistrarEgresoModal({
 				</DialogHeader>
 
 				{/* Contenido */}
-				<div className="px-6 py-5 space-y-5">
+				<div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
 					{exito && (
 						<div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
 							<CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
@@ -129,7 +205,7 @@ export default function RegistrarEgresoModal({
 					{error && (
 						<div className="flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
 							<AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-							<p className="text-sm text-red-700">{error}</p>
+							<p className="text-sm font-semibold text-red-800">{error}</p>
 						</div>
 					)}
 
@@ -147,6 +223,7 @@ export default function RegistrarEgresoModal({
 							onChange={(e) => setDescripcion(e.target.value)}
 							placeholder="Ej: Compra de 10 resmas de papel"
 							maxLength={120}
+							disabled={isLoading || exito}
 							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
 						/>
 						<p className="text-xs text-gray-400 mt-1 text-right">
@@ -159,7 +236,8 @@ export default function RegistrarEgresoModal({
 									key={s}
 									type="button"
 									onClick={() => setDescripcion(s)}
-									className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-500 hover:border-[#EE1120] hover:text-[#EE1120] hover:bg-red-50 transition-all"
+									disabled={isLoading || exito}
+									className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-500 hover:border-[#EE1120] hover:text-[#EE1120] hover:bg-red-50 transition-all disabled:opacity-50"
 								>
 									{s}
 								</button>
@@ -180,9 +258,20 @@ export default function RegistrarEgresoModal({
 								<input
 									type="number"
 									value={monto}
-									onChange={(e) => setMonto(e.target.value)}
+									onChange={(e) => {
+										setMonto(e.target.value);
+										if (isSplitPayment && partialPayments.length === 1) {
+											setPartialPayments([
+												{
+													method: partialPayments[0].method,
+													amount: Number(e.target.value),
+												},
+											]);
+										}
+									}}
 									placeholder="0"
 									min={1}
+									disabled={isLoading || exito}
 									className="w-full pl-7 pr-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
 								/>
 							</div>
@@ -196,9 +285,145 @@ export default function RegistrarEgresoModal({
 								type="date"
 								value={fecha}
 								onChange={(e) => setFecha(e.target.value)}
+								disabled={isLoading || exito}
 								className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
 							/>
 						</div>
+					</div>
+
+					{/* Método de Pago */}
+					<div className="space-y-3">
+						<label className="block text-sm font-semibold text-gray-700 mb-1.5">
+							<span className="flex items-center gap-1.5">
+								<CreditCard className="w-3.5 h-3.5 text-gray-400" />
+								Método de Pago
+							</span>
+						</label>
+						<select
+							value={isSplitPayment ? "multiple" : metodoPago}
+							onChange={(e) => {
+								if (e.target.value === "multiple") {
+									setIsSplitPayment(true);
+									setMetodoPago("");
+									setPartialPayments([{ method: "", amount: montoNum }]);
+								} else {
+									setIsSplitPayment(false);
+									setMetodoPago(e.target.value);
+								}
+							}}
+							disabled={isLoading || exito}
+							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all bg-white"
+						>
+							<option value="" disabled>
+								Seleccioná un método...
+							</option>
+							<option value="Efectivo">Efectivo</option>
+							<option value="Transferencia Bancaria">
+								Transferencia Bancaria
+							</option>
+							<option value="Tarjeta de Débito">Tarjeta de Débito</option>
+							<option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+							<option value="Otro">Otro</option>
+							<option value="multiple" className="font-bold text-red-700">
+								💳 Múltiples métodos (Ej: Efectivo + Transferencia)
+							</option>
+						</select>
+
+						{/* UI de Split Payment */}
+						{isSplitPayment && (
+							<div className="p-4 border border-red-200 bg-red-50/30 rounded-xl space-y-3">
+								<div className="flex justify-between items-center pb-2 border-b border-red-100">
+									<span className="text-xs font-bold text-red-800 uppercase tracking-wider flex items-center gap-1.5">
+										<SplitSquareHorizontal className="w-3.5 h-3.5" /> Desglose
+										de pagos
+									</span>
+									<span
+										className={`text-sm font-bold ${
+											saldoRestante === 0
+												? "text-emerald-600"
+												: saldoRestante < 0
+													? "text-red-600"
+													: "text-amber-600"
+										}`}
+									>
+										Restante: ${saldoRestante.toLocaleString("es-AR")}
+									</span>
+								</div>
+
+								{partialPayments.map((p, index) => (
+									<div key={index} className="flex gap-2 items-center">
+										<select
+											value={p.method}
+											onChange={(e) =>
+												updatePartialPayment(index, "method", e.target.value)
+											}
+											className="flex-1 py-2 px-2 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-red-500 outline-none"
+											disabled={isLoading || exito}
+										>
+											<option value="">Método...</option>
+											<option value="Efectivo">Efectivo</option>
+											<option value="Transferencia">Transferencia</option>
+											<option value="Tarjeta">Tarjeta</option>
+											<option value="Otro">Otro</option>
+										</select>
+
+										<div className="relative w-1/3">
+											<span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-xs">
+												$
+											</span>
+											<input
+												type="number"
+												min={0}
+												value={p.amount === 0 ? "" : p.amount}
+												onChange={(e) =>
+													updatePartialPayment(
+														index,
+														"amount",
+														Number(e.target.value),
+													)
+												}
+												disabled={isLoading || exito}
+												className="w-full pl-6 pr-2 py-2 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-red-500 outline-none"
+												placeholder="0"
+											/>
+										</div>
+
+										{partialPayments.length > 1 ? (
+											<button
+												type="button"
+												onClick={() => removePartialPayment(index)}
+												disabled={isLoading || exito}
+												className="p-2 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50"
+											>
+												<Trash2 className="w-3.5 h-3.5" />
+											</button>
+										) : (
+											<div className="w-[34px]" />
+										)}
+									</div>
+								))}
+
+								{saldoRestante > 0 && (
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onClick={addPartialPayment}
+										disabled={isLoading || exito}
+										className="w-full mt-2 border-dashed border-red-300 text-red-700 hover:bg-red-100 hover:border-red-400"
+									>
+										<Plus className="w-3.5 h-3.5 mr-1.5" /> Agregar otro pago
+										por ${saldoRestante.toLocaleString("es-AR")}
+									</Button>
+								)}
+
+								{saldoRestante < 0 && (
+									<p className="text-[10px] text-red-500 font-medium text-center">
+										Los montos superan el total del egreso. Ajuste los valores.
+									</p>
+								)}
+							</div>
+						)}
 					</div>
 
 					{/* Registrado por */}
@@ -211,17 +436,17 @@ export default function RegistrarEgresoModal({
 				</div>
 
 				{/* Footer */}
-				<div className="px-6 pb-6 flex gap-3 justify-end border-t border-gray-100 pt-4">
+				<div className="px-6 pb-6 flex gap-3 justify-end border-t border-gray-100 pt-4 bg-gray-50/50">
 					<button
 						onClick={handleClose}
-						disabled={isLoading}
-						className="px-4 py-2 text-sm font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all disabled:opacity-50"
+						disabled={isLoading || exito}
+						className="px-4 py-2 text-sm font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all disabled:opacity-50 bg-white"
 					>
 						Cancelar
 					</button>
 					<button
 						onClick={handleSubmit}
-						disabled={isLoading || exito}
+						disabled={isLoading || exito || !metodoPago} // Bloqueo automático si los pagos no cuadran
 						className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-[#EE1120] text-white rounded-lg hover:bg-[#c4000e] transition-all disabled:opacity-50 shadow-sm"
 					>
 						{isLoading ? (

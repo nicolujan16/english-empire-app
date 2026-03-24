@@ -109,7 +109,6 @@ export default function AddStudentModal({
 				return;
 			}
 
-			// 2. CREAMOS EL HIJO Y GUARDAMOS SU REFERENCIA (PARA EXTRAER EL ID)
 			const nuevoHijoRef = await addDoc(hijosRef, {
 				tutorId: user.uid,
 				nombre: formData.nombre,
@@ -117,6 +116,13 @@ export default function AddStudentModal({
 				dni: formData.dni,
 				fechaNacimiento: formData.fechaNacimiento,
 				cursos: [],
+				datosTutor: {
+					nombre: userData.nombre,
+					apellido: userData.apellido,
+					dni: userData.dni,
+					email: userData.email ?? user.email ?? "",
+					telefono: userData.telefono,
+				},
 			});
 
 			// 3. ACTUALIZAMOS AL PADRE (Inyectando el nuevo ID)

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import {
@@ -21,6 +21,7 @@ import {
 	FileText,
 	ChevronLeft,
 	GraduationCap,
+	Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StudentDetails } from "@/types";
@@ -30,26 +31,7 @@ import ComprobanteInscripcionModal from "@/components/website/pagos/ComprobanteI
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface Cuota {
-	id: string;
-	alumnoId: string;
-	alumnoDni: string;
-	alumnoNombre: string;
-	alumnoTipo: "adulto" | "menor";
-	cursoId: string;
-	cursoNombre: string;
-	mes: number;
-	anio: number;
-	estado: "Pendiente" | "Pagado";
-	esPrimerMes: boolean;
-	montoPrimerMes: number | null;
-	cuota1a10: number;
-	cuota11enAdelante: number;
-	montoPagado: number | null;
-	fechaPago: string | null;
-	metodoPago: string | null;
-	inscripcionId: string;
-}
+export type { Cuota, Descuento } from "@/lib/cuotas";
 
 interface Inscripcion {
 	id: string;
@@ -88,14 +70,11 @@ const MESES = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function calcularMontoPendiente(cuota: Cuota): number {
-	const hoy = new Date();
-	const esElMesActual =
-		cuota.mes === hoy.getMonth() + 1 && cuota.anio === hoy.getFullYear();
-	if (cuota.esPrimerMes && cuota.montoPrimerMes) return cuota.montoPrimerMes;
-	if (esElMesActual && hoy.getDate() <= 10) return cuota.cuota1a10;
-	return cuota.cuota11enAdelante;
-}
+import {
+	type Cuota,
+	calcularPrecioBase,
+	aplicarDescuentos,
+} from "@/lib/cuotas";
 
 function formatearFecha(timestamp: Timestamp): string {
 	if (!timestamp?.toDate) return "-";
@@ -106,17 +85,20 @@ function formatearFecha(timestamp: Timestamp): string {
 	});
 }
 
+function getMejorDescuento(descuentos?: Cuota["descuentos"]) {
+	if (!descuentos || descuentos.length === 0) return null;
+	return descuentos.reduce((max, d) =>
+		d.porcentaje > max.porcentaje ? d : max,
+	);
+}
+
 // ─── Badges compartidos ───────────────────────────────────────────────────────
 
 function TitularBadge({ tipo, nombre }: { tipo: string; nombre: string }) {
 	const esAdulto = tipo === "adulto" || tipo === "Titular";
 	return (
 		<span
-			className={`inline-flex items-center text-xs font-medium px-2 py-1 rounded-full ${
-				esAdulto
-					? "bg-purple-100 text-purple-700"
-					: "bg-orange-100 text-orange-700"
-			}`}
+			className={`inline-flex items-center text-xs font-medium px-2 py-1 rounded-full ${esAdulto ? "bg-purple-100 text-purple-700" : "bg-orange-100 text-orange-700"}`}
 		>
 			{esAdulto ? "Vos" : nombre}
 		</span>
@@ -135,90 +117,138 @@ function CuotaCard({
 	onVerComprobante: (c: Cuota) => void;
 }) {
 	const isPagada = cuota.estado === "Pagado";
-	const montoPendiente = calcularMontoPendiente(cuota);
 	const isAtrasada =
 		!isPagada &&
 		(cuota.mes < new Date().getMonth() + 1 ||
 			cuota.anio < new Date().getFullYear());
 
+	const mejorDescuento = getMejorDescuento(cuota.descuentos);
+	const tieneDescuentos = !!mejorDescuento;
+	const descuentosAAplicar = mejorDescuento ? [mejorDescuento] : [];
+	const precioBase = calcularPrecioBase(cuota);
+	const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
+	const montoMostrar = isPagada ? cuota.montoPagado : montoFinal;
+
 	return (
+		// 🚀 AGREGADO: h-full flex flex-col justify-between para igualar alturas
 		<div
-			className={`bg-white rounded-xl border p-5 transition-all hover:shadow-md ${
-				isAtrasada
-					? "border-red-200 bg-red-50/30"
-					: isPagada
-						? "border-gray-100"
-						: "border-yellow-200 bg-yellow-50/20"
-			}`}
+			className={`h-full flex flex-col justify-between bg-white rounded-xl border p-5 transition-all hover:shadow-md ${isAtrasada ? "border-red-200 bg-red-50/30" : isPagada ? "border-gray-100" : "border-yellow-200 bg-yellow-50/20"}`}
 		>
-			<div className="flex items-start justify-between gap-3 mb-4">
-				<div className="flex-1 min-w-0">
-					<p className="font-bold text-[#252d62] text-base truncate">
-						{cuota.cursoNombre}
-					</p>
-					<p className="text-sm text-gray-500 mt-0.5">
-						{MESES[cuota.mes - 1]} {cuota.anio}
-					</p>
-				</div>
-				<div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-					<span
-						className={`inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold ${
-							isPagada
-								? "bg-green-100 text-green-800"
-								: "bg-yellow-100 text-yellow-800"
-						}`}
-					>
-						{isPagada ? (
-							<CheckCircle2 className="w-3.5 h-3.5" />
-						) : (
-							<Clock className="w-3.5 h-3.5" />
-						)}
-						{isPagada ? "Pagado" : "Pendiente"}
-					</span>
-					{isAtrasada && (
-						<span className="inline-flex items-center gap-1 text-xs font-bold text-red-600">
-							<AlertTriangle className="w-3 h-3" />
-							Atrasada
+			<div>
+				<div className="flex items-start justify-between gap-3 mb-3">
+					<div className="flex-1 min-w-0">
+						<p className="font-bold text-[#252d62] text-base truncate">
+							{cuota.cursoNombre}
+						</p>
+						<p className="text-sm text-gray-500 mt-0.5">
+							{MESES[cuota.mes - 1]} {cuota.anio}
+						</p>
+					</div>
+					<div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+						<span
+							className={`inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold ${isPagada ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}
+						>
+							{isPagada ? (
+								<CheckCircle2 className="w-3.5 h-3.5" />
+							) : (
+								<Clock className="w-3.5 h-3.5" />
+							)}
+							{isPagada ? "Pagado" : "Pendiente"}
 						</span>
+						{isAtrasada && (
+							<span className="inline-flex items-center gap-1 text-xs font-bold text-red-600">
+								<AlertTriangle className="w-3 h-3" /> Atrasada
+							</span>
+						)}
+					</div>
+				</div>
+
+				{tieneDescuentos && mejorDescuento && (
+					<div className="flex flex-wrap gap-1.5 mb-3">
+						<span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+							<Tag className="w-2.5 h-2.5 shrink-0" />{" "}
+							{mejorDescuento.porcentaje}% · {mejorDescuento.detalle}
+						</span>
+					</div>
+				)}
+
+				<div className="grid grid-cols-2 gap-3 text-sm mb-4">
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Alumno</p>
+						<TitularBadge tipo={cuota.alumnoTipo} nombre={cuota.alumnoNombre} />
+					</div>
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">
+							{isPagada ? "Monto pagado" : "Monto a pagar"}
+						</p>
+						<div className="flex flex-col gap-0.5">
+							<p className="font-bold text-gray-900">
+								${montoMostrar?.toLocaleString("es-AR") ?? "-"}
+							</p>
+							{tieneDescuentos && !isPagada && precioBase !== montoFinal && (
+								<p className="text-xs text-gray-400 line-through">
+									${precioBase.toLocaleString("es-AR")}
+								</p>
+							)}
+						</div>
+					</div>
+					{isPagada && cuota.fechaPago && (
+						<div>
+							<p className="text-gray-500 text-xs mb-0.5">Fecha de pago</p>
+							<p className="font-medium text-gray-700 text-xs">
+								{cuota.fechaPago}
+							</p>
+						</div>
+					)}
+					{isPagada && cuota.metodoPago && (
+						<div>
+							<p className="text-gray-500 text-xs mb-0.5">Método</p>
+							<p className="font-medium text-gray-700 text-xs">
+								{cuota.metodoPago}
+							</p>
+						</div>
 					)}
 				</div>
-			</div>
 
-			<div className="grid grid-cols-2 gap-3 text-sm mb-4">
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">Alumno</p>
-					<TitularBadge tipo={cuota.alumnoTipo} nombre={cuota.alumnoNombre} />
-				</div>
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">
-						{isPagada ? "Monto pagado" : "Monto a pagar"}
-					</p>
-					<p className="font-bold text-gray-900">
-						$
-						{(isPagada ? cuota.montoPagado : montoPendiente)?.toLocaleString(
-							"es-AR",
-						) ?? "-"}
-					</p>
-				</div>
-				{isPagada && cuota.fechaPago && (
-					<div>
-						<p className="text-gray-500 text-xs mb-0.5">Fecha de pago</p>
-						<p className="font-medium text-gray-700 text-xs">
-							{cuota.fechaPago}
+				{tieneDescuentos && !isPagada && (
+					<div className="mb-4 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2.5 text-xs text-emerald-700 space-y-1.5">
+						<p className="font-bold">
+							Precios con {mejorDescuento!.porcentaje}% de descuento
 						</p>
+						<div className="flex justify-between">
+							<span className="text-emerald-600">Hasta el día 10</span>
+							<span className="font-bold">
+								$
+								{aplicarDescuentos(
+									cuota.cuota1a10,
+									descuentosAAplicar,
+								).toLocaleString("es-AR")}
+								<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
+									${cuota.cuota1a10.toLocaleString("es-AR")}
+								</span>
+							</span>
+						</div>
+						{!cuota.esPrimerMes && (
+							<div className="flex justify-between">
+								<span className="text-emerald-600">Desde el día 11</span>
+								<span className="font-bold">
+									$
+									{aplicarDescuentos(
+										cuota.cuota11enAdelante,
+										descuentosAAplicar,
+									).toLocaleString("es-AR")}
+									<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
+										${cuota.cuota11enAdelante.toLocaleString("es-AR")}
+									</span>
+								</span>
+							</div>
+						)}
 					</div>
 				)}
-				{isPagada && cuota.metodoPago && (
-					<div>
-						<p className="text-gray-500 text-xs mb-0.5">Método</p>
-						<p className="font-medium text-gray-700 text-xs">
-							{cuota.metodoPago}
-						</p>
-					</div>
-				)}
 			</div>
 
-			<div className="flex gap-2 pt-3 border-t border-gray-100">
+			{/* Acción anclada abajo */}
+			<div className="mt-auto pt-3 border-t border-gray-100">
 				{isPagada ? (
 					<Button
 						size="sm"
@@ -226,8 +256,7 @@ function CuotaCard({
 						className="flex items-center gap-1.5 text-xs text-[#252d62] border-[#252d62] hover:bg-[#252d62] hover:text-white transition-all w-full"
 						onClick={() => onVerComprobante(cuota)}
 					>
-						<FileText className="w-3.5 h-3.5" />
-						Ver comprobante
+						<FileText className="w-3.5 h-3.5" /> Ver comprobante
 					</Button>
 				) : (
 					<Button
@@ -247,86 +276,84 @@ function CuotaCard({
 
 function InscripcionCard({
 	inscripcion,
-	onVerComprobante, // ✅ NUEVO
+	onVerComprobante,
 }: {
 	inscripcion: Inscripcion;
-	onVerComprobante: (i: Inscripcion) => void; // ✅ NUEVO
+	onVerComprobante: (i: Inscripcion) => void;
 }) {
 	const isConfirmada = inscripcion.status === "Confirmado";
 
 	return (
+		// 🚀 AGREGADO: h-full flex flex-col justify-between para igualar alturas
 		<div
-			className={`bg-white rounded-xl border p-5 transition-all hover:shadow-md ${
-				isConfirmada ? "border-gray-100" : "border-yellow-200 bg-yellow-50/20"
-			}`}
+			className={`h-full flex flex-col justify-between bg-white rounded-xl border p-5 transition-all hover:shadow-md ${isConfirmada ? "border-gray-100" : "border-yellow-200 bg-yellow-50/20"}`}
 		>
-			<div className="flex items-start justify-between gap-3 mb-4">
-				<div className="flex-1 min-w-0">
-					<p className="font-bold text-[#252d62] text-base truncate">
-						{inscripcion.cursoNombre}
-					</p>
-					<p className="text-sm text-gray-500 mt-0.5">Inscripción</p>
+			<div>
+				<div className="flex items-start justify-between gap-3 mb-4">
+					<div className="flex-1 min-w-0">
+						<p className="font-bold text-[#252d62] text-base truncate">
+							{inscripcion.cursoNombre}
+						</p>
+						<p className="text-sm text-gray-500 mt-0.5">Inscripción</p>
+					</div>
+					<span
+						className={`inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold flex-shrink-0 ${isConfirmada ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}
+					>
+						{isConfirmada ? (
+							<>
+								<CheckCircle2 className="w-3.5 h-3.5" /> Confirmada
+							</>
+						) : (
+							<>
+								<Clock className="w-3.5 h-3.5" /> Pendiente
+							</>
+						)}
+					</span>
 				</div>
-				<span
-					className={`inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold flex-shrink-0 ${
-						isConfirmada
-							? "bg-green-100 text-green-800"
-							: "bg-yellow-100 text-yellow-800"
-					}`}
-				>
-					{isConfirmada ? (
-						<>
-							<CheckCircle2 className="w-3.5 h-3.5" /> Confirmada
-						</>
-					) : (
-						<>
-							<Clock className="w-3.5 h-3.5" /> Pendiente
-						</>
-					)}
-				</span>
+
+				<div className="grid grid-cols-2 gap-3 text-sm mb-4">
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Alumno</p>
+						<TitularBadge
+							tipo={inscripcion.tipoAlumno}
+							nombre={inscripcion.alumnoNombre}
+						/>
+					</div>
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Monto pagado</p>
+						<p className="font-bold text-gray-900">
+							${inscripcion.cursoInscripcion?.toLocaleString("es-AR") ?? "-"}
+						</p>
+					</div>
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Fecha</p>
+						<p className="font-medium text-gray-700 text-xs">
+							{formatearFecha(inscripcion.fecha)}
+						</p>
+					</div>
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Método</p>
+						<p className="font-medium text-gray-700 text-xs">
+							{inscripcion.metodoPago}
+						</p>
+					</div>
+				</div>
 			</div>
 
-			<div className="grid grid-cols-2 gap-3 text-sm mb-4">
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">Alumno</p>
-					<TitularBadge
-						tipo={inscripcion.tipoAlumno}
-						nombre={inscripcion.alumnoNombre}
-					/>
-				</div>
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">Monto pagado</p>
-					<p className="font-bold text-gray-900">
-						${inscripcion.cursoInscripcion?.toLocaleString("es-AR") ?? "-"}
-					</p>
-				</div>
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">Fecha</p>
-					<p className="font-medium text-gray-700 text-xs">
-						{formatearFecha(inscripcion.fecha)}
-					</p>
-				</div>
-				<div>
-					<p className="text-gray-500 text-xs mb-0.5">Método</p>
-					<p className="font-medium text-gray-700 text-xs">
-						{inscripcion.metodoPago}
-					</p>
-				</div>
-			</div>
-
-			{isConfirmada && (
-				<div className="pt-3 border-t border-gray-100">
+			<div className="mt-auto pt-3 border-t border-gray-100">
+				{isConfirmada ? (
 					<Button
 						size="sm"
 						variant="outline"
 						className="flex items-center gap-1.5 text-xs text-[#252d62] border-[#252d62] hover:bg-[#252d62] hover:text-white transition-all w-full"
-						onClick={() => onVerComprobante(inscripcion)} // ✅ CONECTADO
+						onClick={() => onVerComprobante(inscripcion)}
 					>
-						<FileText className="w-3.5 h-3.5" />
-						Ver comprobante
+						<FileText className="w-3.5 h-3.5" /> Ver comprobante
 					</Button>
-				</div>
-			)}
+				) : (
+					<div className="h-8 w-full"></div> /* Placeholder para alinear botones con las cuotas */
+				)}
+			</div>
 		</div>
 	);
 }
@@ -341,12 +368,15 @@ export default function PagosPage() {
 	const [cuotaAPagar, setCuotaAPagar] = useState<Cuota | null>(null);
 	const [cuotaComprobante, setCuotaComprobante] = useState<Cuota | null>(null);
 	const [inscripcionComprobante, setInscripcionComprobante] =
-		useState<Inscripcion | null>(null); // ✅ NUEVO
+		useState<Inscripcion | null>(null);
 
 	const [cuotas, setCuotas] = useState<Cuota[]>([]);
 	const [inscripciones, setInscripciones] = useState<Inscripcion[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [filtroCuotas, setFiltroCuotas] = useState<FiltroEstado>("todas");
+
+	// 🚀 NUEVO: Estado del filtro de alumno
+	const [filtroAlumnoId, setFiltroAlumnoId] = useState<string>("todos");
 
 	useEffect(() => {
 		if (!authLoading && !user) router.push("/iniciar-sesion");
@@ -384,7 +414,16 @@ export default function PagosPage() {
 						a.anio !== b.anio ? b.anio - a.anio : b.mes - a.mes,
 					);
 
-				setCuotas(todasLasCuotas);
+				const hoy = new Date();
+				const mesActual = hoy.getMonth() + 1;
+				const anioActual = hoy.getFullYear();
+
+				const cuotasVisibles = todasLasCuotas.filter(
+					(c) =>
+						c.anio < anioActual ||
+						(c.anio === anioActual && c.mes <= mesActual),
+				);
+				setCuotas(cuotasVisibles);
 
 				const inscripcionesSnaps = await Promise.all(
 					alumnoIds.map((alumnoId) =>
@@ -418,15 +457,41 @@ export default function PagosPage() {
 		fetchTodo();
 	}, [user, userData]);
 
+	const listaAlumnos = useMemo(() => {
+		if (!user || !userData) return [];
+		const alumnos = [{ id: user.uid, nombre: "Mis pagos" }];
+		userData.hijos?.forEach((hijo: StudentDetails) => {
+			if (hijo.id)
+				alumnos.push({
+					id: String(hijo.id),
+					nombre: `${hijo.nombre} ${hijo.apellido}`,
+				});
+		});
+		return alumnos;
+	}, [user, userData]);
+
+	// 🚀 ACTUALIZADO: Filtrado combinado (Estado + Alumno)
 	const cuotasFiltradas = cuotas.filter((c) => {
-		if (filtroCuotas === "pendientes") return c.estado === "Pendiente";
-		if (filtroCuotas === "pagadas") return c.estado === "Pagado";
-		return true;
+		const pasaFiltroEstado =
+			filtroCuotas === "todas" ||
+			(filtroCuotas === "pendientes" && c.estado === "Pendiente") ||
+			(filtroCuotas === "pagadas" && c.estado === "Pagado");
+		const pasaFiltroAlumno =
+			filtroAlumnoId === "todos" || c.alumnoId === filtroAlumnoId;
+		return pasaFiltroEstado && pasaFiltroAlumno;
 	});
 
-	const countPendientes = cuotas.filter((c) => c.estado === "Pendiente").length;
-	const countPagadas = cuotas.filter((c) => c.estado === "Pagado").length;
-	const countAtrasadas = cuotas.filter(
+	const inscripcionesFiltradas = inscripciones.filter((i) => {
+		return filtroAlumnoId === "todos" || i.alumnoId === filtroAlumnoId;
+	});
+
+	const countPendientes = cuotasFiltradas.filter(
+		(c) => c.estado === "Pendiente",
+	).length;
+	const countPagadas = cuotasFiltradas.filter(
+		(c) => c.estado === "Pagado",
+	).length;
+	const countAtrasadas = cuotasFiltradas.filter(
 		(c) =>
 			c.estado === "Pendiente" &&
 			(c.mes < new Date().getMonth() + 1 || c.anio < new Date().getFullYear()),
@@ -443,21 +508,40 @@ export default function PagosPage() {
 	return (
 		<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
 			<div className="max-w-7xl mx-auto px-4 md:px-6 space-y-6">
-				{/* Header */}
-				<div>
-					<button
-						onClick={() => router.push("/mi-cuenta")}
-						className="flex items-center gap-1.5 text-sm text-[#252d62] transition-colors mb-3 group cursor-pointer"
-					>
-						<ChevronLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-						Volver al panel de usuario
-					</button>
-					<h1 className="text-3xl md:text-4xl font-bold text-[#1a237e] mb-1">
-						Mis Pagos
-					</h1>
-					<p className="text-gray-600">
-						Historial de cuotas e inscripciones de todos los alumnos a tu cargo
-					</p>
+				<div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+					<div>
+						<button
+							onClick={() => router.push("/mi-cuenta")}
+							className="flex items-center gap-1.5 text-sm text-[#252d62] transition-colors mb-3 group cursor-pointer"
+						>
+							<ChevronLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+							Volver al panel de usuario
+						</button>
+						<h1 className="text-3xl md:text-4xl font-bold text-[#1a237e] mb-1">
+							Mis Pagos
+						</h1>
+						<p className="text-gray-600">
+							Historial de cuotas e inscripciones a tu cargo
+						</p>
+					</div>
+
+					{/* 🚀 NUEVO: SELECTOR DE ALUMNO */}
+					{listaAlumnos.length > 1 && (
+						<div className="bg-white border border-gray-200 rounded-lg p-1.5 shadow-sm">
+							<select
+								value={filtroAlumnoId}
+								onChange={(e) => setFiltroAlumnoId(e.target.value)}
+								className="text-sm font-semibold text-[#252d62] bg-transparent outline-none cursor-pointer pr-4"
+							>
+								<option value="todos">Todos los alumnos</option>
+								{listaAlumnos.map((al) => (
+									<option key={al.id} value={al.id}>
+										{al.nombre}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
 				</div>
 
 				{/* Tabs */}
@@ -470,8 +554,14 @@ export default function PagosPage() {
 								: "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
 						}`}
 					>
-						<Receipt className="w-4 h-4" />
-						Cuotas ({cuotas.length})
+						<Receipt className="w-4 h-4" /> Cuotas (
+						{
+							cuotas.filter(
+								(c) =>
+									filtroAlumnoId === "todos" || c.alumnoId === filtroAlumnoId,
+							).length
+						}
+						)
 					</button>
 					<button
 						onClick={() => setTab("inscripciones")}
@@ -481,8 +571,8 @@ export default function PagosPage() {
 								: "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
 						}`}
 					>
-						<GraduationCap className="w-4 h-4" />
-						Inscripciones ({inscripciones.length})
+						<GraduationCap className="w-4 h-4" /> Inscripciones (
+						{inscripcionesFiltradas.length})
 					</button>
 				</div>
 
@@ -538,10 +628,10 @@ export default function PagosPage() {
 										}`}
 									>
 										{f === "todas"
-											? `Todas (${cuotas.length})`
+											? `Todas`
 											: f === "pendientes"
-												? `Pendientes (${countPendientes})`
-												: `Pagadas (${countPagadas})`}
+												? `Pendientes`
+												: `Pagadas`}
 									</button>
 								),
 							)}
@@ -560,11 +650,11 @@ export default function PagosPage() {
 										? "¡Estás al día con todos tus pagos!"
 										: filtroCuotas === "pagadas"
 											? "Todavía no tenés cuotas pagadas."
-											: "No tenés cuotas registradas."}
+											: "No tenés cuotas registradas para este filtro."}
 								</p>
 							</div>
 						) : (
-							<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+							<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
 								{cuotasFiltradas.map((cuota) => (
 									<CuotaCard
 										key={cuota.id}
@@ -581,7 +671,7 @@ export default function PagosPage() {
 				{/* ── TAB INSCRIPCIONES ── */}
 				{tab === "inscripciones" && (
 					<>
-						{inscripciones.length === 0 ? (
+						{inscripcionesFiltradas.length === 0 ? (
 							<div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 flex flex-col items-center justify-center text-center">
 								<div className="bg-gray-100 p-4 rounded-full mb-4">
 									<GraduationCap className="w-8 h-8 text-gray-400" />
@@ -590,16 +680,16 @@ export default function PagosPage() {
 									No hay inscripciones para mostrar
 								</h3>
 								<p className="text-gray-500 text-sm">
-									Todavía no tenés inscripciones registradas.
+									No hay inscripciones registradas para este filtro.
 								</p>
 							</div>
 						) : (
-							<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-								{inscripciones.map((inscripcion) => (
+							<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
+								{inscripcionesFiltradas.map((inscripcion) => (
 									<InscripcionCard
 										key={inscripcion.id}
 										inscripcion={inscripcion}
-										onVerComprobante={setInscripcionComprobante} // ✅ CONECTADO
+										onVerComprobante={setInscripcionComprobante}
 									/>
 								))}
 							</div>
@@ -613,14 +703,11 @@ export default function PagosPage() {
 				isOpen={!!cuotaAPagar}
 				onClose={() => setCuotaAPagar(null)}
 			/>
-
 			<ComprobanteCuotaModal
 				cuota={cuotaComprobante}
 				isOpen={!!cuotaComprobante}
 				onClose={() => setCuotaComprobante(null)}
 			/>
-
-			{/* ✅ NUEVO */}
 			<ComprobanteInscripcionModal
 				inscripcion={inscripcionComprobante}
 				isOpen={!!inscripcionComprobante}

@@ -42,6 +42,7 @@ export interface UserFirestoreData {
 	fechaNacimiento: string;
 	edadTitular: number | string;
 	isTutor: boolean;
+	etiquetas?: string[];
 	hijos: StudentDetails[];
 	cuotasPagadas?: Record<string, string[]>;
 	cursos: string[];

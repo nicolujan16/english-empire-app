@@ -40,15 +40,14 @@ export async function POST(request: Request) {
 
 				await updateDoc(cuotaRef, {
 					estado: "Pagado",
-					montoPagado: metadata.monto,
+					montoPagado: metadata.monto_final,
 					fechaPago: new Date().toLocaleDateString("es-AR"),
 					metodoPago: "Mercado Pago",
 					paymentId: String(paymentId),
 					actualizadoEn: serverTimestamp(),
 				});
-
 				console.log(
-					`✅ CUOTA ${metadata.cuota_id} MARCADA COMO PAGADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Mes ${metadata.mes}/${metadata.anio} | Monto: $${metadata.monto}`,
+					`✅ CUOTA ${metadata.cuota_id} MARCADA COMO PAGADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Mes ${metadata.mes}/${metadata.anio} | Base: $${metadata.monto_base} | Final: $${metadata.monto_final}`,
 				);
 			}
 		}

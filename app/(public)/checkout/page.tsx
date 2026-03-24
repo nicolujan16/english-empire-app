@@ -10,6 +10,7 @@ import {
 	ShieldCheck,
 	Loader2,
 	AlertCircle,
+	Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PaymentModal from "@/components/portal/PaymentModal";
@@ -24,6 +25,36 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
+// ─── Helper: descuento máximo de inscripción para un alumno ──────────────────
+
+async function getMaxDescuentoInscripcion(
+	etiquetaIds: string[],
+): Promise<{ porcentaje: number; nombre: string } | null> {
+	if (!etiquetaIds || etiquetaIds.length === 0) return null;
+	try {
+		const snap = await getDocs(
+			query(collection(db, "EtiquetasDescuento"), where("activa", "==", true)),
+		);
+		let maxPorcentaje = 0;
+		let maxNombre = "";
+		snap.docs.forEach((d) => {
+			if (!etiquetaIds.includes(d.id)) return;
+			const pct: number = d.data().descuentoInscripcion ?? 0;
+			if (pct > maxPorcentaje) {
+				maxPorcentaje = pct;
+				maxNombre = d.data().nombre ?? d.id;
+			}
+		});
+		return maxPorcentaje > 0
+			? { porcentaje: maxPorcentaje, nombre: maxNombre }
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+// ─── Checkout ─────────────────────────────────────────────────────────────────
+
 function CheckoutContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -31,11 +62,7 @@ function CheckoutContent() {
 
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [modalMessage, setModalMessage] = useState("");
-
-	const [errorState, setErrorState] = useState({
-		show: false,
-		message: "",
-	});
+	const [errorState, setErrorState] = useState({ show: false, message: "" });
 
 	const cursoId = searchParams.get("curso");
 	const alumnoDni = searchParams.get("alumnoDNI");
@@ -45,7 +72,6 @@ function CheckoutContent() {
 		price: 0,
 		isLoading: true,
 	});
-
 	const [studentInfo, setStudentInfo] = useState({
 		name: "Validando estudiante...",
 		dni: "---",
@@ -53,12 +79,20 @@ function CheckoutContent() {
 		isLoading: true,
 	});
 
+	// Descuento por etiqueta
+	const [descuento, setDescuento] = useState<{
+		porcentaje: number;
+		nombre: string;
+	} | null>(null);
+	const [etiquetaIds, setEtiquetaIds] = useState<string[]>([]);
+
+	// ── Auth guard ────────────────────────────────────────────────────────────
 	useEffect(() => {
-		if (!authLoading && !user) {
+		if (!authLoading && !user)
 			router.push("/iniciar-sesion?redirect=/checkout");
-		}
 	}, [user, authLoading, router]);
 
+	// ── Cargar curso ──────────────────────────────────────────────────────────
 	useEffect(() => {
 		const fetchCourse = async () => {
 			if (!cursoId) {
@@ -70,11 +104,8 @@ function CheckoutContent() {
 				setCourseInfo((prev) => ({ ...prev, isLoading: false }));
 				return;
 			}
-
 			try {
-				const docRef = doc(db, "Cursos", cursoId);
-				const docSnap = await getDoc(docRef);
-
+				const docSnap = await getDoc(doc(db, "Cursos", cursoId));
 				if (docSnap.exists()) {
 					const data = docSnap.data();
 					setCourseInfo({
@@ -89,8 +120,7 @@ function CheckoutContent() {
 					});
 					setCourseInfo((prev) => ({ ...prev, isLoading: false }));
 				}
-			} catch (error) {
-				console.error("Error al obtener el curso:", error);
+			} catch {
 				setErrorState({
 					show: true,
 					message: "Hubo un problema de conexión al verificar el curso.",
@@ -98,42 +128,38 @@ function CheckoutContent() {
 				setCourseInfo((prev) => ({ ...prev, isLoading: false }));
 			}
 		};
-
 		fetchCourse();
 	}, [cursoId]);
 
+	// ── Validar alumno + cargar sus etiquetas ─────────────────────────────────
 	useEffect(() => {
 		const validateStudent = async () => {
 			if (authLoading || !user || !userData) return;
-
 			if (!alumnoDni) {
 				setErrorState({
 					show: true,
 					message: "Falta el DNI del alumno a inscribir.",
 				});
-				// Apagamos el loading
 				setStudentInfo((prev) => ({ ...prev, isLoading: false }));
 				return;
 			}
-
 			try {
 				if (alumnoDni === userData.dni) {
 					setStudentInfo({
 						name: `${userData.nombre} ${userData.apellido}`,
 						dni: userData.dni,
-						alumnoId: user.uid, // ID del doc en Users
+						alumnoId: user.uid,
 						isLoading: false,
 					});
+					setEtiquetaIds(userData.etiquetas ?? []);
 					return;
 				}
 
-				const hijosRef = collection(db, "Hijos");
-				const qHijo = query(hijosRef, where("dni", "==", alumnoDni));
-				const hijoSnapshot = await getDocs(qHijo);
-
+				const hijoSnapshot = await getDocs(
+					query(collection(db, "Hijos"), where("dni", "==", alumnoDni)),
+				);
 				if (!hijoSnapshot.empty) {
 					const hijoData = hijoSnapshot.docs[0].data();
-
 					if (hijoData.tutorId !== user.uid) {
 						setErrorState({
 							show: true,
@@ -143,20 +169,19 @@ function CheckoutContent() {
 						setStudentInfo((prev) => ({ ...prev, isLoading: false }));
 						return;
 					}
-
 					setStudentInfo({
 						name: `${hijoData.nombre} ${hijoData.apellido}`,
 						dni: hijoData.dni,
-						alumnoId: hijoSnapshot.docs[0].id, // ID del doc en Hijos ✅
+						alumnoId: hijoSnapshot.docs[0].id,
 						isLoading: false,
 					});
+					setEtiquetaIds(hijoData.etiquetas ?? []);
 					return;
 				}
 
-				const usersRef = collection(db, "Users");
-				const qUser = query(usersRef, where("dni", "==", alumnoDni));
-				const userSnapshot = await getDocs(qUser);
-
+				const userSnapshot = await getDocs(
+					query(collection(db, "Users"), where("dni", "==", alumnoDni)),
+				);
 				if (!userSnapshot.empty) {
 					setErrorState({
 						show: true,
@@ -172,8 +197,7 @@ function CheckoutContent() {
 					message: "No se encontró ningún alumno registrado con ese DNI.",
 				});
 				setStudentInfo((prev) => ({ ...prev, isLoading: false }));
-			} catch (error) {
-				console.error("Error al validar estudiante:", error);
+			} catch {
 				setErrorState({
 					show: true,
 					message: "Hubo un error al verificar los datos del alumno.",
@@ -181,30 +205,43 @@ function CheckoutContent() {
 				setStudentInfo((prev) => ({ ...prev, isLoading: false }));
 			}
 		};
-
 		validateStudent();
 	}, [alumnoDni, user, userData, authLoading]);
 
-	const handlePayment = async () => {
-		if (courseInfo.price === 0 || !user || !cursoId || !alumnoDni) return;
+	// ── Calcular descuento una vez que se tienen las etiquetas ────────────────
+	useEffect(() => {
+		if (etiquetaIds.length === 0) {
+			// eslint-disable-next-line react-hooks/set-state-in-effect
+			setDescuento(null);
+			return;
+		}
+		getMaxDescuentoInscripcion(etiquetaIds).then(setDescuento);
+	}, [etiquetaIds]);
 
+	// ── Precios finales ───────────────────────────────────────────────────────
+	const precioOriginal = courseInfo.price;
+	const precioFinal = descuento
+		? Math.round(precioOriginal * (1 - descuento.porcentaje / 100))
+		: precioOriginal;
+	const ahorro = precioOriginal - precioFinal;
+
+	// ── Pago ──────────────────────────────────────────────────────────────────
+	const handlePayment = async () => {
+		if (precioFinal === 0 || !user || !cursoId || !alumnoDni) return;
 		setIsProcessing(true);
 		setModalMessage("Validando inscripción y preparando pago...");
-
 		try {
 			const response = await fetch("/api/checkout", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					userId: user.uid,
-					alumnoDni: alumnoDni,
-					cursoId: cursoId,
+					alumnoDni,
+					cursoId,
 					alumnoId: studentInfo.alumnoId,
 				}),
 			});
-
 			const data = await response.json();
-
 			if (!response.ok) {
 				setIsProcessing(false);
 				setErrorState({
@@ -213,15 +250,12 @@ function CheckoutContent() {
 				});
 				return;
 			}
-
 			setModalMessage("Redirigiendo a Mercado Pago...");
-
 			setTimeout(() => {
 				window.location.href = data.init_point;
 				setIsProcessing(false);
 			}, 1500);
-		} catch (error) {
-			console.error("Error al conectar con la API de checkout:", error);
+		} catch {
 			setIsProcessing(false);
 			setErrorState({
 				show: true,
@@ -231,7 +265,7 @@ function CheckoutContent() {
 		}
 	};
 
-	// 3. CORRECCIÓN: Invertimos el orden. El error tiene máxima prioridad visual.
+	// ── Estados de carga / error ──────────────────────────────────────────────
 	if (errorState.show) {
 		return (
 			<div className="min-h-[400px] bg-gray-50 flex items-center justify-center p-4">
@@ -258,7 +292,6 @@ function CheckoutContent() {
 		);
 	}
 
-	// Si no hay error, validamos si sigue cargando
 	if (courseInfo.isLoading || studentInfo.isLoading || authLoading) {
 		return (
 			<div className="h-screen flex items-center justify-center bg-gray-50">
@@ -267,13 +300,13 @@ function CheckoutContent() {
 		);
 	}
 
-	// --- RENDERIZADO NORMAL ---
+	// ── Render ────────────────────────────────────────────────────────────────
 	return (
 		<>
 			<div className="bg-gray-50">
 				<div className="container mx-auto px-4 py-8 md:py-12">
 					<div className="grid lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-						{/* COLUMNA IZQUIERDA - MÉTODOS DE PAGO */}
+						{/* Columna izquierda — métodos de pago */}
 						<div className="lg:col-span-2">
 							<motion.div
 								initial={{ opacity: 0, x: -20 }}
@@ -289,10 +322,9 @@ function CheckoutContent() {
 										<div className="flex items-start gap-4">
 											<div className="flex-shrink-0 mt-1">
 												<div className="w-5 h-5 rounded-full border-2 border-blue-500 flex items-center justify-center">
-													<div className="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+													<div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
 												</div>
 											</div>
-
 											<div className="flex-1">
 												<div className="flex items-center gap-3 mb-3">
 													<div className="bg-white p-1.5 rounded-md shadow-sm border border-gray-100">
@@ -302,25 +334,22 @@ function CheckoutContent() {
 														Mercado Pago
 													</span>
 												</div>
-
 												<p className="text-sm text-gray-600 mb-3">
 													Paga de forma segura con tarjeta de crédito, débito o
 													efectivo
 												</p>
-
 												<div className="flex items-center gap-2 flex-wrap">
-													<div className="flex items-center gap-1.5 bg-white rounded px-2 py-1 border border-gray-200 shadow-sm">
-														<CreditCard className="w-3.5 h-3.5 text-gray-500" />
-														<span className="text-[10px] font-medium text-gray-700">
-															Visa
-														</span>
-													</div>
-													<div className="flex items-center gap-1.5 bg-white rounded px-2 py-1 border border-gray-200 shadow-sm">
-														<CreditCard className="w-3.5 h-3.5 text-gray-500" />
-														<span className="text-[10px] font-medium text-gray-700">
-															Mastercard
-														</span>
-													</div>
+													{["Visa", "Mastercard"].map((m) => (
+														<div
+															key={m}
+															className="flex items-center gap-1.5 bg-white rounded px-2 py-1 border border-gray-200 shadow-sm"
+														>
+															<CreditCard className="w-3.5 h-3.5 text-gray-500" />
+															<span className="text-[10px] font-medium text-gray-700">
+																{m}
+															</span>
+														</div>
+													))}
 													<div className="flex items-center gap-1.5 bg-white rounded px-2 py-1 border border-gray-200 shadow-sm">
 														<Banknote className="w-3.5 h-3.5 text-gray-500" />
 														<span className="text-[10px] font-medium text-gray-700">
@@ -343,7 +372,7 @@ function CheckoutContent() {
 							</motion.div>
 						</div>
 
-						{/* COLUMNA DERECHA - RESUMEN */}
+						{/* Columna derecha — resumen */}
 						<div className="lg:col-span-1">
 							<motion.div
 								initial={{ opacity: 0, x: 20 }}
@@ -356,6 +385,7 @@ function CheckoutContent() {
 										Resumen de Compra
 									</h3>
 
+									{/* Datos del estudiante */}
 									<div className="mb-4 pb-4 border-b border-gray-100">
 										<div className="flex justify-between mb-1">
 											<span className="text-lg text-gray-500">Estudiante:</span>
@@ -371,25 +401,66 @@ function CheckoutContent() {
 										</div>
 									</div>
 
-									<div className="mb-4 pb-4 border-b border-gray-100">
-										<p className="font-semibold text-lg text-gray-800 mb-2 leading-tight">
+									{/* Curso y precio */}
+									<div className="mb-4 pb-4 border-b border-gray-100 space-y-2">
+										<p className="font-semibold text-lg text-gray-800 leading-tight">
 											{courseInfo.name}
 										</p>
-										<div className="flex justify-between items-baseline">
-											<span className="text-lg text-gray-500">Precio:</span>
-											<span className="text-lg font-bold text-[#2a2e5b]">
-												ARS ${courseInfo.price.toLocaleString("es-AR")}
-											</span>
-										</div>
+
+										{descuento ? (
+											<>
+												{/* Banner de descuento */}
+												<div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+													<Tag className="w-4 h-4 text-emerald-600 shrink-0" />
+													<div className="text-xs">
+														<p className="font-bold text-emerald-700">
+															{descuento.nombre}
+														</p>
+														<p className="text-emerald-600">
+															{descuento.porcentaje}% de descuento en la
+															inscripción
+														</p>
+													</div>
+												</div>
+
+												{/* Precio original tachado + final */}
+												<div className="flex justify-between items-baseline">
+													<span className="text-sm text-gray-400">
+														Precio original:
+													</span>
+													<span className="text-sm text-gray-400 line-through">
+														ARS ${precioOriginal.toLocaleString("es-AR")}
+													</span>
+												</div>
+												<div className="flex justify-between items-baseline">
+													<span className="text-sm font-semibold text-emerald-600">
+														Descuento:
+													</span>
+													<span className="text-sm font-bold text-emerald-600">
+														− ARS ${ahorro.toLocaleString("es-AR")}
+													</span>
+												</div>
+											</>
+										) : (
+											<div className="flex justify-between items-baseline">
+												<span className="text-lg text-gray-500">Precio:</span>
+												<span className="text-lg font-bold text-[#2a2e5b]">
+													ARS ${precioOriginal.toLocaleString("es-AR")}
+												</span>
+											</div>
+										)}
 									</div>
 
+									{/* Total */}
 									<div className="mb-6">
 										<div className="flex justify-between items-baseline">
 											<span className="text-lg font-bold text-gray-800">
 												Total a pagar:
 											</span>
-											<span className="text-xl font-bold text-[#EE1120]">
-												ARS ${courseInfo.price.toLocaleString("es-AR")}
+											<span
+												className={`text-xl font-bold ${descuento ? "text-emerald-600" : "text-[#EE1120]"}`}
+											>
+												ARS ${precioFinal.toLocaleString("es-AR")}
 											</span>
 										</div>
 									</div>
@@ -398,7 +469,7 @@ function CheckoutContent() {
 										onClick={handlePayment}
 										disabled={
 											isProcessing ||
-											courseInfo.price === 0 ||
+											precioFinal === 0 ||
 											studentInfo.dni === "---"
 										}
 										className="w-full bg-[#EE1120] hover:bg-[#c4000e] text-white text-sm font-bold py-5 rounded-lg shadow hover:shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"

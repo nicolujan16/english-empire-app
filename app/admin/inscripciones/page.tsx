@@ -15,7 +15,7 @@ export default function AdminInscripcionesPage() {
 			<div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
 				<div>
 					<h1 className="text-3xl font-bold text-[#252d62] mb-2">
-						Inscripciones
+						Historial de Inscripciones
 					</h1>
 					<p className="text-gray-500">
 						Gestiona las altas, bajas y estados de pago de los alumnos.

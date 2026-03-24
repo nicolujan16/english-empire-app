@@ -10,27 +10,36 @@ import {
 	CalendarClock,
 	Plus,
 	Trash2,
-	CircleDollarSign, // Añadimos un ícono para la sección financiera
+	CircleDollarSign,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import cursoDefaultIMG from "@/assets/cursoDetails/cursoDefaultImg.jpg";
 
-import { doc, updateDoc, setDoc } from "firebase/firestore";
+import {
+	doc,
+	updateDoc,
+	setDoc,
+	query,
+	collection,
+	where,
+	getDocs,
+	writeBatch,
+} from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseConfig";
 
-// --- TIPAMOS LA INTERFAZ CON EL NUEVO ESQUEMA ---
+// --- TIPAMOS LA INTERFAZ CON EL ESQUEMA ESTRICTO ---
 export interface AdminCourse {
 	id: string;
 	nombre: string;
 	categoria: string;
 	descripcion: string;
-	edades: number[];
+	edades: number[]; // 🚀 Restaurado a number[] (Usaremos 999 como comodín)
 	horarios: Record<string, string>;
 	imgURL: string;
 
-	// Esquema viejo (Mantenido por retrocompatibilidad)
+	// Esquema viejo
 	cuota?: number;
 
 	// NUEVO ESQUEMA FINANCIERO
@@ -101,12 +110,10 @@ export default function AddCursoModal({
 		nombre: "",
 		categoria: "",
 		descripcion: "",
-		// Nuevos campos financieros
 		cuota1a10: "",
 		cuota11enAdelante: "",
 		inscripcion: "",
 		mesInicioCobro: "3",
-
 		edadMin: "",
 		edadMax: "",
 		mesInicio: "3",
@@ -148,12 +155,15 @@ export default function AddCursoModal({
 				return defaultVal;
 			};
 
+			// 🚀 Lógica Inversa: Si en Firebase dice 999, mostramos vacío ("Sin límite") en el modal
+			const readEdadMax = courseToEdit.edades?.[1];
+			const parsedEdadMax =
+				readEdadMax === 999 ? "" : readEdadMax?.toString() || "";
+
 			setFormData({
 				nombre: courseToEdit.nombre || "",
 				categoria: courseToEdit.categoria || "",
 				descripcion: courseToEdit.descripcion || "",
-
-				// Mapeo inteligente: Si existe cuota1a10 la usa, sino hace fallback al valor "cuota" viejo.
 				cuota1a10:
 					courseToEdit.cuota1a10?.toString() ||
 					courseToEdit.cuota?.toString() ||
@@ -163,16 +173,14 @@ export default function AddCursoModal({
 					courseToEdit.cuota?.toString() ||
 					"",
 				inscripcion: courseToEdit.inscripcion?.toString() || "",
-				// Si no tiene mesInicioCobro, hereda el mes de inicio del curso para no romper datos viejos
 				mesInicioCobro: getMonthValue(
 					courseToEdit.mesInicioCobro ||
 						courseToEdit.inicioMes ||
 						courseToEdit.inicio,
 					"3",
 				),
-
 				edadMin: courseToEdit.edades?.[0]?.toString() || "",
-				edadMax: courseToEdit.edades?.[1]?.toString() || "",
+				edadMax: parsedEdadMax,
 				mesInicio: getMonthValue(
 					courseToEdit.inicioMes || courseToEdit.inicio,
 					"3",
@@ -301,21 +309,21 @@ export default function AddCursoModal({
 				});
 			}
 
-			// NUEVO PAYLOAD PARA FIRESTORE
+			// 🚀 REGLA: Si edadMax está vacío, guardamos 999 en la base de datos
+			const finalEdadMax =
+				formData.edadMax.trim() === "" ? 999 : parseInt(formData.edadMax);
+
 			const courseData: any = {
 				nombre: formData.nombre,
 				categoria: formData.categoria,
 				descripcion: formData.descripcion,
-
-				// Estructura financiera
 				cuota1a10: parseFloat(formData.cuota1a10) || 0,
 				cuota11enAdelante: parseFloat(formData.cuota11enAdelante) || 0,
 				inscripcion: parseFloat(formData.inscripcion) || 0,
 				mesInicioCobro: parseInt(formData.mesInicioCobro),
-
 				edades: [
 					parseInt(formData.edadMin) || 0,
-					parseInt(formData.edadMax) || 0,
+					finalEdadMax, // <-- Acá inyectamos el 999
 				],
 				horarios: horariosObj,
 				inicioMes: parseInt(formData.mesInicio),
@@ -327,6 +335,44 @@ export default function AddCursoModal({
 				if (finalImageUrl) courseData.imgURL = finalImageUrl;
 				const courseRef = doc(db, "Cursos", courseToEdit.id);
 				await updateDoc(courseRef, courseData);
+
+				const newCuota1a10 = parseFloat(formData.cuota1a10) || 0;
+				const newCuota11 = parseFloat(formData.cuota11enAdelante) || 0;
+				const oldCuota1a10 = courseToEdit.cuota1a10 || 0;
+				const oldCuota11 = courseToEdit.cuota11enAdelante || 0;
+
+				if (newCuota1a10 !== oldCuota1a10 || newCuota11 !== oldCuota11) {
+					const q = query(
+						collection(db, "Cuotas"),
+						where("cursoId", "==", courseToEdit.id),
+						where("estado", "==", "Pendiente"),
+					);
+					const snapshot = await getDocs(q);
+
+					if (!snapshot.empty) {
+						const batch = writeBatch(db);
+						snapshot.forEach((cuotaDoc) => {
+							const data = cuotaDoc.data();
+							const updates: Record<string, any> = {
+								cuota1a10: newCuota1a10,
+								cuota11enAdelante: newCuota11,
+								actualizadoEn: new Date(),
+							};
+
+							if (
+								data.esPrimerMes &&
+								data.montoPrimerMes !== null &&
+								oldCuota1a10 > 0
+							) {
+								const ratio = data.montoPrimerMes / oldCuota1a10;
+								updates.montoPrimerMes = Math.round(newCuota1a10 * ratio);
+							}
+
+							batch.update(cuotaDoc.ref, updates);
+						});
+						await batch.commit();
+					}
+				}
 			} else {
 				courseData.imgURL = finalImageUrl || cursoDefaultIMG.src;
 				const customId = formData.nombre
@@ -464,16 +510,19 @@ export default function AddCursoModal({
 										</div>
 										<div>
 											<label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-												Edad Máx
+												Edad Máx{" "}
+												<span className="font-normal normal-case">
+													(Opcional)
+												</span>
 											</label>
 											<input
 												type="number"
 												name="edadMax"
 												min="0"
-												required
 												disabled={isSubmitting}
 												value={formData.edadMax}
 												onChange={handleModalChange}
+												placeholder="Sin límite"
 												className="block w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white"
 											/>
 										</div>
@@ -637,13 +686,12 @@ export default function AddCursoModal({
 										)}
 									</div>
 
-									{/* NUEVA SECCIÓN FINANCIERA (Destacada en la UI) */}
+									{/* SECCIÓN FINANCIERA */}
 									<div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 space-y-4">
 										<h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-2 border-b border-emerald-200/60 pb-2">
-											<CircleDollarSign className="w-4 h-4" />
-											Esquema de Cobros y Cuotas
+											<CircleDollarSign className="w-4 h-4" /> Esquema de Cobros
+											y Cuotas
 										</h3>
-
 										<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 											<div>
 												<label className="block text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1">

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Preference } from "mercadopago";
 import { db } from "@/lib/firebaseConfig";
 import { doc, getDoc } from "firebase/firestore";
+import {
+	type Cuota,
+	calcularPrecioBase,
+	aplicarDescuentos,
+} from "@/lib/cuotas";
 
 const client = new MercadoPagoConfig({
 	accessToken: process.env.MP_ACCESS_TOKEN || "",
@@ -21,21 +26,6 @@ const MESES = [
 	"Noviembre",
 	"Diciembre",
 ];
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function calcularMonto(cuotaData: any): number {
-	if (cuotaData.esPrimerMes && cuotaData.montoPrimerMes) {
-		return cuotaData.montoPrimerMes;
-	}
-	const hoy = new Date();
-	const esElMesActual =
-		cuotaData.mes === hoy.getMonth() + 1 &&
-		cuotaData.anio === hoy.getFullYear();
-	if (esElMesActual && hoy.getDate() <= 10) {
-		return cuotaData.cuota1a10;
-	}
-	return cuotaData.cuota11enAdelante;
-}
 
 export async function POST(request: Request) {
 	try {
@@ -58,7 +48,7 @@ export async function POST(request: Request) {
 			);
 		}
 
-		const cuotaData = cuotaSnap.data();
+		const cuotaData = { id: cuotaSnap.id, ...cuotaSnap.data() } as Cuota;
 
 		if (cuotaData.estado === "Pagado") {
 			return NextResponse.json(
@@ -67,8 +57,23 @@ export async function POST(request: Request) {
 			);
 		}
 
-		const monto = calcularMonto(cuotaData);
-		const mesMesNombre = MESES[cuotaData.mes - 1];
+		// ── Cálculo del monto con descuentos acumulables ──────────────────────
+		// 1. Precio base según fecha (cuota1a10 / cuota11enAdelante / montoPrimerMes)
+		const precioBase = calcularPrecioBase(cuotaData);
+		// 2. Aplicar todos los descuentos del array sobre el precio base
+
+		const mejorDescuento = cuotaData.descuentos?.length
+			? cuotaData.descuentos.reduce((max, d) =>
+					d.porcentaje > max.porcentaje ? d : max,
+				)
+			: null;
+
+		const descuentosAAplicar = mejorDescuento ? [mejorDescuento] : [];
+
+		const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
+		// ─────────────────────────────────────────────────────────────────────
+
+		const mesNombre = MESES[cuotaData.mes - 1];
 
 		const preference = new Preference(client);
 		const result = await preference.create({
@@ -76,10 +81,10 @@ export async function POST(request: Request) {
 				items: [
 					{
 						id: cuotaId,
-						title: `Cuota ${mesMesNombre} ${cuotaData.anio} — ${cuotaData.cursoNombre}`,
+						title: `Cuota ${mesNombre} ${cuotaData.anio} — ${cuotaData.cursoNombre}`,
 						description: `Cuota de ${cuotaData.alumnoNombre} — ${cuotaData.cursoNombre}`,
 						quantity: 1,
-						unit_price: Number(monto),
+						unit_price: montoFinal,
 						currency_id: "ARS",
 					},
 				],
@@ -97,7 +102,9 @@ export async function POST(request: Request) {
 					curso_nombre: cuotaData.cursoNombre,
 					mes: cuotaData.mes,
 					anio: cuotaData.anio,
-					monto,
+					monto_base: precioBase,
+					monto_final: montoFinal,
+					descuento_aplicado: mejorDescuento ?? null,
 				},
 				notification_url: `${process.env.WEBHOOK_URL}/api/webhook-cuota`,
 			},

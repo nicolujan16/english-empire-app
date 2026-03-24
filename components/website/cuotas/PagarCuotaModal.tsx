@@ -15,29 +15,13 @@ import {
 	Banknote,
 	ShieldCheck,
 	AlertCircle,
+	Tag,
 } from "lucide-react";
-
-interface Cuota {
-	id: string;
-	alumnoId: string;
-	alumnoNombre: string;
-	alumnoTipo: "adulto" | "menor";
-	cursoId: string;
-	cursoNombre: string;
-	mes: number;
-	anio: number;
-	estado: "Pendiente" | "Pagado";
-	esPrimerMes: boolean;
-	montoPrimerMes: number | null;
-	cuota1a10: number;
-	cuota11enAdelante: number;
-}
-
-interface PagarCuotaModalProps {
-	cuota: Cuota | null;
-	isOpen: boolean;
-	onClose: () => void;
-}
+import {
+	type Cuota,
+	calcularPrecioBase,
+	aplicarDescuentos,
+} from "@/lib/cuotas";
 
 const MESES = [
 	"Enero",
@@ -54,17 +38,10 @@ const MESES = [
 	"Diciembre",
 ];
 
-function calcularMonto(cuota: Cuota): number {
-	if (cuota.esPrimerMes && cuota.montoPrimerMes) {
-		return cuota.montoPrimerMes;
-	}
-	const hoy = new Date();
-	const esElMesActual =
-		cuota.mes === hoy.getMonth() + 1 && cuota.anio === hoy.getFullYear();
-	if (esElMesActual && hoy.getDate() <= 10) {
-		return cuota.cuota1a10;
-	}
-	return cuota.cuota11enAdelante;
+interface PagarCuotaModalProps {
+	cuota: Cuota | null;
+	isOpen: boolean;
+	onClose: () => void;
 }
 
 export default function PagarCuotaModal({
@@ -77,7 +54,12 @@ export default function PagarCuotaModal({
 
 	if (!cuota) return null;
 
-	const monto = calcularMonto(cuota);
+	const tieneDescuentos = cuota.descuentos && cuota.descuentos.length > 0;
+	const totalDescuento =
+		cuota.descuentos?.reduce((acc, d) => acc + d.porcentaje, 0) ?? 0;
+	const precioBase = calcularPrecioBase(cuota);
+	const montoFinal = aplicarDescuentos(precioBase, cuota.descuentos);
+	const ahorro = precioBase - montoFinal;
 
 	const handlePagar = async () => {
 		setIsProcessing(true);
@@ -141,11 +123,53 @@ export default function PagarCuotaModal({
 							{MESES[cuota.mes - 1]} {cuota.anio}
 						</span>
 					</div>
-					<div className="border-t border-gray-200 pt-3 flex justify-between">
+
+					{/* Desglose de descuentos */}
+					{tieneDescuentos && (
+						<>
+							<div className="border-t border-gray-200 pt-3 space-y-2">
+								<div className="flex justify-between text-sm">
+									<span className="text-gray-500">Precio base</span>
+									<span className="text-gray-500 line-through">
+										${precioBase.toLocaleString("es-AR")}
+									</span>
+								</div>
+								{cuota.descuentos!.map((d, i) => (
+									<div key={i} className="flex justify-between text-sm">
+										<span className="flex items-center gap-1.5 text-emerald-600 font-medium">
+											<Tag className="w-3 h-3" />
+											{d.detalle}
+										</span>
+										<span className="text-emerald-600 font-bold">
+											−{d.porcentaje}%
+										</span>
+									</div>
+								))}
+								<div className="flex justify-between text-sm text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1.5">
+									<span className="font-medium">Ahorrás</span>
+									<span className="font-bold">
+										−${ahorro.toLocaleString("es-AR")} ({totalDescuento}% off)
+									</span>
+								</div>
+							</div>
+						</>
+					)}
+
+					{/* Total */}
+					<div
+						className={`${tieneDescuentos ? "" : "border-t border-gray-200 pt-3"} flex justify-between items-center`}
+					>
 						<span className="font-bold text-gray-900">Total a pagar</span>
-						<span className="font-bold text-xl text-[#EE1120]">
-							${monto.toLocaleString("es-AR")}
-						</span>
+						<div className="flex flex-col items-end">
+							<span className="font-bold text-xl text-[#EE1120]">
+								${montoFinal.toLocaleString("es-AR")}
+							</span>
+							{tieneDescuentos && (
+								<span className="text-[10px] text-emerald-600 font-medium">
+									Con {totalDescuento}% de descuento aplicado
+								</span>
+							)}
+						</div>
 					</div>
 				</div>
 
@@ -203,7 +227,7 @@ export default function PagarCuotaModal({
 						) : (
 							<>
 								<CreditCard className="w-4 h-4 mr-2" />
-								Pagar ahora
+								Pagar ${montoFinal.toLocaleString("es-AR")}
 							</>
 						)}
 					</Button>

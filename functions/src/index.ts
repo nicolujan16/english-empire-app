@@ -7,14 +7,33 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+interface Descuento {
+	porcentaje: number;
+	detalle: string;
+}
+
+interface AlumnoConCursos {
+	alumnoId: string;
+	alumnoNombre: string;
+	alumnoDni: string;
+	alumnoTipo: "adulto" | "menor";
+	tutorId: string;
+	cursoIds: string[];
+	etiquetaIds: string[]; // ← IDs de etiquetas asignadas al alumno
+}
+
+interface CuotaACrear {
+	ref: FirebaseFirestore.DocumentReference;
+	data: Record<string, unknown>;
+	tutorId: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Lógica central extraída en una función reutilizable.
-// Tanto el trigger programado como el HTTP de prueba la llaman.
-//
-// Parámetros opcionales para testing:
-//   - mesOverride:  forzar un mes específico (1-12)
-//   - anioOverride: forzar un año específico
+// Lógica central
 // ─────────────────────────────────────────────────────────────────────────────
+
 async function generarCuotasMensuales(
 	mesOverride?: number,
 	anioOverride?: number,
@@ -40,132 +59,242 @@ async function generarCuotasMensuales(
 		);
 	}
 
-	const inscripcionesSnap = await db
-		.collection("Inscripciones")
-		.where("status", "==", "Confirmado")
-		.get();
-
-	if (inscripcionesSnap.empty) {
-		logger.info("ℹ️ No hay inscripciones confirmadas. Nada que hacer.");
-		return { creadas: 0, omitidas: 0, errores: 0 };
-	}
-
-	logger.info(
-		`📋 Inscripciones confirmadas encontradas: ${inscripcionesSnap.size}`,
-	);
-
-	let creadas = 0;
 	let omitidas = 0;
 	let errores = 0;
 
-	// MEJORA 1: Diccionario (Caché) para no leer el mismo curso 50 veces
-	const cursosCache = new Map<string, any>();
+	// ── FASE 1: Recolectar todos los alumnos con cursos activos ──────────────
+	// También leemos "etiquetas" de cada doc.
 
-	// MEJORA 2: Inicializamos un Batch para escribir en lotes
-	let batch = db.batch();
-	let operacionesEnBatch = 0;
+	const alumnosConCursos: AlumnoConCursos[] = [];
 
-	for (const inscripcionDoc of inscripcionesSnap.docs) {
-		const inscripcion = inscripcionDoc.data();
-		const inscripcionId = inscripcionDoc.id;
+	const usersSnap = await db.collection("Users").get();
+	for (const userDoc of usersSnap.docs) {
+		const data = userDoc.data();
+		const cursoIds: string[] = data.cursos ?? [];
+		if (cursoIds.length === 0) continue;
 
-		try {
-			// Idempotencia: saltar si ya existe cuota
-			const cuotaExistente = await db
-				.collection("Cuotas")
-				.where("inscripcionId", "==", inscripcionId)
-				.where("mes", "==", mesNormalizado)
-				.where("anio", "==", anioSiguiente)
-				.limit(1)
-				.get();
+		alumnosConCursos.push({
+			alumnoId: userDoc.id,
+			alumnoNombre: `${data.nombre} ${data.apellido}`,
+			alumnoDni: data.dni ?? "",
+			alumnoTipo: "adulto",
+			tutorId: userDoc.id,
+			cursoIds,
+			etiquetaIds: data.etiquetas ?? [],
+		});
+	}
 
-			if (!cuotaExistente.empty) {
-				omitidas++;
-				continue;
-			}
+	const hijosSnap = await db.collection("Hijos").get();
+	for (const hijoDoc of hijosSnap.docs) {
+		const data = hijoDoc.data();
+		const cursoIds: string[] = data.cursos ?? [];
+		if (cursoIds.length === 0) continue;
 
-			// --- SISTEMA DE CACHÉ DE CURSOS ---
-			let cursoData;
-			if (cursosCache.has(inscripcion.cursoId)) {
-				cursoData = cursosCache.get(inscripcion.cursoId); // Lo sacamos de la memoria (Costo $0)
-			} else {
-				const cursoSnap = await db
-					.collection("Cursos")
-					.doc(inscripcion.cursoId)
+		alumnosConCursos.push({
+			alumnoId: hijoDoc.id,
+			alumnoNombre: `${data.nombre} ${data.apellido}`,
+			alumnoDni: data.dni ?? "",
+			alumnoTipo: "menor",
+			tutorId: data.tutorId ?? hijoDoc.id,
+			cursoIds,
+			etiquetaIds: data.etiquetas ?? [],
+		});
+	}
+
+	if (alumnosConCursos.length === 0) {
+		logger.info("ℹ️ No hay alumnos con cursos activos. Nada que hacer.");
+		return { creadas: 0, omitidas: 0, errores: 0 };
+	}
+
+	logger.info(`👥 Alumnos con cursos activos: ${alumnosConCursos.length}`);
+
+	// ── FASE 2: Detectar grupos familiares ────────────────────────────────────
+
+	const miembrosPorTutor = new Map<string, number>();
+	for (const alumno of alumnosConCursos) {
+		miembrosPorTutor.set(
+			alumno.tutorId,
+			(miembrosPorTutor.get(alumno.tutorId) ?? 0) + 1,
+		);
+	}
+
+	const descuentoGrupoFamiliar: Descuento = {
+		porcentaje: 10,
+		detalle: "Grupo Familiar",
+	};
+
+	const gruposFamiliaresConDescuento = [...miembrosPorTutor.entries()]
+		.filter(([, count]) => count >= 2)
+		.map(([tutorId]) => tutorId);
+
+	if (gruposFamiliaresConDescuento.length > 0) {
+		logger.info(
+			`👨‍👩‍👧 Grupos familiares con descuento (${gruposFamiliaresConDescuento.length}): ${gruposFamiliaresConDescuento.join(", ")}`,
+		);
+	}
+
+	// ── FASE 2b: Cargar etiquetas activas con descuentoCuota ─────────────────
+	// Una sola lectura para toda la ejecución — se cachea en un Map.
+
+	const etiquetasMap = new Map<
+		string,
+		{ nombre: string; descuentoCuota: number }
+	>();
+
+	const etiquetasSnap = await db
+		.collection("EtiquetasDescuento")
+		.where("activa", "==", true)
+		.get();
+
+	for (const etDoc of etiquetasSnap.docs) {
+		const data = etDoc.data();
+		const descuentoCuota: number = data.descuentoCuota ?? 0;
+		// Solo nos interesan etiquetas que tengan descuento en cuota
+		if (descuentoCuota > 0) {
+			etiquetasMap.set(etDoc.id, {
+				nombre: data.nombre ?? etDoc.id,
+				descuentoCuota,
+			});
+		}
+	}
+
+	logger.info(
+		`🏷️ Etiquetas activas con descuento en cuota: ${etiquetasMap.size}`,
+	);
+
+	// ── FASE 3: Armar cuotas a crear ──────────────────────────────────────────
+
+	const cursosCache = new Map<string, FirebaseFirestore.DocumentData>();
+	const cuotasACrear: CuotaACrear[] = [];
+
+	for (const alumno of alumnosConCursos) {
+		// Descuentos por etiquetas del alumno
+		// Schema: { detalle: nombre de la etiqueta, porcentaje: descuentoCuota }
+		const descuentosPorEtiqueta: Descuento[] = alumno.etiquetaIds
+			.filter((id) => etiquetasMap.has(id))
+			.map((id) => {
+				const et = etiquetasMap.get(id)!;
+				return {
+					detalle: et.nombre,
+					porcentaje: et.descuentoCuota,
+				};
+			});
+
+		// Descuento Grupo Familiar (si aplica)
+		const tieneDescuentoGF = (miembrosPorTutor.get(alumno.tutorId) ?? 0) >= 2;
+
+		// Array final: todos los descuentos que aplican al alumno.
+		// Al momento de cobrar, el frontend y la API eligen el de mayor porcentaje.
+		const descuentosDelAlumno: Descuento[] = [
+			...descuentosPorEtiqueta,
+			...(tieneDescuentoGF ? [descuentoGrupoFamiliar] : []),
+		];
+
+		for (const cursoId of alumno.cursoIds) {
+			try {
+				// Idempotencia: alumnoId + cursoId + mes + anio
+				const cuotaExistente = await db
+					.collection("Cuotas")
+					.where("alumnoId", "==", alumno.alumnoId)
+					.where("cursoId", "==", cursoId)
+					.where("mes", "==", mesNormalizado)
+					.where("anio", "==", anioSiguiente)
+					.limit(1)
 					.get();
-				if (!cursoSnap.exists) {
-					logger.warn(
-						`⚠️ Curso ${inscripcion.cursoId} no encontrado. Omitida.`,
+
+				if (!cuotaExistente.empty) {
+					omitidas++;
+					continue;
+				}
+
+				// Caché de cursos
+				let cursoData: FirebaseFirestore.DocumentData;
+				if (cursosCache.has(cursoId)) {
+					cursoData = cursosCache.get(cursoId)!;
+				} else {
+					const cursoSnap = await db.collection("Cursos").doc(cursoId).get();
+					if (!cursoSnap.exists) {
+						logger.warn(`⚠️ Curso ${cursoId} no encontrado. Omitida.`);
+						omitidas++;
+						continue;
+					}
+					cursoData = cursoSnap.data()!;
+					cursosCache.set(cursoId, cursoData);
+				}
+
+				if (!cursoData.active) {
+					omitidas++;
+					continue;
+				}
+
+				const finMes: number = cursoData.finMes ?? 12;
+				const mesInicioCobro: number =
+					cursoData.mesInicioCobro ?? cursoData.inicioMes ?? 3;
+
+				if (mesNormalizado > finMes || mesNormalizado < mesInicioCobro) {
+					logger.info(
+						`⏭️ Mes ${mesNormalizado} fuera del rango (${mesInicioCobro}-${finMes}) para curso ${cursoId}. Omitida.`,
 					);
 					omitidas++;
 					continue;
 				}
-				cursoData = cursoSnap.data()!;
-				cursosCache.set(inscripcion.cursoId, cursoData); // Lo guardamos en memoria para el próximo
-			}
 
-			if (!cursoData.active) {
-				omitidas++;
-				continue;
-			}
+				const cuota1a10: number = cursoData.cuota1a10 ?? 0;
+				const cuota11enAdelante: number = cursoData.cuota11enAdelante ?? 0;
 
-			const finMes: number = cursoData.finMes ?? 12;
-			// MEJORA 3: Verificar también el mesInicioCobro
-			const mesInicioCobro: number =
-				cursoData.mesInicioCobro ?? cursoData.inicioMes ?? 3;
-
-			if (mesNormalizado > finMes || mesNormalizado < mesInicioCobro) {
-				logger.info(
-					`⏭️ Mes ${mesNormalizado} está fuera del rango de cobro (${mesInicioCobro} a ${finMes}). Omitida.`,
+				cuotasACrear.push({
+					ref: db.collection("Cuotas").doc(),
+					tutorId: alumno.tutorId,
+					data: {
+						alumnoId: alumno.alumnoId,
+						alumnoTipo: alumno.alumnoTipo,
+						alumnoNombre: alumno.alumnoNombre,
+						alumnoDni: alumno.alumnoDni,
+						cursoId,
+						cursoNombre: cursoData.nombre ?? cursoId,
+						mes: mesNormalizado,
+						anio: anioSiguiente,
+						cuota1a10,
+						cuota11enAdelante,
+						esPrimerMes: false,
+						montoPrimerMes: null,
+						estado: "Pendiente",
+						fechaPago: null,
+						montoPagado: null,
+						metodoPago: null,
+						descuentos: descuentosDelAlumno,
+						creadoEn: admin.firestore.FieldValue.serverTimestamp(),
+						actualizadoEn: admin.firestore.FieldValue.serverTimestamp(),
+					},
+				});
+			} catch (error) {
+				logger.error(
+					`❌ Error procesando alumno ${alumno.alumnoId} / curso ${cursoId}:`,
+					error,
 				);
-				omitidas++;
-				continue;
+				errores++;
 			}
-
-			const cuota1a10: number = cursoData.cuota1a10 ?? 0;
-			const cuota11enAdelante: number = cursoData.cuota11enAdelante ?? 0;
-
-			const nuevaCuota = {
-				inscripcionId,
-				alumnoId: inscripcion.alumnoId,
-				alumnoTipo: inscripcion.tipoAlumno === "Titular" ? "adulto" : "menor",
-				alumnoNombre: inscripcion.alumnoNombre,
-				alumnoDni: inscripcion.alumnoDni,
-				cursoId: inscripcion.cursoId,
-				cursoNombre: inscripcion.cursoNombre,
-				mes: mesNormalizado,
-				anio: anioSiguiente,
-				cuota1a10,
-				cuota11enAdelante,
-				esPrimerMes: false,
-				montoPrimerMes: null,
-				estado: "Pendiente",
-				fechaPago: null,
-				montoPagado: null,
-				metodoPago: null,
-				creadoEn: admin.firestore.FieldValue.serverTimestamp(),
-				actualizadoEn: admin.firestore.FieldValue.serverTimestamp(),
-			};
-
-			// Agregamos la operación al lote en lugar de escribirla directo
-			const nuevaCuotaRef = db.collection("Cuotas").doc();
-			batch.set(nuevaCuotaRef, nuevaCuota);
-			operacionesEnBatch++;
-			creadas++;
-
-			// Firebase permite máximo 500 operaciones por batch. Si llegamos, commiteamos y abrimos otro.
-			if (operacionesEnBatch === 490) {
-				await batch.commit();
-				batch = db.batch(); // Reiniciamos el batch
-				operacionesEnBatch = 0;
-			}
-		} catch (error) {
-			logger.error(`❌ Error procesando inscripción ${inscripcionId}:`, error);
-			errores++;
 		}
 	}
 
-	// Commiteamos cualquier operación restante en el último batch
+	// ── FASE 4: Escribir en batch ─────────────────────────────────────────────
+
+	let batch = db.batch();
+	let operacionesEnBatch = 0;
+	let creadas = 0;
+
+	for (const { ref, data } of cuotasACrear) {
+		batch.set(ref, data);
+		operacionesEnBatch++;
+		creadas++;
+
+		if (operacionesEnBatch === 490) {
+			await batch.commit();
+			batch = db.batch();
+			operacionesEnBatch = 0;
+		}
+	}
+
 	if (operacionesEnBatch > 0) {
 		await batch.commit();
 	}
@@ -176,9 +305,8 @@ async function generarCuotasMensuales(
 	return { creadas, omitidas, errores };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCCIÓN — Se ejecuta el día 20 de cada mes a las 08:00 AR
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Trigger programado (producción) ─────────────────────────────────────────
+
 export const crearCuotasMensuales = onSchedule(
 	{
 		schedule: "0 8 20 * *",
@@ -190,22 +318,11 @@ export const crearCuotasMensuales = onSchedule(
 	},
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TESTING — Trigger HTTP para disparar manualmente desde el navegador o Postman
-//
-// ⚠️  BORRAR ANTES DE IR A PRODUCCIÓN REAL (o proteger con autenticación)
-//
-// Uso:
-//   GET  /testCrearCuotas              → genera para el mes siguiente real
-//   GET  /testCrearCuotas?mes=4&anio=2026  → genera para el mes/año que quieras
-//
-// Ejemplo en navegador:
-//   https://southamerica-east1-TU_PROJECT_ID.cloudfunctions.net/testCrearCuotas?mes=4&anio=2026
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Trigger HTTP (testing) ───────────────────────────────────────────────────
+
 export const testCrearCuotas = onRequest(
 	{ region: "southamerica-east1" },
 	async (req, res) => {
-		// Parámetros opcionales por query string: ?mes=4&anio=2026
 		const mesParam = req.query.mes
 			? parseInt(req.query.mes as string)
 			: undefined;
@@ -213,7 +330,6 @@ export const testCrearCuotas = onRequest(
 			? parseInt(req.query.anio as string)
 			: undefined;
 
-		// Validación básica
 		if (mesParam && (mesParam < 1 || mesParam > 12)) {
 			res
 				.status(400)

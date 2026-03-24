@@ -254,6 +254,13 @@ export default function RegisterPage() {
 						dni: hijo.dni,
 						fechaNacimiento: hijo.fechaNacimiento,
 						cursos: [],
+						datosTutor: {
+							nombre: form.nombre,
+							apellido: form.apellido,
+							dni: form.dni,
+							email: form.email,
+							telefono: form.telefono,
+						},
 					});
 
 					idsHijosCreados.push(nuevoHijoRef.id);

@@ -47,14 +47,18 @@ export default function CursosPage() {
 				snapshot.forEach((doc) => {
 					const data = doc.data();
 
-					// Formateador de edades (De array [4, 7] a string "4 a 7 años")
+					// 🚀 Formateador de edades con soporte para "+X años"
 					let edadesStr = "Todas las edades";
 					if (
 						data.edades &&
 						Array.isArray(data.edades) &&
 						data.edades.length === 2
 					) {
-						edadesStr = `${data.edades[0]} a ${data.edades[1]} años`;
+						if (data.edades[1] === 999) {
+							edadesStr = `+${data.edades[0]} años`;
+						} else {
+							edadesStr = `${data.edades[0]} a ${data.edades[1]} años`;
+						}
 					}
 
 					// Guardamos la categoría en nuestro Set para crear los botones sin duplicados

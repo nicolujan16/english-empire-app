@@ -4,11 +4,6 @@ import React, { useState, useEffect, ChangeEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
 	X,
-	User,
-	Mail,
-	Phone,
-	CreditCard,
-	Calendar,
 	Save,
 	Loader2,
 	AlertCircle,
@@ -17,6 +12,8 @@ import {
 	UserCheck,
 	Pencil,
 	RotateCcw,
+	ArrowRightLeft,
+	UserMinus,
 } from "lucide-react";
 import {
 	doc,
@@ -25,48 +22,34 @@ import {
 	query,
 	where,
 	getDocs,
+	arrayRemove,
+	arrayUnion,
+	addDoc,
+	serverTimestamp,
+	deleteDoc,
+	getDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
-import PhoneInput from "react-phone-number-input";
-import "react-phone-number-input/style.css";
+import {
+	StudentRow,
+	CourseMap,
+	CourseDetails,
+	TitularForm,
+	MenorForm,
+	EtiquetaDisponible,
+	ReassignmentMap,
+	BajaMap,
+	SectionDivider,
+	ReadOnlyField,
+	TipoBadge,
+	calcularEdad,
+	esCuotaFutura,
+} from "./EditUserInfoModal.types";
+import { TitularFormFields, MenorFormFields } from "./UserFormFields";
+import CourseReassignRow from "./CourseReassignRow";
+import EtiquetasSection from "./EtiquetasSection";
 
-// --- INTERFACES ---
-interface StudentRow {
-	id: string;
-	nombre: string;
-	apellido: string;
-	dni: string;
-	email?: string;
-	telefono?: string;
-	fechaNacimiento: string;
-	edad: number;
-	cursos: string[];
-	tipo: "Titular" | "Menor";
-	isTutor: boolean;
-	nombreTutor?: string;
-}
-
-interface CourseMap {
-	[key: string]: string;
-}
-
-// Campos editables de un Titular (Users)
-interface TitularForm {
-	nombre: string;
-	apellido: string;
-	dni: string;
-	fechaNacimiento: string;
-	email: string;
-	telefono: string;
-}
-
-// Campos editables de un Menor (Hijos)
-interface MenorForm {
-	nombre: string;
-	apellido: string;
-	dni: string;
-	fechaNacimiento: string;
-}
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface EditUserInfoModalProps {
 	student: StudentRow | null;
@@ -76,90 +59,8 @@ interface EditUserInfoModalProps {
 	coursesMap: CourseMap;
 }
 
-// --- HELPERS ---
-const calcularEdad = (fecha: string): number | string => {
-	if (!fecha) return "";
-	const birthDate = new Date(fecha);
-	const today = new Date();
-	let age = today.getFullYear() - birthDate.getFullYear();
-	const m = today.getMonth() - birthDate.getMonth();
-	if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-	return age;
-};
+// ─── Componente principal ─────────────────────────────────────────────────────
 
-// --- SUB-COMPONENTES DE UI ---
-const inputBase =
-	"w-full h-11 px-4 text-sm text-gray-900 placeholder:text-gray-400 bg-gray-50 rounded-lg border border-gray-200 focus:border-[#252d62] focus:bg-white focus:ring-2 focus:ring-[#252d62]/20 outline-none transition-all font-medium";
-
-const FieldGroup = ({
-	label,
-	icon: Icon,
-	children,
-}: {
-	label: string;
-	icon: React.ElementType;
-	children: React.ReactNode;
-}) => (
-	<div className="flex flex-col gap-1.5">
-		<label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider">
-			<Icon className="w-3.5 h-3.5" />
-			{label}
-		</label>
-		{children}
-	</div>
-);
-
-const SectionDivider = ({ label }: { label: string }) => (
-	<div className="flex items-center gap-2 my-1">
-		<div className="h-px bg-gray-200 flex-grow" />
-		<span className="text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">
-			{label}
-		</span>
-		<div className="h-px bg-gray-200 flex-grow" />
-	</div>
-);
-
-// Badge de tipo de usuario en el header
-const TipoBadge = ({ tipo, isTutor }: { tipo: string; isTutor: boolean }) => (
-	<div className="flex items-center gap-2 mt-1.5 flex-wrap">
-		<span className="text-[11px] font-bold bg-white/15 text-white/90 px-2.5 py-0.5 rounded-full uppercase tracking-wide">
-			{tipo}
-		</span>
-		{isTutor && (
-			<span className="text-[11px] font-bold bg-[#EE1120]/80 text-white px-2.5 py-0.5 rounded-full uppercase tracking-wide flex items-center gap-1">
-				<UserCheck className="w-3 h-3" /> Tutor
-			</span>
-		)}
-	</div>
-);
-
-// Panel de campo no editable (informativo)
-const ReadOnlyField = ({
-	label,
-	value,
-	icon: Icon,
-}: {
-	label: string;
-	value: string;
-	icon: React.ElementType;
-}) => (
-	<div className="flex items-center gap-3 bg-gray-100/80 rounded-lg px-4 py-2.5 border border-gray-200/60">
-		<Icon className="w-4 h-4 text-gray-400 shrink-0" />
-		<div className="flex flex-col min-w-0">
-			<span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-tight">
-				{label}
-			</span>
-			<span className="text-sm font-semibold text-gray-500 truncate">
-				{value}
-			</span>
-		</div>
-		<span className="ml-auto text-[9px] font-bold text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0">
-			No editable
-		</span>
-	</div>
-);
-
-// --- COMPONENTE PRINCIPAL ---
 export default function EditUserInfoModal({
 	student,
 	isOpen,
@@ -175,25 +76,92 @@ export default function EditUserInfoModal({
 		email: "",
 		telefono: "",
 	});
-
 	const [menorForm, setMenorForm] = useState<MenorForm>({
 		nombre: "",
 		apellido: "",
 		dni: "",
 		fechaNacimiento: "",
 	});
+	const [allCourses, setAllCourses] = useState<CourseDetails[]>([]);
+	const [reassignments, setReassignments] = useState<ReassignmentMap>({});
+	const [bajas, setBajas] = useState<BajaMap>({});
+
+	// Etiquetas
+	const [etiquetasDisponibles, setEtiquetasDisponibles] = useState<
+		EtiquetaDisponible[]
+	>([]);
+	const [etiquetasSeleccionadas, setEtiquetasSeleccionadas] = useState<
+		Set<string>
+	>(new Set());
+	const [aplicarAHijos, setAplicarAHijos] = useState(false);
+	const [hijosIds, setHijosIds] = useState<string[]>([]);
 
 	const [isLoading, setIsLoading] = useState(false);
 	const [errorMsg, setErrorMsg] = useState("");
 	const [successMsg, setSuccessMsg] = useState("");
 
-	// Inicializar el form con los datos actuales del alumno
+	// ── Cargar cursos y etiquetas al abrir ────────────────────────────────────
+	useEffect(() => {
+		if (!isOpen) return;
+		const fetchData = async () => {
+			try {
+				const [cursosSnap, etiquetasSnap] = await Promise.all([
+					getDocs(collection(db, "Cursos")),
+					getDocs(
+						query(
+							collection(db, "EtiquetasDescuento"),
+							where("activa", "==", true),
+						),
+					),
+				]);
+				setAllCourses(
+					cursosSnap.docs
+						.map((d) => ({
+							id: d.id,
+							nombre: d.data().nombre || d.id,
+							cuota1a10: d.data().cuota1a10 ?? 0,
+							cuota11enAdelante: d.data().cuota11enAdelante ?? 0,
+							inscripcion: d.data().inscripcion ?? 0,
+						}))
+						.sort((a, b) => a.nombre.localeCompare(b.nombre)),
+				);
+				setEtiquetasDisponibles(
+					etiquetasSnap.docs.map((d) => ({
+						id: d.id,
+						nombre: d.data().nombre,
+						descripcion: d.data().descripcion,
+						color: d.data().color ?? "gray",
+						descuentoInscripcion: d.data().descuentoInscripcion ?? null,
+						descuentoCuota: d.data().descuentoCuota ?? null,
+					})),
+				);
+			} catch (err) {
+				console.error("Error cargando datos:", err);
+			}
+		};
+		fetchData();
+	}, [isOpen]);
+
+	// ── Inicializar form ──────────────────────────────────────────────────────
 	useEffect(() => {
 		if (!student || !isOpen) {
 			setErrorMsg("");
 			setSuccessMsg("");
+			setReassignments({});
+			setBajas({});
+			setEtiquetasSeleccionadas(new Set());
+			setAplicarAHijos(false);
+			setHijosIds([]);
 			return;
 		}
+		const initMap: ReassignmentMap = {};
+		const initBajas: BajaMap = {};
+		student.cursos.forEach((id) => {
+			initMap[id] = "";
+			initBajas[id] = false;
+		});
+		setReassignments(initMap);
+		setBajas(initBajas);
 
 		if (student.tipo === "Titular") {
 			setTitularForm({
@@ -212,8 +180,26 @@ export default function EditUserInfoModal({
 				fechaNacimiento: student.fechaNacimiento,
 			});
 		}
+
+		const fetchStudentExtras = async () => {
+			try {
+				const colName = student.tipo === "Titular" ? "Users" : "Hijos";
+				const studentDoc = await getDoc(doc(db, colName, student.id));
+				if (studentDoc.exists()) {
+					const data = studentDoc.data();
+					setEtiquetasSeleccionadas(new Set(data.etiquetas ?? []));
+					if (student.isTutor && (data.hijos ?? []).length > 0) {
+						setHijosIds(data.hijos as string[]);
+					}
+				}
+			} catch (err) {
+				console.error("Error cargando etiquetas:", err);
+			}
+		};
+		fetchStudentExtras();
 	}, [student, isOpen]);
 
+	// ── Handlers de form ──────────────────────────────────────────────────────
 	const handleTitularChange = (e: ChangeEvent<HTMLInputElement>) => {
 		setErrorMsg("");
 		setTitularForm({ ...titularForm, [e.target.id]: e.target.value });
@@ -229,10 +215,27 @@ export default function EditUserInfoModal({
 		setTitularForm({ ...titularForm, telefono: value || "" });
 	};
 
+	const toggleEtiqueta = (id: string) => {
+		setEtiquetasSeleccionadas((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+
 	const handleReset = () => {
 		if (!student) return;
 		setErrorMsg("");
 		setSuccessMsg("");
+		const initMap: ReassignmentMap = {};
+		const initBajas: BajaMap = {};
+		student.cursos.forEach((id) => {
+			initMap[id] = "";
+			initBajas[id] = false;
+		});
+		setReassignments(initMap);
+		setBajas(initBajas);
 		if (student.tipo === "Titular") {
 			setTitularForm({
 				nombre: student.nombre,
@@ -252,96 +255,178 @@ export default function EditUserInfoModal({
 		}
 	};
 
-	// --- VALIDACIONES COMPARTIDAS ---
+	// ── Procesar bajas ────────────────────────────────────────────────────────
+	const procesarBajas = async () => {
+		if (!student) return;
+		const colName = student.tipo === "Titular" ? "Users" : "Hijos";
+		const studentRef = doc(db, colName, student.id);
+		for (const [cursoId, darDeBaja] of Object.entries(bajas)) {
+			if (!darDeBaja) continue;
+			await updateDoc(studentRef, { cursos: arrayRemove(cursoId) });
+			const cuotasSnap = await getDocs(
+				query(
+					collection(db, "Cuotas"),
+					where("alumnoId", "==", student.id),
+					where("cursoId", "==", cursoId),
+					where("estado", "==", "Pendiente"),
+				),
+			);
+			for (const cuotaDoc of cuotasSnap.docs) {
+				const data = cuotaDoc.data();
+				if (!esCuotaFutura(data.mes, data.anio)) continue;
+				await deleteDoc(doc(db, "Cuotas", cuotaDoc.id));
+			}
+			await addDoc(collection(db, "ReasignacionesCursos"), {
+				alumnoId: student.id,
+				alumnoNombre: `${student.nombre} ${student.apellido}`,
+				alumnoDni: student.dni,
+				alumnoTipo: student.tipo === "Titular" ? "adulto" : "menor",
+				tipo: "baja",
+				cursoAnteriorId: cursoId,
+				cursoAnteriorNombre: coursesMap[cursoId] || cursoId,
+				cursoNuevoId: null,
+				cursoNuevoNombre: null,
+				fecha: serverTimestamp(),
+			});
+		}
+	};
+
+	// ── Procesar reasignaciones ───────────────────────────────────────────────
+	const procesarReasignaciones = async () => {
+		if (!student) return;
+		const colName = student.tipo === "Titular" ? "Users" : "Hijos";
+		const studentRef = doc(db, colName, student.id);
+		for (const [cursoActualId, nuevoCursoId] of Object.entries(reassignments)) {
+			if (
+				!nuevoCursoId ||
+				nuevoCursoId === cursoActualId ||
+				bajas[cursoActualId]
+			)
+				continue;
+			const nuevoCurso = allCourses.find((c) => c.id === nuevoCursoId);
+			if (!nuevoCurso) continue;
+			await updateDoc(studentRef, { cursos: arrayRemove(cursoActualId) });
+			await updateDoc(studentRef, { cursos: arrayUnion(nuevoCursoId) });
+			const cuotasSnap = await getDocs(
+				query(
+					collection(db, "Cuotas"),
+					where("alumnoId", "==", student.id),
+					where("cursoId", "==", cursoActualId),
+					where("estado", "==", "Pendiente"),
+				),
+			);
+			for (const cuotaDoc of cuotasSnap.docs) {
+				const data = cuotaDoc.data();
+				if (!esCuotaFutura(data.mes, data.anio)) continue;
+				await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
+					cursoId: nuevoCursoId,
+					cursoNombre: nuevoCurso.nombre,
+					cuota1a10: nuevoCurso.cuota1a10,
+					cuota11enAdelante: nuevoCurso.cuota11enAdelante,
+				});
+			}
+			await addDoc(collection(db, "ReasignacionesCursos"), {
+				alumnoId: student.id,
+				alumnoNombre: `${student.nombre} ${student.apellido}`,
+				alumnoDni: student.dni,
+				alumnoTipo: student.tipo === "Titular" ? "adulto" : "menor",
+				tipo: "reasignacion",
+				cursoAnteriorId: cursoActualId,
+				cursoAnteriorNombre: coursesMap[cursoActualId] || cursoActualId,
+				cursoNuevoId: nuevoCursoId,
+				cursoNuevoNombre: nuevoCurso.nombre,
+				fecha: serverTimestamp(),
+			});
+		}
+	};
+
+	// ── Guardar etiquetas ─────────────────────────────────────────────────────
+	const guardarEtiquetas = async () => {
+		if (!student) return;
+		const etiquetasArray = [...etiquetasSeleccionadas];
+		const colName = student.tipo === "Titular" ? "Users" : "Hijos";
+		await updateDoc(doc(db, colName, student.id), {
+			etiquetas: etiquetasArray,
+		});
+		if (student.isTutor && aplicarAHijos && hijosIds.length > 0) {
+			await Promise.all(
+				hijosIds.map((hijoId) =>
+					updateDoc(doc(db, "Hijos", hijoId), { etiquetas: etiquetasArray }),
+				),
+			);
+		}
+	};
+
+	// ── Validaciones ──────────────────────────────────────────────────────────
 	const validateCommonFields = async (
 		nombre: string,
 		apellido: string,
 		dni: string,
 		fechaNacimiento: string,
 		currentId: string,
-		tipo: "Titular" | "Menor",
 	): Promise<string> => {
 		if (!nombre.trim() || !apellido.trim())
 			return "El nombre y apellido son obligatorios.";
 		if (!dni.trim()) return "El DNI es obligatorio.";
 		if (!fechaNacimiento) return "La fecha de nacimiento es obligatoria.";
-
-		// Verificar DNI duplicado (excluir el propio documento)
 		if (dni !== student?.dni) {
-			const usersRef = collection(db, "Users");
-			const hijosRef = collection(db, "Hijos");
-
 			const [dniUsers, dniHijos] = await Promise.all([
-				getDocs(query(usersRef, where("dni", "==", dni))),
-				getDocs(query(hijosRef, where("dni", "==", dni))),
+				getDocs(query(collection(db, "Users"), where("dni", "==", dni))),
+				getDocs(query(collection(db, "Hijos"), where("dni", "==", dni))),
 			]);
-
-			const dniTakenByOther =
+			const taken =
 				dniUsers.docs.some((d) => d.id !== currentId) ||
 				dniHijos.docs.some((d) => d.id !== currentId);
-
-			if (dniTakenByOther)
-				return "El DNI ingresado ya está registrado en otra cuenta.";
+			if (taken) return "El DNI ingresado ya está registrado en otra cuenta.";
 		}
-
 		return "";
 	};
 
+	// ── Guardar ───────────────────────────────────────────────────────────────
 	const handleSave = async () => {
 		if (!student) return;
 		setIsLoading(true);
 		setErrorMsg("");
 		setSuccessMsg("");
-
 		try {
 			if (student.tipo === "Titular") {
-				// --- VALIDACIONES TITULAR ---
-				const commonError = await validateCommonFields(
+				const err = await validateCommonFields(
 					titularForm.nombre,
 					titularForm.apellido,
 					titularForm.dni,
 					titularForm.fechaNacimiento,
 					student.id,
-					"Titular",
 				);
-				if (commonError) {
-					setErrorMsg(commonError);
-					setIsLoading(false);
+				if (err) {
+					setErrorMsg(err);
 					return;
 				}
-
 				const edad = calcularEdad(titularForm.fechaNacimiento);
 				if (typeof edad === "number") {
 					if (edad < 18) {
 						setErrorMsg("El titular debe ser mayor de 18 años.");
-						setIsLoading(false);
 						return;
 					}
 					if (edad > 120) {
 						setErrorMsg("Fecha de nacimiento inválida.");
-						setIsLoading(false);
 						return;
 					}
 				}
-
-				// Verificar teléfono duplicado (si cambió)
 				if (titularForm.telefono && titularForm.telefono !== student.telefono) {
-					const usersRef = collection(db, "Users");
 					const phoneSnap = await getDocs(
-						query(usersRef, where("telefono", "==", titularForm.telefono)),
+						query(
+							collection(db, "Users"),
+							where("telefono", "==", titularForm.telefono),
+						),
 					);
 					if (phoneSnap.docs.some((d) => d.id !== student.id)) {
 						setErrorMsg(
 							"Este número de teléfono ya está asociado a otra cuenta.",
 						);
-						setIsLoading(false);
 						return;
 					}
 				}
-
-				// Actualizar en Firestore
-				const userRef = doc(db, "Users", student.id);
-				await updateDoc(userRef, {
+				await updateDoc(doc(db, "Users", student.id), {
 					nombre: titularForm.nombre.trim(),
 					apellido: titularForm.apellido.trim(),
 					dni: titularForm.dni.trim(),
@@ -349,8 +434,15 @@ export default function EditUserInfoModal({
 					edadTitular: calcularEdad(titularForm.fechaNacimiento),
 					telefono: titularForm.telefono,
 				});
-
-				// Devolver el estudiante actualizado al padre
+				await procesarBajas();
+				await procesarReasignaciones();
+				await guardarEtiquetas();
+				const cursosActualizados = student.cursos
+					.filter((id) => !bajas[id])
+					.map((id) => {
+						const r = reassignments[id];
+						return r && r !== id ? r : id;
+					});
 				onSuccess({
 					...student,
 					nombre: titularForm.nombre.trim(),
@@ -359,32 +451,35 @@ export default function EditUserInfoModal({
 					fechaNacimiento: titularForm.fechaNacimiento,
 					edad: calcularEdad(titularForm.fechaNacimiento) as number,
 					telefono: titularForm.telefono,
+					cursos: cursosActualizados,
 				});
 			} else {
-				// --- VALIDACIONES MENOR ---
-				const commonError = await validateCommonFields(
+				const err = await validateCommonFields(
 					menorForm.nombre,
 					menorForm.apellido,
 					menorForm.dni,
 					menorForm.fechaNacimiento,
 					student.id,
-					"Menor",
 				);
-				if (commonError) {
-					setErrorMsg(commonError);
-					setIsLoading(false);
+				if (err) {
+					setErrorMsg(err);
 					return;
 				}
-
-				// Actualizar en Firestore
-				const hijoRef = doc(db, "Hijos", student.id);
-				await updateDoc(hijoRef, {
+				await updateDoc(doc(db, "Hijos", student.id), {
 					nombre: menorForm.nombre.trim(),
 					apellido: menorForm.apellido.trim(),
 					dni: menorForm.dni.trim(),
 					fechaNacimiento: menorForm.fechaNacimiento,
 				});
-
+				await procesarBajas();
+				await procesarReasignaciones();
+				await guardarEtiquetas();
+				const cursosActualizados = student.cursos
+					.filter((id) => !bajas[id])
+					.map((id) => {
+						const r = reassignments[id];
+						return r && r !== id ? r : id;
+					});
 				onSuccess({
 					...student,
 					nombre: menorForm.nombre.trim(),
@@ -392,13 +487,12 @@ export default function EditUserInfoModal({
 					dni: menorForm.dni.trim(),
 					fechaNacimiento: menorForm.fechaNacimiento,
 					edad: calcularEdad(menorForm.fechaNacimiento) as number,
+					cursos: cursosActualizados,
 				});
 			}
-
 			setSuccessMsg("¡Datos actualizados correctamente!");
-			setTimeout(() => {
-				onClose();
-			}, 1200);
+			setTimeout(() => onClose(), 1200);
+			window.location.reload();
 		} catch (err) {
 			console.error("Error al actualizar:", err);
 			setErrorMsg("Hubo un error al guardar los cambios. Intentá de nuevo.");
@@ -409,18 +503,16 @@ export default function EditUserInfoModal({
 
 	if (!student) return null;
 
-	const edadActual =
-		student.tipo === "Titular"
-			? calcularEdad(titularForm.fechaNacimiento)
-			: calcularEdad(menorForm.fechaNacimiento);
-
 	const isTitular = student.tipo === "Titular";
+	const hayReasignaciones = Object.values(reassignments).some((v) => v !== "");
+	const hayBajas = Object.values(bajas).some((v) => v === true);
+
+	// ─── Render ───────────────────────────────────────────────────────────────
 
 	return (
 		<AnimatePresence>
 			{isOpen && (
 				<>
-					{/* Backdrop */}
 					<motion.div
 						key="edit-backdrop"
 						initial={{ opacity: 0 }}
@@ -429,8 +521,6 @@ export default function EditUserInfoModal({
 						onClick={onClose}
 						className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
 					/>
-
-					{/* Modal */}
 					<motion.div
 						key="edit-modal"
 						initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -443,7 +533,7 @@ export default function EditUserInfoModal({
 							className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col pointer-events-auto"
 							onClick={(e) => e.stopPropagation()}
 						>
-							{/* ===== HEADER ===== */}
+							{/* HEADER */}
 							<div className="relative bg-gradient-to-br from-[#1a2248] to-[#252d62] px-6 py-5 shrink-0">
 								<button
 									onClick={onClose}
@@ -451,7 +541,6 @@ export default function EditUserInfoModal({
 								>
 									<X className="w-4 h-4" />
 								</button>
-
 								<div className="flex items-center gap-4 relative z-10">
 									<div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center text-white font-black text-2xl shadow-inner shrink-0">
 										{student.nombre.charAt(0).toUpperCase()}
@@ -471,201 +560,118 @@ export default function EditUserInfoModal({
 								</div>
 							</div>
 
-							{/* ===== BODY ===== */}
+							{/* BODY */}
 							<div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
-								{/* ---- TITULAR (Users) ---- */}
+								{/* ── Formulario según tipo ── */}
+								{isTitular ? (
+									<TitularFormFields
+										form={titularForm}
+										onChange={handleTitularChange}
+										onPhoneChange={handlePhoneChange}
+									/>
+								) : (
+									<MenorFormFields
+										form={menorForm}
+										onChange={handleMenorChange}
+										nombreTutor={student.nombreTutor}
+									/>
+								)}
+
+								{/* ── Cursos ── */}
+								{student.cursos.length > 0 ? (
+									<>
+										<SectionDivider label="Cursos" />
+										{hayReasignaciones && !hayBajas && (
+											<motion.div
+												initial={{ opacity: 0, y: -4 }}
+												animate={{ opacity: 1, y: 0 }}
+												className="flex items-start gap-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-3 rounded-xl text-xs font-medium"
+											>
+												<ArrowRightLeft className="w-4 h-4 mt-0.5 shrink-0 text-indigo-500" />
+												<span>
+													Las cuotas <strong>pasadas pendientes</strong>{" "}
+													conservarán su monto. Las cuotas{" "}
+													<strong>futuras pendientes</strong> se actualizarán
+													con los precios del nuevo curso al guardar.
+												</span>
+											</motion.div>
+										)}
+										{hayBajas && (
+											<motion.div
+												initial={{ opacity: 0, y: -4 }}
+												animate={{ opacity: 1, y: 0 }}
+												className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-medium"
+											>
+												<UserMinus className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+												<span>
+													Al dar de baja, el alumno será quitado del curso y las
+													cuotas <strong>futuras pendientes</strong> serán{" "}
+													<strong>eliminadas</strong>. Las cuotas de meses
+													anteriores no se modifican.
+												</span>
+											</motion.div>
+										)}
+										<div className="space-y-2">
+											{student.cursos.map((cursoId) => (
+												<CourseReassignRow
+													key={cursoId}
+													cursoActualId={cursoId}
+													cursoActualNombre={coursesMap[cursoId] || cursoId}
+													nuevoCursoId={reassignments[cursoId] ?? ""}
+													esBaja={bajas[cursoId] ?? false}
+													allCourses={allCourses}
+													onChange={(newId) =>
+														setReassignments((prev) => ({
+															...prev,
+															[cursoId]: newId,
+														}))
+													}
+													onToggleBaja={() =>
+														setBajas((prev) => ({
+															...prev,
+															[cursoId]: !prev[cursoId],
+														}))
+													}
+												/>
+											))}
+										</div>
+									</>
+								) : (
+									<>
+										<SectionDivider label="Cursos" />
+										<ReadOnlyField
+											icon={GraduationCap}
+											label="Cursos asignados"
+											value="Sin cursos"
+										/>
+									</>
+								)}
+
+								{/* ── Etiquetas ── */}
+								<SectionDivider label="Etiquetas de Descuento" />
+								<EtiquetasSection
+									etiquetasDisponibles={etiquetasDisponibles}
+									etiquetasSeleccionadas={etiquetasSeleccionadas}
+									onToggle={toggleEtiqueta}
+									isTutor={student.isTutor}
+									hijosIds={hijosIds}
+									aplicarAHijos={aplicarAHijos}
+									onToggleAplicarAHijos={() => setAplicarAHijos((v) => !v)}
+								/>
+
+								{/* Rol solo lectura (titular) */}
 								{isTitular && (
 									<>
-										<SectionDivider label="Datos Personales" />
-
-										<div className="grid grid-cols-2 gap-3">
-											<FieldGroup label="Nombre" icon={User}>
-												<input
-													type="text"
-													id="nombre"
-													value={titularForm.nombre}
-													onChange={handleTitularChange}
-													className={inputBase}
-													placeholder="Nombre"
-												/>
-											</FieldGroup>
-											<FieldGroup label="Apellido" icon={User}>
-												<input
-													type="text"
-													id="apellido"
-													value={titularForm.apellido}
-													onChange={handleTitularChange}
-													className={inputBase}
-													placeholder="Apellido"
-												/>
-											</FieldGroup>
-										</div>
-
-										<FieldGroup label="DNI" icon={CreditCard}>
-											<input
-												type="number"
-												id="dni"
-												value={titularForm.dni}
-												onChange={handleTitularChange}
-												className={`${inputBase} font-mono`}
-												placeholder="Número de documento"
-											/>
-										</FieldGroup>
-
-										<div className="grid grid-cols-8 gap-3">
-											<div className="col-span-5">
-												<FieldGroup label="Fecha de Nacimiento" icon={Calendar}>
-													<input
-														type="date"
-														id="fechaNacimiento"
-														value={titularForm.fechaNacimiento}
-														onChange={handleTitularChange}
-														className={`${inputBase} px-3`}
-													/>
-												</FieldGroup>
-											</div>
-											<div className="col-span-3 flex flex-col gap-1.5">
-												<label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider">
-													Edad
-												</label>
-												<div className="w-full h-11 px-2 flex items-center justify-center text-sm font-black bg-gray-100 text-gray-600 rounded-lg border border-gray-200 cursor-not-allowed">
-													{edadActual !== "" ? `${edadActual} años` : "—"}
-												</div>
-											</div>
-										</div>
-
-										<SectionDivider label="Datos de Contacto" />
-
-										<ReadOnlyField
-											icon={Mail}
-											label="Email (credencial de acceso)"
-											value={titularForm.email || "—"}
-										/>
-
-										<FieldGroup label="Teléfono" icon={Phone}>
-											<div className="w-full h-11 px-4 bg-gray-50 rounded-lg border border-gray-200 focus-within:border-[#252d62] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#252d62]/20 transition-all flex items-center phone-edit-container">
-												<PhoneInput
-													placeholder="Ingresa el número"
-													value={titularForm.telefono}
-													onChange={handlePhoneChange}
-													defaultCountry="AR"
-													international
-													className="w-full"
-												/>
-											</div>
-										</FieldGroup>
-
 										<SectionDivider label="Información de Solo Lectura" />
-
-										{/* Campos no editables del titular */}
-										<div className="space-y-2">
-											<ReadOnlyField
-												icon={GraduationCap}
-												label="Cursos asignados"
-												value={
-													student.cursos.length > 0
-														? student.cursos
-																.map((id) => coursesMap[id] || id)
-																.join(", ")
-														: "Sin cursos"
-												}
-											/>
-											<ReadOnlyField
-												icon={UserCheck}
-												label="Rol"
-												value={student.isTutor ? "Alumno · Tutor" : "Alumno"}
-											/>
-										</div>
-									</>
-								)}
-
-								{/* ---- MENOR (Hijos) ---- */}
-								{!isTitular && (
-									<>
-										<SectionDivider label="Datos del Alumno Menor" />
-
-										{/* Info del tutor - solo lectura */}
 										<ReadOnlyField
 											icon={UserCheck}
-											label="Tutor a cargo"
-											value={student.nombreTutor || "—"}
+											label="Rol"
+											value={student.isTutor ? "Alumno · Tutor" : "Alumno"}
 										/>
-
-										<div className="grid grid-cols-2 gap-3">
-											<FieldGroup label="Nombre" icon={User}>
-												<input
-													type="text"
-													id="nombre"
-													value={menorForm.nombre}
-													onChange={handleMenorChange}
-													className={inputBase}
-													placeholder="Nombre"
-												/>
-											</FieldGroup>
-											<FieldGroup label="Apellido" icon={User}>
-												<input
-													type="text"
-													id="apellido"
-													value={menorForm.apellido}
-													onChange={handleMenorChange}
-													className={inputBase}
-													placeholder="Apellido"
-												/>
-											</FieldGroup>
-										</div>
-
-										<FieldGroup label="DNI" icon={CreditCard}>
-											<input
-												type="number"
-												id="dni"
-												value={menorForm.dni}
-												onChange={handleMenorChange}
-												className={`${inputBase} font-mono`}
-												placeholder="Número de documento"
-											/>
-										</FieldGroup>
-
-										<div className="grid grid-cols-8 gap-3">
-											<div className="col-span-5">
-												<FieldGroup label="Fecha de Nacimiento" icon={Calendar}>
-													<input
-														type="date"
-														id="fechaNacimiento"
-														value={menorForm.fechaNacimiento}
-														onChange={handleMenorChange}
-														className={`${inputBase} px-3`}
-													/>
-												</FieldGroup>
-											</div>
-											<div className="col-span-3 flex flex-col gap-1.5">
-												<label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider">
-													Edad
-												</label>
-												<div className="w-full h-11 px-2 flex items-center justify-center text-sm font-black bg-gray-100 text-gray-600 rounded-lg border border-gray-200 cursor-not-allowed">
-													{edadActual !== "" ? `${edadActual} años` : "—"}
-												</div>
-											</div>
-										</div>
-
-										<SectionDivider label="Información de Solo Lectura" />
-
-										<div className="space-y-2">
-											<ReadOnlyField
-												icon={GraduationCap}
-												label="Cursos asignados"
-												value={
-													student.cursos.length > 0
-														? student.cursos
-																.map((id) => coursesMap[id] || id)
-																.join(", ")
-														: "Sin cursos"
-												}
-											/>
-										</div>
 									</>
 								)}
 
-								{/* ===== MENSAJES DE ESTADO ===== */}
+								{/* Mensajes de estado */}
 								<AnimatePresence>
 									{errorMsg && (
 										<motion.div
@@ -692,22 +698,17 @@ export default function EditUserInfoModal({
 								</AnimatePresence>
 							</div>
 
-							{/* ===== FOOTER ===== */}
+							{/* FOOTER */}
 							<div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 shrink-0 flex items-center justify-between gap-3">
-								{/* Botón reset */}
 								<button
 									type="button"
 									onClick={handleReset}
 									disabled={isLoading}
 									className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-50"
-									title="Restaurar valores originales"
 								>
-									<RotateCcw className="w-3.5 h-3.5" />
-									Restaurar
+									<RotateCcw className="w-3.5 h-3.5" /> Restaurar
 								</button>
-
 								<div className="flex items-center gap-2">
-									{/* Botón cancelar */}
 									<button
 										type="button"
 										onClick={onClose}
@@ -716,8 +717,6 @@ export default function EditUserInfoModal({
 									>
 										Cancelar
 									</button>
-
-									{/* Botón guardar */}
 									<button
 										type="button"
 										onClick={handleSave}

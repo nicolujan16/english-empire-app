@@ -3,25 +3,8 @@
 
 import React, { useState, SyntheticEvent, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
-import {
-	X,
-	Save,
-	Search,
-	User,
-	ArrowRight,
-	ArrowLeft,
-	BookOpen,
-	CreditCard,
-	AlertCircle,
-	CheckCircle2,
-	Loader2,
-	CalendarClock,
-	Wallet,
-	AlertTriangle,
-} from "lucide-react";
+import { X, AlertCircle, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
 import {
 	Dialog,
 	DialogContent,
@@ -30,7 +13,6 @@ import {
 	DialogDescription,
 	DialogFooter,
 } from "@/components/ui/dialog";
-
 import {
 	collection,
 	query,
@@ -41,24 +23,39 @@ import {
 	doc,
 	updateDoc,
 	arrayUnion,
+	getDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
+import { type Descuento } from "@/lib/cuotas";
 
-interface ManualInscriptionModalProps {
-	isOpen: boolean;
-	onClose: () => void;
+// ─── IMPORTAMOS EL SERVICIO DE CUOTAS ─────────────────────────────────────────
+import {
+	crearPrimeraCuota,
+	aplicarDescuentoAlGrupo,
+	calcularMontoPrimerMes,
+} from "@/lib/services/cuotasServices";
+
+import Step1SearchStudent from "./Step1SearchStudent";
+import Step2CoursePayment from "./Step2CoursePayment";
+
+export interface TagDiscount {
+	id: string;
+	nombre: string;
+	descuentoInscripcion: number;
 }
 
-interface StudentData {
+export interface StudentData {
 	id: string;
 	nombre: string;
 	apellido: string;
 	dni: string;
 	tipo: "Titular" | "Menor";
 	edad: number;
+	tutorId?: string;
+	etiquetas?: any[];
 }
 
-interface CourseData {
+export interface CourseData {
 	id: string;
 	nombre: string;
 	inscripcion: number;
@@ -70,34 +67,59 @@ interface CourseData {
 	edadMaxima: number;
 }
 
-interface ErrorDialogState {
+export interface GrupoFamiliarInfo {
+	aplica: boolean;
+	miembrosActivos: { nombre: string; cursoNombre: string }[];
+	tutorId: string;
+}
+
+interface AlertState {
 	isOpen: boolean;
 	title: string;
 	message: string;
 	type: "error" | "success" | "warning";
 }
 
-const getTomorrow = () => {
-	const tomorrow = new Date();
-	tomorrow.setDate(tomorrow.getDate() + 1);
-	return tomorrow.toISOString().split("T")[0];
+interface ManualInscriptionModalProps {
+	isOpen: boolean;
+	onClose: () => void;
+}
+
+const DESCUENTO_GRUPO_FAMILIAR: Descuento[] = [
+	{ porcentaje: 10, detalle: "Grupo Familiar" },
+];
+
+export const getTomorrow = () => {
+	const t = new Date();
+	t.setDate(t.getDate() + 1);
+	return t.toISOString().split("T")[0];
 };
 
-const calcularMontoPrimerMes = (
-	fechaInscripcion: Date,
-	curso: CourseData,
-): number => {
-	const dia = fechaInscripcion.getDate();
-	return dia >= 15 ? curso.cuota1a10 * 0.5 : curso.cuota1a10;
+const calcularEdad = (fechaNacimiento: string): number => {
+	if (!fechaNacimiento) return 0;
+	const hoy = new Date();
+	const cumple = new Date(fechaNacimiento);
+	let edad = hoy.getFullYear() - cumple.getFullYear();
+	const m = hoy.getMonth() - cumple.getMonth();
+	if (m < 0 || (m === 0 && hoy.getDate() < cumple.getDate())) edad--;
+	return Math.max(0, edad);
 };
+
+async function getCursoNombre(cursoId: string): Promise<string> {
+	try {
+		const snap = await getDoc(doc(db, "Cursos", cursoId));
+		return snap.exists() ? (snap.data().nombre ?? cursoId) : cursoId;
+	} catch {
+		return cursoId;
+	}
+}
 
 export default function ManualInscriptionModal({
 	isOpen,
 	onClose,
 }: ManualInscriptionModalProps) {
 	const [step, setStep] = useState<1 | 2>(1);
-
-	const [alertDialog, setAlertDialog] = useState<ErrorDialogState>({
+	const [alertDialog, setAlertDialog] = useState<AlertState>({
 		isOpen: false,
 		title: "",
 		message: "",
@@ -108,152 +130,54 @@ export default function ManualInscriptionModal({
 	const [isSearching, setIsSearching] = useState(false);
 	const [searchError, setSearchError] = useState("");
 	const [foundStudent, setFoundStudent] = useState<StudentData | null>(null);
+	const [grupoFamiliar, setGrupoFamiliar] = useState<GrupoFamiliarInfo>({
+		aplica: false,
+		miembrosActivos: [],
+		tutorId: "",
+	});
+	const [isCheckingGrupo, setIsCheckingGrupo] = useState(false);
+	const [aplicarDescuentoMesActual, setAplicarDescuentoMesActual] =
+		useState(true);
 
 	const [courses, setCourses] = useState<CourseData[]>([]);
 	const [isLoadingCourses, setIsLoadingCourses] = useState(false);
 	const [selectedCourseId, setSelectedCourseId] = useState("");
 	const [metodoPago, setmetodoPago] = useState("");
-	const [isSubmitting, setIsSubmitting] = useState(false);
-
-	const [overrideAgeWarning, setOverrideAgeWarning] = useState(false);
-
 	const [paymentStatus, setPaymentStatus] = useState<
 		"Confirmado" | "Pendiente"
 	>("Confirmado");
 	const [promiseDate, setPromiseDate] = useState("");
+	const [overrideAgeWarning, setOverrideAgeWarning] = useState(false);
+	const [isSubmitting, setIsSubmitting] = useState(false);
 
-	const handleClose = () => {
-		setStep(1);
-		setSearchDni("");
-		setSearchError("");
-		setFoundStudent(null);
-		setSelectedCourseId("");
-		setmetodoPago("");
-		setPaymentStatus("Confirmado");
-		setPromiseDate("");
-		setOverrideAgeWarning(false);
-		onClose();
-	};
-
-	const showAlert = (
-		title: string,
-		message: string,
-		type: "error" | "success" | "warning" = "error",
-	) => {
-		setAlertDialog({ isOpen: true, title, message, type });
-	};
-
-	const calcularEdad = (fechaNacimiento: string) => {
-		if (!fechaNacimiento) return 0;
-		const hoy = new Date();
-		const cumple = new Date(fechaNacimiento);
-		let edad = hoy.getFullYear() - cumple.getFullYear();
-		const m = hoy.getMonth() - cumple.getMonth();
-		if (m < 0 || (m === 0 && hoy.getDate() < cumple.getDate())) edad--;
-		return Math.max(0, edad);
-	};
-
-	const handleSearchStudent = async (e: SyntheticEvent) => {
-		e.preventDefault();
-		if (!searchDni.trim()) return;
-
-		setIsSearching(true);
-		setSearchError("");
-		setFoundStudent(null);
-
-		try {
-			const usersRef = collection(db, "Users");
-			const qUser = query(usersRef, where("dni", "==", searchDni));
-			const userSnap = await getDocs(qUser);
-
-			if (!userSnap.empty) {
-				const documento = userSnap.docs[0];
-				const data = documento.data();
-				if (data.cursos && data.cursos.length > 0) {
-					setSearchError(
-						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
-					);
-					setIsSearching(false);
-					return;
-				}
-				setFoundStudent({
-					id: documento.id,
-					nombre: data.nombre,
-					apellido: data.apellido,
-					dni: data.dni,
-					tipo: "Titular",
-					edad: calcularEdad(data.fechaNacimiento),
-				});
-				setIsSearching(false);
-				return;
-			}
-
-			const hijosRef = collection(db, "Hijos");
-			const qHijo = query(hijosRef, where("dni", "==", searchDni));
-			const hijoSnap = await getDocs(qHijo);
-
-			if (!hijoSnap.empty) {
-				const documento = hijoSnap.docs[0];
-				const data = documento.data();
-				if (data.cursos && data.cursos.length > 0) {
-					setSearchError(
-						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
-					);
-					setIsSearching(false);
-					return;
-				}
-				setFoundStudent({
-					id: documento.id,
-					nombre: data.nombre,
-					apellido: data.apellido,
-					dni: data.dni,
-					tipo: "Menor",
-					edad: calcularEdad(data.fechaNacimiento),
-				});
-				setIsSearching(false);
-				return;
-			}
-
-			setSearchError("No se encontró ningún alumno registrado con este DNI.");
-		} catch (error) {
-			console.error("Error buscando alumno:", error);
-			setSearchError("Hubo un error al buscar en la base de datos.");
-		} finally {
-			setIsSearching(false);
-		}
-	};
+	const [bestTag, setBestTag] = useState<TagDiscount | null>(null);
+	const [applyTagDiscount, setApplyTagDiscount] = useState(true);
 
 	useEffect(() => {
+		if (step !== 2) return;
 		const fetchCourses = async () => {
-			if (step !== 2) return;
 			setIsLoadingCourses(true);
 			try {
-				const cursosRef = collection(db, "Cursos");
-				const qCursos = query(cursosRef, where("active", "==", true));
-				const cursosSnap = await getDocs(qCursos);
-
-				const fetchedCourses: CourseData[] = cursosSnap.docs.map((doc) => {
-					const data = doc.data();
-					const min =
-						data.edades && data.edades.length > 0 ? data.edades[0] : 0;
-					const max =
-						data.edades && data.edades.length > 1 ? data.edades[1] : 99;
-					return {
-						id: doc.id,
-						nombre: data.nombre,
-						inscripcion: data.inscripcion || 0,
-						cuota: data.cuota || 0,
-						cuota1a10: data.cuota1a10 || 0,
-						cuota11enAdelante: data.cuota11enAdelante || 0,
-						finMes: data.finMes ?? 12, // ← nuevo campo
-						edadMinima: min,
-						edadMaxima: max,
-					};
-				});
-
-				setCourses(fetchedCourses);
-			} catch (error) {
-				console.error("Error trayendo cursos:", error);
+				const snap = await getDocs(
+					query(collection(db, "Cursos"), where("active", "==", true)),
+				);
+				setCourses(
+					snap.docs.map((d) => {
+						const data = d.data();
+						return {
+							id: d.id,
+							nombre: data.nombre,
+							inscripcion: data.inscripcion || 0,
+							cuota: data.cuota || 0,
+							cuota1a10: data.cuota1a10 || 0,
+							cuota11enAdelante: data.cuota11enAdelante || 0,
+							finMes: data.finMes ?? 12,
+							edadMinima: data.edades?.[0] ?? 0,
+							edadMaxima: data.edades?.[1] ?? 99,
+						};
+					}),
+				);
+			} catch {
 				showAlert(
 					"Error",
 					"Error al cargar la lista de cursos disponibles.",
@@ -270,65 +194,224 @@ export default function ManualInscriptionModal({
 		setOverrideAgeWarning(false);
 	}, [selectedCourseId]);
 
-	const crearPrimeraCuota = async (
-		inscripcionId: string,
-		curso: CourseData,
-	) => {
-		if (!foundStudent) return;
+	const handleClose = () => {
+		setStep(1);
+		setSearchDni("");
+		setSearchError("");
+		setFoundStudent(null);
+		setGrupoFamiliar({ aplica: false, miembrosActivos: [], tutorId: "" });
+		setAplicarDescuentoMesActual(true);
+		setSelectedCourseId("");
+		setmetodoPago("");
+		setPaymentStatus("Confirmado");
+		setPromiseDate("");
+		setOverrideAgeWarning(false);
+		setBestTag(null);
+		setApplyTagDiscount(true);
+		onClose();
+	};
 
-		const hoy = new Date();
-		const dia = hoy.getDate();
-		const montoPrimerMes = calcularMontoPrimerMes(hoy, curso);
+	const showAlert = (
+		title: string,
+		message: string,
+		type: AlertState["type"] = "error",
+	) => setAlertDialog({ isOpen: true, title, message, type });
 
-		const datosComunesAlumno = {
-			inscripcionId,
-			alumnoId: foundStudent.id,
-			alumnoTipo: foundStudent.tipo === "Titular" ? "adulto" : "menor",
-			alumnoNombre: `${foundStudent.nombre} ${foundStudent.apellido}`,
-			alumnoDni: foundStudent.dni,
-			cursoId: curso.id,
-			cursoNombre: curso.nombre,
-			cuota1a10: curso.cuota1a10,
-			cuota11enAdelante: curso.cuota11enAdelante,
-			estado: "Pendiente",
-			fechaPago: null,
-			montoPagado: null,
-			metodoPago: null,
-		};
+	const detectarGrupoFamiliar = async (student: StudentData) => {
+		setIsCheckingGrupo(true);
+		try {
+			const miembrosActivos: { nombre: string; cursoNombre: string }[] = [];
+			let tutorId = student.id;
 
-		// ── 1. Cuota del mes actual (siempre) ────────────────────────────────
-		await addDoc(collection(db, "Cuotas"), {
-			...datosComunesAlumno,
-			mes: hoy.getMonth() + 1,
-			anio: hoy.getFullYear(),
-			esPrimerMes: true,
-			montoPrimerMes,
-			creadoEn: serverTimestamp(),
-			actualizadoEn: serverTimestamp(),
-		});
-
-		// ── 2. Si es día >= 20, la CF ya corrió este mes sin esta inscripción ─
-		//       → creamos también la cuota del mes siguiente
-		if (dia >= 20) {
-			const fechaSiguiente = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
-			const mesSiguiente = fechaSiguiente.getMonth() + 1; // 1-indexed
-			const anioSiguiente = fechaSiguiente.getFullYear();
-
-			// Solo si el mes siguiente está dentro del rango de cobro del curso
-			if (mesSiguiente <= curso.finMes) {
-				await addDoc(collection(db, "Cuotas"), {
-					...datosComunesAlumno,
-					mes: mesSiguiente,
-					anio: anioSiguiente,
-					esPrimerMes: false,
-					montoPrimerMes: null,
-					creadoEn: serverTimestamp(),
-					actualizadoEn: serverTimestamp(),
-				});
-				console.log(
-					`✅ Cuota adicional creada para ${mesSiguiente}/${anioSiguiente} (inscripción post-CF)`,
+			if (student.tipo === "Titular") {
+				const hijosSnap = await getDocs(
+					query(collection(db, "Hijos"), where("tutorId", "==", student.id)),
 				);
+				for (const h of hijosSnap.docs) {
+					const data = h.data();
+					if ((data.cursos ?? []).length > 0) {
+						miembrosActivos.push({
+							nombre: `${data.nombre} ${data.apellido}`,
+							cursoNombre: await getCursoNombre(data.cursos[0]),
+						});
+					}
+				}
+			} else {
+				const hijoSnap = await getDoc(doc(db, "Hijos", student.id));
+				if (hijoSnap.exists()) tutorId = hijoSnap.data().tutorId ?? student.id;
+
+				const tutorSnap = await getDoc(doc(db, "Users", tutorId));
+				if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
+					const td = tutorSnap.data();
+					miembrosActivos.push({
+						nombre: `${td.nombre} ${td.apellido}`,
+						cursoNombre: await getCursoNombre(td.cursos[0]),
+					});
+				}
+
+				const hermanosSnap = await getDocs(
+					query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
+				);
+				for (const h of hermanosSnap.docs) {
+					if (h.id === student.id) continue;
+					const data = h.data();
+					if ((data.cursos ?? []).length > 0) {
+						miembrosActivos.push({
+							nombre: `${data.nombre} ${data.apellido}`,
+							cursoNombre: await getCursoNombre(data.cursos[0]),
+						});
+					}
+				}
 			}
+
+			setGrupoFamiliar({
+				aplica: miembrosActivos.length > 0,
+				miembrosActivos,
+				tutorId,
+			});
+		} catch (error) {
+			console.error("Error detectando grupo familiar:", error);
+			setGrupoFamiliar({
+				aplica: false,
+				miembrosActivos: [],
+				tutorId: student.id,
+			});
+		} finally {
+			setIsCheckingGrupo(false);
+		}
+	};
+
+	const detectarMejorEtiqueta = async (etiquetasRaw: any[] | undefined) => {
+		if (
+			!etiquetasRaw ||
+			!Array.isArray(etiquetasRaw) ||
+			etiquetasRaw.length === 0
+		) {
+			setBestTag(null);
+			return;
+		}
+
+		try {
+			const promesas = etiquetasRaw
+				.map((item: any) => {
+					if (typeof item === "string")
+						return getDoc(doc(db, "EtiquetasDescuento", item.trim()));
+					if (item && item.path) return getDoc(item);
+					if (item && item.id)
+						return getDoc(doc(db, "EtiquetasDescuento", item.id.trim()));
+					return null;
+				})
+				.filter(Boolean);
+
+			const snaps = await Promise.all(promesas);
+			let maxDescuento = 0;
+			let mejorEtiqueta: TagDiscount | null = null;
+
+			snaps.forEach((snap: any) => {
+				if (snap && snap.exists && snap.exists()) {
+					const data = snap.data();
+					const desc = Number(data.descuentoInscripcion) || 0;
+
+					if (desc > maxDescuento) {
+						maxDescuento = desc;
+						mejorEtiqueta = {
+							id: snap.id,
+							nombre: data.nombre || "Etiqueta Especial",
+							descuentoInscripcion: desc,
+						};
+					}
+				}
+			});
+
+			setBestTag(mejorEtiqueta);
+			setApplyTagDiscount(!!mejorEtiqueta);
+		} catch (error) {
+			console.error("Error buscando etiquetas", error);
+			setBestTag(null);
+		}
+	};
+
+	const handleSearchStudent = async (e: SyntheticEvent) => {
+		e.preventDefault();
+		if (!searchDni.trim()) return;
+		setIsSearching(true);
+		setSearchError("");
+		setFoundStudent(null);
+		setGrupoFamiliar({ aplica: false, miembrosActivos: [], tutorId: "" });
+		setBestTag(null);
+
+		try {
+			const userSnap = await getDocs(
+				query(collection(db, "Users"), where("dni", "==", searchDni)),
+			);
+			if (!userSnap.empty) {
+				const d = userSnap.docs[0];
+				const data = d.data();
+				if (data.cursos?.length > 0) {
+					setSearchError(
+						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
+					);
+					setIsSearching(false);
+					return;
+				}
+
+				const tagsGuardadas = data.etiquetas || data.Etiquetas || [];
+
+				const student: StudentData = {
+					id: d.id,
+					nombre: data.nombre,
+					apellido: data.apellido,
+					dni: data.dni,
+					tipo: "Titular",
+					edad: calcularEdad(data.fechaNacimiento),
+					etiquetas: tagsGuardadas,
+				};
+				setFoundStudent(student);
+				setIsSearching(false);
+				await detectarMejorEtiqueta(tagsGuardadas);
+				await detectarGrupoFamiliar(student);
+				return;
+			}
+
+			const hijoSnap = await getDocs(
+				query(collection(db, "Hijos"), where("dni", "==", searchDni)),
+			);
+			if (!hijoSnap.empty) {
+				const d = hijoSnap.docs[0];
+				const data = d.data();
+				if (data.cursos?.length > 0) {
+					setSearchError(
+						"Este alumno ya se encuentra inscripto en un curso. El sistema solo permite una inscripción activa por alumno.",
+					);
+					setIsSearching(false);
+					return;
+				}
+
+				const tagsGuardadas = data.etiquetas || data.Etiquetas || [];
+
+				const student: StudentData = {
+					id: d.id,
+					nombre: data.nombre,
+					apellido: data.apellido,
+					dni: data.dni,
+					tipo: "Menor",
+					edad: calcularEdad(data.fechaNacimiento),
+					tutorId: data.tutorId,
+					etiquetas: tagsGuardadas,
+				};
+				setFoundStudent(student);
+				setIsSearching(false);
+				await detectarMejorEtiqueta(tagsGuardadas);
+				await detectarGrupoFamiliar(student);
+				return;
+			}
+
+			setSearchError("No se encontró ningún alumno registrado con este DNI.");
+		} catch (error) {
+			console.error("Error buscando alumno:", error);
+			setSearchError("Hubo un error al buscar en la base de datos.");
+		} finally {
+			setIsSearching(false);
 		}
 	};
 
@@ -336,61 +419,111 @@ export default function ManualInscriptionModal({
 		setIsSubmitting(true);
 		try {
 			const cursoSeleccionado = courses.find((c) => c.id === selectedCourseId);
-			const inscripcionesRef = collection(db, "Inscripciones");
+			if (!cursoSeleccionado) throw new Error("Curso no encontrado");
+
+			let montoInscripcionFinal = cursoSeleccionado.inscripcion || 0;
+			if (bestTag && applyTagDiscount) {
+				montoInscripcionFinal = Math.round(
+					montoInscripcionFinal * (1 - bestTag.descuentoInscripcion / 100),
+				);
+			}
 
 			const inscriptionData: any = {
 				alumnoId: foundStudent!.id,
 				alumnoNombre: `${foundStudent!.nombre} ${foundStudent!.apellido}`,
 				alumnoDni: foundStudent!.dni,
 				tipoAlumno: foundStudent!.tipo,
-
-				// Guardamos alumnoTipo normalizado directamente para que EditInscriptionModal
-				// y cualquier otra parte del sistema no tenga que adivinar ni convertir.
 				alumnoTipo: foundStudent!.tipo === "Titular" ? "adulto" : "menor",
-				// Guardamos snapshot de precios del curso para poder crear la cuota
-				// cuando la inscripción pase de Pendiente a Confirmado desde EditInscriptionModal.
-				cuota1a10: cursoSeleccionado?.cuota1a10 || 0,
-				cuota11enAdelante: cursoSeleccionado?.cuota11enAdelante || 0,
-
+				cuota1a10: cursoSeleccionado.cuota1a10 || 0,
+				cuota11enAdelante: cursoSeleccionado.cuota11enAdelante || 0,
 				cursoId: selectedCourseId,
-				cursoNombre: cursoSeleccionado?.nombre || "Desconocido",
-				cursoInscripcion: cursoSeleccionado?.inscripcion || 0,
-				metodoPago: metodoPago,
+				cursoNombre: cursoSeleccionado.nombre || "Desconocido",
+				cursoInscripcion: montoInscripcionFinal,
+				metodoPago,
 				status: paymentStatus,
 				fecha: serverTimestamp(),
 				excepcionEdad: overrideAgeWarning,
 			};
 
-			if (paymentStatus === "Pendiente") {
+			if (bestTag && applyTagDiscount) {
+				inscriptionData.descuentoPorEtiqueta = bestTag.nombre;
+				inscriptionData.descuentoPorcentaje = bestTag.descuentoInscripcion;
+			} else {
+				inscriptionData.descuentoPorEtiqueta = null;
+			}
+
+			if (paymentStatus === "Pendiente")
 				inscriptionData.fechaPromesaPago = promiseDate;
-			}
 
-			const inscripcionRef = await addDoc(inscripcionesRef, inscriptionData);
-
-			if (paymentStatus === "Confirmado" && cursoSeleccionado) {
-				await crearPrimeraCuota(inscripcionRef.id, cursoSeleccionado);
-			}
-
-			const usersRef = collection(
-				db,
-				foundStudent?.tipo === "Menor" ? "Hijos" : "Users",
+			const inscripcionRef = await addDoc(
+				collection(db, "Inscripciones"),
+				inscriptionData,
 			);
-			const userDocRef = doc(usersRef, foundStudent!.id);
-			await updateDoc(userDocRef, {
-				cursos: arrayUnion(selectedCourseId),
-			});
+
+			await updateDoc(
+				doc(
+					db,
+					foundStudent!.tipo === "Menor" ? "Hijos" : "Users",
+					foundStudent!.id,
+				),
+				{ cursos: arrayUnion(selectedCourseId) },
+			);
+
+			if (paymentStatus === "Confirmado") {
+				const descuentos = grupoFamiliar.aplica ? DESCUENTO_GRUPO_FAMILIAR : [];
+
+				// ─── USAMOS EL SERVICIO CENTRALIZADO ───
+				const alumnoParaCuota = {
+					id: foundStudent!.id,
+					dni: foundStudent!.dni,
+					nombre: foundStudent!.nombre,
+					apellido: foundStudent!.apellido,
+					tipo: foundStudent!.tipo,
+					etiquetas: foundStudent!.etiquetas,
+				};
+
+				const cursoParaCuota = {
+					id: cursoSeleccionado.id,
+					nombre: cursoSeleccionado.nombre,
+					cuota1a10: cursoSeleccionado.cuota1a10,
+					cuota11enAdelante: cursoSeleccionado.cuota11enAdelante,
+					finMes: cursoSeleccionado.finMes,
+				};
+
+				// 1. Crear la primera cuota (y el mes siguiente si es post-20)
+				await crearPrimeraCuota(
+					inscripcionRef.id,
+					alumnoParaCuota,
+					cursoParaCuota,
+					descuentos,
+				);
+
+				// 2. Aplicar descuento al grupo si corresponde
+				if (grupoFamiliar.aplica) {
+					await aplicarDescuentoAlGrupo(
+						foundStudent!.id,
+						foundStudent!.tipo,
+						grupoFamiliar.tutorId,
+						aplicarDescuentoMesActual,
+					);
+				}
+			}
 
 			const successMessage =
 				paymentStatus === "Pendiente"
-					? "La inscripción fue registrada correctamente.\n\nRecordá cobrar la inscripción antes de la fecha límite establecida."
-					: "La inscripción y el pago fueron asentados correctamente en el sistema.\n\nLa primera cuota fue generada y quedó registrada como pendiente de cobro.";
+					? grupoFamiliar.aplica
+						? "La inscripción fue registrada correctamente.\n\nEl descuento por Grupo Familiar y las cuotas se generarán cuando la inscripción sea confirmada con el pago efectivo."
+						: "La inscripción fue registrada correctamente.\n\nRecordá cobrar la inscripción antes de la fecha límite establecida."
+					: grupoFamiliar.aplica
+						? "La inscripción y el pago fueron asentados correctamente.\n\nSe aplicó el Descuento por Grupo Familiar (10%) a las cuotas de este alumno y a las cuotas del resto del grupo."
+						: "La inscripción y el pago fueron asentados correctamente.\n\nLa primera cuota fue generada y quedó registrada como pendiente de cobro.";
 
 			showAlert("¡Inscripción Exitosa!", successMessage, "success");
 		} catch (error) {
 			console.error("Error al inscribir:", error);
 			showAlert(
 				"Error al Guardar",
-				"Hubo un error al intentar guardar la inscripción. Revisa tu conexión a internet e inténtalo de nuevo.",
+				"Hubo un error al intentar guardar la inscripción.",
 				"error",
 			);
 		} finally {
@@ -400,26 +533,17 @@ export default function ManualInscriptionModal({
 
 	const handleSubmitInscription = async (e: SyntheticEvent) => {
 		e.preventDefault();
-
 		if (paymentStatus === "Pendiente" && !promiseDate) {
 			showAlert(
 				"Falta Fecha de Pago",
-				"Has indicado que el pago está pendiente. Debes ingresar la fecha límite en la que el tutor prometió realizar el abono.",
+				"Has indicado que el pago está pendiente...",
 				"warning",
 			);
 			return;
 		}
-
 		if (!foundStudent || !selectedCourseId || !metodoPago) return;
 		processInscription();
 	};
-
-	const selectedCourse = courses.find((c) => c.id === selectedCourseId);
-	const isAgeWarning =
-		selectedCourse &&
-		foundStudent &&
-		(foundStudent.edad < selectedCourse.edadMinima ||
-			foundStudent.edad > selectedCourse.edadMaxima);
 
 	return (
 		<>
@@ -431,18 +555,15 @@ export default function ManualInscriptionModal({
 							animate={{ opacity: 1 }}
 							exit={{ opacity: 0 }}
 							onClick={!isSubmitting && !isSearching ? handleClose : undefined}
-							className="fixed inset-0 bg-[#252d62]/80 backdrop-blur-sm z-40 transition-opacity"
+							className="fixed inset-0 bg-[#252d62]/80 backdrop-blur-sm z-40"
 						/>
-
 						<div className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6">
 							<motion.div
 								initial={{ opacity: 0, scale: 0.95, y: 20 }}
 								animate={{ opacity: 1, scale: 1, y: 0 }}
 								exit={{ opacity: 0, scale: 0.95, y: 20 }}
-								transition={{ duration: 0.2 }}
 								className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
 							>
-								{/* Header */}
 								<div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 shrink-0">
 									<div>
 										<h2 className="text-xl font-bold text-[#252d62]">
@@ -451,10 +572,10 @@ export default function ManualInscriptionModal({
 										<div className="flex items-center gap-2 mt-1">
 											<span
 												className={`h-2 w-2 rounded-full ${step === 1 ? "bg-[#EE1120]" : "bg-gray-300"}`}
-											></span>
+											/>
 											<span
 												className={`h-2 w-2 rounded-full ${step === 2 ? "bg-[#EE1120]" : "bg-gray-300"}`}
-											></span>
+											/>
 											<span className="text-xs text-gray-500 font-medium ml-1">
 												Paso {step} de 2
 											</span>
@@ -465,413 +586,55 @@ export default function ManualInscriptionModal({
 											!isSubmitting && !isSearching ? handleClose : undefined
 										}
 										disabled={isSubmitting || isSearching}
-										className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50"
+										className="text-gray-400 hover:bg-gray-200 p-1 rounded-full transition-colors"
 									>
 										<X className="w-5 h-5" />
 									</button>
 								</div>
 
-								{/* Body */}
 								<div className="p-6 overflow-y-auto">
-									{/* ================= PASO 1 ================= */}
-									{step === 1 && (
-										<form onSubmit={handleSearchStudent} className="space-y-6">
-											<div className="space-y-4">
-												<label className="block text-sm font-bold text-[#252d62]">
-													1. Identificación del Alumno
-												</label>
-												<p className="text-sm text-gray-500">
-													Ingresa el DNI para buscar si el alumno ya se
-													encuentra en nuestra base de datos.
-												</p>
-												<div className="flex gap-3">
-													<div className="relative flex-1">
-														<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-															<Search className="h-4 w-4 text-gray-400" />
-														</div>
-														<input
-															type="text"
-															value={searchDni}
-															onChange={(e) => setSearchDni(e.target.value)}
-															placeholder="Número de DNI"
-															className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white"
-															required
-														/>
-													</div>
-													<Button
-														type="submit"
-														disabled={isSearching || !searchDni}
-														className="bg-[#252d62] hover:bg-[#1d2355] text-white"
-													>
-														{isSearching ? (
-															<Loader2 className="w-4 h-4 animate-spin" />
-														) : (
-															"Buscar"
-														)}
-													</Button>
-												</div>
-
-												{searchError && (
-													<div className="bg-red-50 border border-red-100 p-4 rounded-lg flex flex-col gap-3">
-														<div className="flex items-start gap-2">
-															<AlertCircle className="w-5 h-5 text-[#EE1120] shrink-0 mt-0.5" />
-															<p className="text-sm text-red-800 font-medium">
-																{searchError}
-															</p>
-														</div>
-														{searchError.includes("No se encontró") && (
-															<Link href="/admin/alumnos" onClick={handleClose}>
-																<Button
-																	variant="outline"
-																	className="w-full text-sm border-red-200 text-[#EE1120] hover:bg-red-100"
-																>
-																	Ir a Crear Nuevo Alumno
-																</Button>
-															</Link>
-														)}
-													</div>
-												)}
-
-												{foundStudent && (
-													<motion.div
-														initial={{ opacity: 0, y: 10 }}
-														animate={{ opacity: 1, y: 0 }}
-														className="bg-green-50 border border-green-200 p-4 rounded-lg flex items-start justify-between"
-													>
-														<div className="flex items-start gap-3">
-															<div className="bg-white p-2 rounded-full shrink-0">
-																<CheckCircle2 className="w-6 h-6 text-green-600" />
-															</div>
-															<div>
-																<h4 className="font-bold text-green-900">
-																	{foundStudent.nombre} {foundStudent.apellido}
-																</h4>
-																<p className="text-sm text-green-700 font-mono mt-1">
-																	DNI: {foundStudent.dni}
-																</p>
-																<div className="flex gap-2 mt-2">
-																	<span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 text-xs font-bold rounded">
-																		Perfil: {foundStudent.tipo}
-																	</span>
-																	<span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 text-xs font-bold rounded">
-																		Edad: {foundStudent.edad} años
-																	</span>
-																</div>
-															</div>
-														</div>
-													</motion.div>
-												)}
-											</div>
-
-											<div className="pt-4 border-t border-gray-100 flex justify-end">
-												<Button
-													type="button"
-													onClick={() => setStep(2)}
-													disabled={!foundStudent}
-													className="bg-[#EE1120] hover:bg-[#c4000e] text-white"
-												>
-													Confirmar y Continuar
-													<ArrowRight className="w-4 h-4 ml-2" />
-												</Button>
-											</div>
-										</form>
-									)}
-
-									{/* ================= PASO 2 ================= */}
-									{step === 2 && (
-										<form
-											id="inscription-form"
+									{step === 1 ? (
+										<Step1SearchStudent
+											searchDni={searchDni}
+											setSearchDni={setSearchDni}
+											isSearching={isSearching}
+											searchError={searchError}
+											foundStudent={foundStudent}
+											grupoFamiliar={grupoFamiliar}
+											isCheckingGrupo={isCheckingGrupo}
+											aplicarDescuentoMesActual={aplicarDescuentoMesActual}
+											setAplicarDescuentoMesActual={
+												setAplicarDescuentoMesActual
+											}
+											handleSearchStudent={handleSearchStudent}
+											onNext={() => setStep(2)}
+											onClose={handleClose}
+										/>
+									) : (
+										<Step2CoursePayment
+											foundStudent={foundStudent}
+											grupoFamiliar={grupoFamiliar}
+											courses={courses}
+											isLoadingCourses={isLoadingCourses}
+											selectedCourseId={selectedCourseId}
+											setSelectedCourseId={setSelectedCourseId}
+											metodoPago={metodoPago}
+											setMetodoPago={setmetodoPago}
+											paymentStatus={paymentStatus}
+											setPaymentStatus={setPaymentStatus}
+											promiseDate={promiseDate}
+											setPromiseDate={setPromiseDate}
+											overrideAgeWarning={overrideAgeWarning}
+											setOverrideAgeWarning={setOverrideAgeWarning}
+											isSubmitting={isSubmitting}
+											bestTag={bestTag}
+											applyTagDiscount={applyTagDiscount}
+											setApplyTagDiscount={setApplyTagDiscount}
+											onBack={() => setStep(1)}
 											onSubmit={handleSubmitInscription}
-											className="space-y-6"
-										>
-											<div className="space-y-4">
-												<div className="bg-gray-50 p-3 rounded-lg flex items-center gap-3 border border-gray-100">
-													<User className="w-5 h-5 text-gray-400" />
-													<div>
-														<p className="text-xs text-gray-500 font-medium">
-															Inscribiendo a:
-														</p>
-														<p className="text-sm font-bold text-[#252d62]">
-															{foundStudent?.nombre} {foundStudent?.apellido}{" "}
-															<span className="text-gray-400 font-normal">
-																({foundStudent?.dni}) - {foundStudent?.edad}{" "}
-																años
-															</span>
-														</p>
-													</div>
-												</div>
-
-												<label className="block text-sm font-bold text-[#252d62]">
-													2. Detalles de Cursada
-												</label>
-
-												<div className="grid grid-cols-1 gap-4">
-													<div className="relative">
-														<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-															<BookOpen className="h-4 w-4 text-gray-400" />
-														</div>
-														<select
-															required
-															disabled={isLoadingCourses || isSubmitting}
-															value={selectedCourseId}
-															onChange={(e) =>
-																setSelectedCourseId(e.target.value)
-															}
-															className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white appearance-none cursor-pointer disabled:opacity-50"
-														>
-															<option value="">
-																{isLoadingCourses
-																	? "Cargando cursos..."
-																	: "Seleccionar Curso Activo"}
-															</option>
-															{courses.map((curso) => (
-																<option key={curso.id} value={curso.id}>
-																	{curso.nombre} - ${curso.inscripcion}
-																</option>
-															))}
-														</select>
-													</div>
-
-													{/* Preview primer mes */}
-													<AnimatePresence>
-														{selectedCourse && selectedCourse.cuota1a10 > 0 && (
-															<motion.div
-																initial={{ opacity: 0, height: 0 }}
-																animate={{ opacity: 1, height: "auto" }}
-																exit={{ opacity: 0, height: 0 }}
-																className="overflow-hidden"
-															>
-																<div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
-																	<p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">
-																		Cálculo de 1era Cuota
-																	</p>
-																	<div className="flex justify-between items-center text-sm">
-																		<span className="text-blue-600">
-																			{new Date().getDate() >= 15
-																				? "Inscripción desde el día 15 → 50%"
-																				: "Inscripción antes del día 15 → 100%"}
-																		</span>
-																		<span className="font-bold text-blue-800 text-base">
-																			$
-																			{calcularMontoPrimerMes(
-																				new Date(),
-																				selectedCourse,
-																			).toLocaleString("es-AR")}
-																		</span>
-																	</div>
-																	<p className="text-[11px] text-blue-400 mt-1">
-																		Cuota regular: $
-																		{selectedCourse.cuota1a10.toLocaleString(
-																			"es-AR",
-																		)}{" "}
-																		(del 1 al 10) / $
-																		{selectedCourse.cuota11enAdelante.toLocaleString(
-																			"es-AR",
-																		)}{" "}
-																		(del 11 en adelante)
-																	</p>
-																	{/* Aviso de cuota siguiente si aplica */}
-																	{new Date().getDate() >= 20 && (
-																		<p className="text-[11px] text-blue-500 font-medium mt-1.5 border-t border-blue-200 pt-1.5">
-																			⚡ Se generará también la cuota del mes
-																			siguiente
-																		</p>
-																	)}
-																</div>
-															</motion.div>
-														)}
-													</AnimatePresence>
-
-													{/* Alerta de edad */}
-													<AnimatePresence>
-														{isAgeWarning && selectedCourse && (
-															<motion.div
-																initial={{ opacity: 0, height: 0 }}
-																animate={{ opacity: 1, height: "auto" }}
-																exit={{ opacity: 0, height: 0 }}
-																className="bg-orange-50 border border-orange-200 p-4 rounded-lg flex flex-col gap-3 overflow-hidden"
-															>
-																<div className="flex items-start gap-2">
-																	<AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
-																	<div>
-																		<p className="text-sm text-orange-800 font-bold">
-																			Advertencia de Edad
-																		</p>
-																		<p className="text-sm text-orange-700 mt-1">
-																			Este curso es para alumnos de{" "}
-																			<span className="font-bold">
-																				{selectedCourse.edadMinima}
-																			</span>{" "}
-																			a{" "}
-																			<span className="font-bold">
-																				{selectedCourse.edadMaxima}
-																			</span>{" "}
-																			años. El alumno actual tiene{" "}
-																			<span className="font-bold">
-																				{foundStudent?.edad}
-																			</span>{" "}
-																			años.
-																		</p>
-																	</div>
-																</div>
-																<div className="flex items-center gap-2 mt-1 ml-7">
-																	<input
-																		type="checkbox"
-																		id="override-age"
-																		checked={overrideAgeWarning}
-																		onChange={(e) =>
-																			setOverrideAgeWarning(e.target.checked)
-																		}
-																		className="w-4 h-4 text-[#EE1120] rounded border-orange-300 focus:ring-[#EE1120] cursor-pointer"
-																	/>
-																	<label
-																		htmlFor="override-age"
-																		className="text-sm text-orange-800 font-medium cursor-pointer"
-																	>
-																		Inscribir de todas formas (Excepción
-																		autorizada)
-																	</label>
-																</div>
-															</motion.div>
-														)}
-													</AnimatePresence>
-												</div>
-
-												<label className="block text-sm font-bold text-[#252d62] mt-6">
-													3. Estado del Pago
-												</label>
-
-												<div className="grid grid-cols-1 gap-4">
-													<div className="relative">
-														<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-															<Wallet className="h-4 w-4 text-gray-400" />
-														</div>
-														<select
-															required
-															disabled={isSubmitting}
-															value={paymentStatus}
-															onChange={(e) =>
-																setPaymentStatus(
-																	e.target.value as "Confirmado" | "Pendiente",
-																)
-															}
-															className={`block w-full pl-10 pr-3 py-2.5 border rounded-lg text-sm font-medium focus:outline-none focus:ring-2 transition-all appearance-none cursor-pointer ${
-																paymentStatus === "Confirmado"
-																	? "bg-green-50 border-green-200 text-green-800 focus:ring-green-500/20 focus:border-green-500"
-																	: "bg-yellow-50 border-yellow-200 text-yellow-800 focus:ring-yellow-500/20 focus:border-yellow-500"
-															}`}
-														>
-															<option value="Confirmado">
-																El tutor abona en este momento (Confirmado)
-															</option>
-															<option value="Pendiente">
-																El tutor pagará otro día (Promesa de Pago)
-															</option>
-														</select>
-													</div>
-
-													{paymentStatus === "Confirmado" && (
-														<motion.div
-															initial={{ opacity: 0, height: 0 }}
-															animate={{ opacity: 1, height: "auto" }}
-														>
-															<div className="relative">
-																<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-																	<CreditCard className="h-4 w-4 text-gray-400" />
-																</div>
-																<select
-																	required
-																	disabled={isSubmitting}
-																	value={metodoPago}
-																	onChange={(e) =>
-																		setmetodoPago(e.target.value)
-																	}
-																	className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white appearance-none cursor-pointer disabled:opacity-50"
-																>
-																	<option value="">
-																		Seleccionar Medio de Pago Recibido
-																	</option>
-																	<option value="Efectivo">
-																		Efectivo en Sede
-																	</option>
-																	<option value="Transferencia Bancaria (Verificada)">
-																		Transferencia Bancaria (Verificada)
-																	</option>
-																	<option value="Tarjeta">
-																		Tarjeta (Posnet)
-																	</option>
-																</select>
-															</div>
-														</motion.div>
-													)}
-
-													{paymentStatus === "Pendiente" && (
-														<motion.div
-															initial={{ opacity: 0, height: 0 }}
-															animate={{ opacity: 1, height: "auto" }}
-														>
-															<div className="relative">
-																<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-																	<CalendarClock className="h-4 w-4 text-gray-400" />
-																</div>
-																<input
-																	type="date"
-																	required
-																	disabled={isSubmitting}
-																	value={promiseDate}
-																	min={getTomorrow()}
-																	onChange={(e) => {
-																		setPromiseDate(e.target.value);
-																		setmetodoPago("A confirmar");
-																	}}
-																	className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white disabled:opacity-50"
-																/>
-															</div>
-															<p className="text-xs text-gray-500 mt-1 ml-1">
-																Ingresa la fecha límite en la que el tutor se
-																comprometió a abonar.
-															</p>
-														</motion.div>
-													)}
-												</div>
-											</div>
-
-											<div className="pt-4 border-t border-gray-100 flex justify-between mt-8">
-												<Button
-													type="button"
-													variant="outline"
-													onClick={() => setStep(1)}
-													disabled={isSubmitting}
-													className="text-gray-600"
-												>
-													<ArrowLeft className="w-4 h-4 mr-2" />
-													Atrás
-												</Button>
-												<Button
-													type="submit"
-													disabled={
-														isSubmitting ||
-														!selectedCourseId ||
-														(paymentStatus === "Confirmado" && !metodoPago) ||
-														(paymentStatus === "Pendiente" && !promiseDate) ||
-														(isAgeWarning && !overrideAgeWarning) ||
-														false
-													}
-													className="bg-[#EE1120] hover:bg-[#c4000e] text-white shadow-md disabled:bg-gray-300 disabled:text-gray-500"
-												>
-													{isSubmitting ? (
-														"Inscribiendo..."
-													) : (
-														<>
-															<Save className="w-4 h-4 mr-2" />
-															{isAgeWarning && overrideAgeWarning
-																? "Inscribir de todas formas"
-																: "Finalizar Inscripción"}
-														</>
-													)}
-												</Button>
-											</div>
-										</form>
+											getTomorrow={getTomorrow}
+											calcularMontoPrimerMes={calcularMontoPrimerMes}
+										/>
 									)}
 								</div>
 							</motion.div>
@@ -882,8 +645,8 @@ export default function ManualInscriptionModal({
 
 			<Dialog
 				open={alertDialog.isOpen}
-				onOpenChange={(isOpen) => {
-					if (!isOpen) {
+				onOpenChange={(open) => {
+					if (!open) {
 						setAlertDialog({ ...alertDialog, isOpen: false });
 						if (alertDialog.type === "success") handleClose();
 					}
