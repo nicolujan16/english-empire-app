@@ -133,6 +133,8 @@ export default function EditUserInfoModal({
 						color: d.data().color ?? "gray",
 						descuentoInscripcion: d.data().descuentoInscripcion ?? null,
 						descuentoCuota: d.data().descuentoCuota ?? null,
+						acumulableConGrupoFamiliar:
+							d.data().acumulableConGrupoFamiliar ?? false,
 					})),
 				);
 			} catch (err) {
@@ -399,16 +401,19 @@ export default function EditUserInfoModal({
 				);
 				if (err) {
 					setErrorMsg(err);
+					setIsLoading(false);
 					return;
 				}
 				const edad = calcularEdad(titularForm.fechaNacimiento);
 				if (typeof edad === "number") {
 					if (edad < 18) {
 						setErrorMsg("El titular debe ser mayor de 18 años.");
+						setIsLoading(false);
 						return;
 					}
 					if (edad > 120) {
 						setErrorMsg("Fecha de nacimiento inválida.");
+						setIsLoading(false);
 						return;
 					}
 				}
@@ -423,9 +428,44 @@ export default function EditUserInfoModal({
 						setErrorMsg(
 							"Este número de teléfono ya está asociado a otra cuenta.",
 						);
+						setIsLoading(false);
 						return;
 					}
 				}
+
+				// 🚀 LÓGICA DE ASIGNACIÓN DE EMAIL VIA API
+				const isAssigningNewEmail =
+					!student.email && titularForm.email.trim() !== "";
+				let finalEmail = student.email || ""; // Mantenemos el original si no se asignó nada
+
+				if (isAssigningNewEmail) {
+					try {
+						const res = await fetch("/api/asociar-email", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								alumnoId: student.id,
+								email: titularForm.email.trim(),
+							}),
+						});
+
+						const data = await res.json();
+						if (!res.ok) {
+							setErrorMsg(
+								data.error || "Error al registrar el correo electrónico.",
+							);
+							setIsLoading(false);
+							return;
+						}
+						finalEmail = titularForm.email.trim();
+					} catch (apiErr) {
+						console.error("Error en la llamada a la API:", apiErr);
+						setErrorMsg("Error de conexión al intentar asociar el correo.");
+						setIsLoading(false);
+						return;
+					}
+				}
+
 				await updateDoc(doc(db, "Users", student.id), {
 					nombre: titularForm.nombre.trim(),
 					apellido: titularForm.apellido.trim(),
@@ -433,22 +473,31 @@ export default function EditUserInfoModal({
 					fechaNacimiento: titularForm.fechaNacimiento,
 					edadTitular: calcularEdad(titularForm.fechaNacimiento),
 					telefono: titularForm.telefono,
+					// Guardamos el email final (el que tenía o el nuevo).
+					// La API ya actualizó esto y "sinAccesoWeb", pero lo pisamos de nuevo por seguridad.
+					...(isAssigningNewEmail
+						? { email: finalEmail, sinAccesoWeb: false }
+						: {}),
 				});
+
 				await procesarBajas();
 				await procesarReasignaciones();
 				await guardarEtiquetas();
+
 				const cursosActualizados = student.cursos
 					.filter((id) => !bajas[id])
 					.map((id) => {
 						const r = reassignments[id];
 						return r && r !== id ? r : id;
 					});
+
 				onSuccess({
 					...student,
 					nombre: titularForm.nombre.trim(),
 					apellido: titularForm.apellido.trim(),
 					dni: titularForm.dni.trim(),
 					fechaNacimiento: titularForm.fechaNacimiento,
+					email: finalEmail, // Actualizamos el UI local con el nuevo correo
 					edad: calcularEdad(titularForm.fechaNacimiento) as number,
 					telefono: titularForm.telefono,
 					cursos: cursosActualizados,
@@ -463,6 +512,7 @@ export default function EditUserInfoModal({
 				);
 				if (err) {
 					setErrorMsg(err);
+					setIsLoading(false);
 					return;
 				}
 				await updateDoc(doc(db, "Hijos", student.id), {
@@ -492,7 +542,6 @@ export default function EditUserInfoModal({
 			}
 			setSuccessMsg("¡Datos actualizados correctamente!");
 			setTimeout(() => onClose(), 1200);
-			window.location.reload();
 		} catch (err) {
 			console.error("Error al actualizar:", err);
 			setErrorMsg("Hubo un error al guardar los cambios. Intentá de nuevo.");
@@ -564,11 +613,40 @@ export default function EditUserInfoModal({
 							<div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
 								{/* ── Formulario según tipo ── */}
 								{isTitular ? (
-									<TitularFormFields
-										form={titularForm}
-										onChange={handleTitularChange}
-										onPhoneChange={handlePhoneChange}
-									/>
+									<>
+										<TitularFormFields
+											form={titularForm}
+											onChange={handleTitularChange}
+											onPhoneChange={handlePhoneChange}
+											isEmailEditable={!student.email}
+										/>
+
+										{/* 🚀 SI NO TIENE EMAIL: Mostramos el bloque de asignación explícito */}
+										{!student.email && (
+											<div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+												<label className="block text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1.5">
+													<AlertCircle className="w-3.5 h-3.5" /> Asignar Acceso
+													Web
+												</label>
+												<input
+													type="email"
+													id="email"
+													value={titularForm.email}
+													onChange={handleTitularChange}
+													disabled={isLoading}
+													placeholder="correo@ejemplo.com"
+													className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500/20 outline-none"
+												/>
+												<p className="text-[10px] text-amber-700 mt-1.5 leading-tight">
+													Al guardar, se enviará un correo para que el alumno
+													genere su contraseña.{" "}
+													<strong>
+														Dejar vacío si no se desea asignar aún.
+													</strong>
+												</p>
+											</div>
+										)}
+									</>
 								) : (
 									<MenorFormFields
 										form={menorForm}

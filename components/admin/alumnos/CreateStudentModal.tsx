@@ -14,12 +14,11 @@ import {
 	Loader2,
 	Save,
 	Mail,
-	AlertTriangle, // Para iconos de error
-	Info, // Para iconos de información/éxito
+	AlertTriangle,
+	Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Importamos los componentes del Dialog
 import {
 	Dialog,
 	DialogContent,
@@ -29,7 +28,6 @@ import {
 	DialogFooter,
 } from "@/components/ui/dialog";
 
-// Firebase
 import {
 	collection,
 	query,
@@ -49,13 +47,13 @@ import {
 import { initializeApp } from "firebase/app";
 import { app, db } from "@/lib/firebaseConfig";
 
+// 🚀 ACTUALIZADO: Permitimos que onSuccess reciba el objeto del nuevo estudiante (opcional)
 interface CreateStudentModalProps {
 	isOpen: boolean;
 	onClose: () => void;
-	onSuccess?: () => void;
+	onSuccess?: (newStudent?: any) => void;
 }
 
-// Interfaces para manejar el estado de los diálogos de alerta
 interface ErrorDialogState {
 	isOpen: boolean;
 	title: string;
@@ -71,7 +69,6 @@ export default function CreateStudentModal({
 	const [tipoAlumno, setTipoAlumno] = useState<"Titular" | "Menor">("Titular");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
-	// --- ESTADOS DE ALERTAS BONITAS (DIALOGS) ---
 	const [alertDialog, setAlertDialog] = useState<ErrorDialogState>({
 		isOpen: false,
 		title: "",
@@ -96,6 +93,8 @@ export default function CreateStudentModal({
 		fechaNacimiento: "",
 	});
 
+	const [sinEmail, setSinEmail] = useState(false);
+
 	// --- ESTADOS PARA MENOR ---
 	const [tutorDni, setTutorDni] = useState("");
 	const [isSearchingTutor, setIsSearchingTutor] = useState(false);
@@ -119,6 +118,7 @@ export default function CreateStudentModal({
 			telefono: "",
 			fechaNacimiento: "",
 		});
+		setSinEmail(false);
 		setMenorData({ nombre: "", apellido: "", dni: "", fechaNacimiento: "" });
 		setTutorDni("");
 		setFoundTutor(null);
@@ -131,7 +131,6 @@ export default function CreateStudentModal({
 		onClose();
 	};
 
-	// --- FUNCIONES DE ALERTA ---
 	const showAlert = (
 		title: string,
 		message: string,
@@ -140,7 +139,6 @@ export default function CreateStudentModal({
 		setAlertDialog({ isOpen: true, title, message, type });
 	};
 
-	// --- FUNCIONES AUXILIARES DE VALIDACIÓN ---
 	const calcularEdad = (fecha: string) => {
 		if (!fecha) return 0;
 		const hoy = new Date();
@@ -172,7 +170,6 @@ export default function CreateStudentModal({
 		return !snapUsers.empty;
 	};
 
-	// --- BUSCAR TUTOR ---
 	const handleSearchTutor = async (e: React.SyntheticEvent) => {
 		e.preventDefault();
 		if (!tutorDni) return;
@@ -200,48 +197,78 @@ export default function CreateStudentModal({
 		}
 	};
 
-	// --- LÓGICA PRINCIPAL DE CREACIÓN ---
 	const processCreation = async (isForcedMinor = false) => {
 		setIsSubmitting(true);
 		try {
 			if (tipoAlumno === "Titular") {
-				// --- 1. CREAR TITULAR ---
-				const secondaryApp = initializeApp(app.options, "SecondaryApp");
-				const secondaryAuth = getAuth(secondaryApp);
-				const randomPassword = Math.random().toString(36).slice(-10) + "A1!";
+				let newUserId = "";
 
-				const userCredential = await createUserWithEmailAndPassword(
-					secondaryAuth,
-					formData.email,
-					randomPassword,
-				);
-				await secondaryAuth.signOut();
+				if (!sinEmail) {
+					const secondaryApp = initializeApp(app.options, "SecondaryApp");
+					const secondaryAuth = getAuth(secondaryApp);
+					const randomPassword = Math.random().toString(36).slice(-10) + "A1!";
 
-				await setDoc(doc(db, "Users", userCredential.user.uid), {
+					const userCredential = await createUserWithEmailAndPassword(
+						secondaryAuth,
+						formData.email,
+						randomPassword,
+					);
+					await secondaryAuth.signOut();
+					newUserId = userCredential.user.uid;
+
+					const primaryAuth = getAuth(app);
+					await sendPasswordResetEmail(primaryAuth, formData.email);
+				} else {
+					newUserId = doc(collection(db, "Users")).id;
+				}
+
+				// Armamos el objeto base que guardaremos en Firebase y enviaremos al frontend
+				const nuevoTitularData = {
 					nombre: formData.nombre,
 					apellido: formData.apellido,
 					dni: formData.dni,
-					email: formData.email,
+					email: sinEmail ? "" : formData.email,
 					telefono: formData.telefono,
 					fechaNacimiento: formData.fechaNacimiento,
 					isTutor: false,
 					rol: "alumno",
 					cursos: [],
+					sinAccesoWeb: sinEmail,
+				};
+
+				await setDoc(doc(db, "Users", newUserId), {
+					...nuevoTitularData,
 					fechaRegistro: serverTimestamp(),
 				});
 
-				const primaryAuth = getAuth(app);
-				await sendPasswordResetEmail(primaryAuth, formData.email);
+				// 🚀 ACTUALIZADO: Disparamos onSuccess enviando los datos para que la tabla se actualice
+				if (onSuccess) {
+					onSuccess({
+						id: newUserId,
+						...nuevoTitularData,
+						tipo: "Titular",
+						edad: calcularEdad(formData.fechaNacimiento),
+						etiquetas: [],
+					});
+				}
 
-				showAlert(
-					"¡Alumno Creado!",
-					`El alumno titular se ha registrado exitosamente.\nSe ha enviado un correo a ${formData.email} para que establezca su contraseña.`,
-					"success",
-				);
+				if (!sinEmail) {
+					showAlert(
+						"¡Alumno Creado!",
+						`El alumno titular se ha registrado exitosamente.\nSe ha enviado un correo a ${formData.email} para que establezca su contraseña.`,
+						"success",
+					);
+				} else {
+					showAlert(
+						"¡Alumno Creado!",
+						"El alumno titular se ha registrado en el sistema administrativo.\nAl no proporcionar un email, este alumno no tendrá acceso al portal web de usuarios.",
+						"success",
+					);
+				}
 			} else {
-				// --- 2. CREAR MENOR ---
 				const hijosRef = collection(db, "Hijos");
-				const nuevoHijoRef = await addDoc(hijosRef, {
+
+				const nuevoMenorData = {
 					nombre: menorData.nombre,
 					apellido: menorData.apellido,
 					dni: menorData.dni,
@@ -255,17 +282,41 @@ export default function CreateStudentModal({
 						email: foundTutor.email,
 						telefono: foundTutor.telefono,
 					},
-				});
+				};
+
+				const nuevoHijoRef = await addDoc(hijosRef, nuevoMenorData);
 
 				const tutorRef = doc(db, "Users", foundTutor.id);
 				await setDoc(
 					tutorRef,
 					{
 						isTutor: true,
-						hijos: arrayUnion(nuevoHijoRef.id), // ← agrega el ID al array
+						hijos: arrayUnion(nuevoHijoRef.id),
 					},
 					{ merge: true },
 				);
+
+				// 🚀 ACTUALIZADO: Disparamos onSuccess enviando los datos
+				if (onSuccess) {
+					onSuccess({
+						id: nuevoHijoRef.id,
+						nombre: menorData.nombre,
+						apellido: menorData.apellido,
+						dni: menorData.dni,
+						email: "Menor",
+						telefono: "",
+						fechaNacimiento: menorData.fechaNacimiento,
+						edad: calcularEdad(menorData.fechaNacimiento),
+						cursos: [],
+						tipo: "Menor",
+						isTutor: false,
+						nombreTutor: `${foundTutor.nombre} ${foundTutor.apellido}`,
+						telefonoTutor: foundTutor.telefono || "Sin teléfono",
+						emailTutor: foundTutor.email || "",
+						dniTutor: foundTutor.dni || "",
+						etiquetas: [],
+					});
+				}
 
 				showAlert(
 					"¡Alumno Creado!",
@@ -273,9 +324,6 @@ export default function CreateStudentModal({
 					"success",
 				);
 			}
-
-			if (onSuccess) onSuccess();
-			// Nota: No cerramos el modal principal acá, lo cerramos cuando el admin haga clic en "OK" del Dialog de éxito.
 		} catch (error: any) {
 			console.error("Error creando alumno:", error);
 			if (error.code === "auth/email-already-in-use") {
@@ -299,7 +347,6 @@ export default function CreateStudentModal({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
-		// --- VALIDACIONES PREVIAS ---
 		if (tipoAlumno === "Titular") {
 			if (calcularEdad(formData.fechaNacimiento) < 18) {
 				showAlert(
@@ -332,10 +379,8 @@ export default function CreateStudentModal({
 				}
 			}
 
-			// Si todo está bien, procesamos la creación
 			processCreation();
 		} else {
-			// Validaciones para Menor
 			if (!foundTutor) {
 				showAlert(
 					"Falta el Tutor",
@@ -356,7 +401,6 @@ export default function CreateStudentModal({
 			}
 
 			if (calcularEdad(menorData.fechaNacimiento) >= 18) {
-				// En vez de window.confirm, abrimos nuestro propio Dialog de confirmación
 				setConfirmDialog({
 					isOpen: true,
 					title: "Alumno Mayor de Edad",
@@ -364,13 +408,12 @@ export default function CreateStudentModal({
 						"El alumno que intentas registrar ya es mayor de edad (18+).\n\nTe recomendamos crearle una cuenta como 'Alumno Titular' para que tenga su propio acceso y gestión.\n\n¿Estás seguro de que deseas continuar y registrarlo como menor a cargo de todas formas?",
 					onConfirm: () => {
 						setConfirmDialog({ ...confirmDialog, isOpen: false });
-						processCreation(true); // Le pasamos true por si a futuro queremos guardar un flag de "forzado"
+						processCreation(true);
 					},
 				});
 				return;
 			}
 
-			// Si no es mayor de 18, procedemos normal
 			processCreation();
 		}
 	};
@@ -391,7 +434,6 @@ export default function CreateStudentModal({
 							exit={{ opacity: 0, scale: 0.95, y: 20 }}
 							className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
 						>
-							{/* HEADER MODAL PRINCIPAL */}
 							<div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
 								<div>
 									<h2 className="text-xl font-bold text-[#252d62]">
@@ -411,7 +453,6 @@ export default function CreateStudentModal({
 							</div>
 
 							<div className="p-6 overflow-y-auto">
-								{/* TABS TIPO ALUMNO */}
 								<div className="flex bg-gray-100 p-1 rounded-xl mb-6">
 									<button
 										type="button"
@@ -438,9 +479,6 @@ export default function CreateStudentModal({
 								</div>
 
 								<form onSubmit={handleSubmit} className="space-y-6">
-									{/* =========================================
-                      FORMULARIO: TITULAR
-                  ========================================= */}
 									{tipoAlumno === "Titular" && (
 										<motion.div
 											initial={{ opacity: 0 }}
@@ -529,48 +567,84 @@ export default function CreateStudentModal({
 														className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none"
 													/>
 												</div>
+
 												<div>
 													<label className="block text-xs font-bold text-gray-700 mb-1">
-														Correo Electrónico (Para Login)
+														Correo Electrónico
 													</label>
 													<input
-														required
+														required={!sinEmail}
+														disabled={sinEmail || isSubmitting}
 														type="email"
-														value={formData.email}
+														value={sinEmail ? "" : formData.email}
 														onChange={(e) =>
 															setFormData({
 																...formData,
 																email: e.target.value,
 															})
 														}
-														className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none"
+														className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none disabled:bg-gray-100 disabled:text-gray-400"
 													/>
+													<div className="mt-2 flex items-center gap-2">
+														<input
+															type="checkbox"
+															id="sinEmail"
+															checked={sinEmail}
+															onChange={(e) => {
+																setSinEmail(e.target.checked);
+																if (e.target.checked) {
+																	setFormData((prev) => ({
+																		...prev,
+																		email: "",
+																	}));
+																}
+															}}
+															disabled={isSubmitting}
+															className="w-4 h-4 rounded border-gray-300 text-[#252d62] focus:ring-[#252d62]"
+														/>
+														<label
+															htmlFor="sinEmail"
+															className="text-xs text-gray-600 cursor-pointer select-none"
+														>
+															No asociar a un correo por el momento
+														</label>
+													</div>
 												</div>
 											</div>
 
-											<div className="bg-blue-50 text-blue-800 p-3 rounded-lg flex items-start gap-3 mt-4 border border-blue-100">
-												<Mail className="w-5 h-5 shrink-0 mt-0.5" />
-												<p className="text-xs font-medium">
-													Al guardar, el sistema le enviará automáticamente un
-													correo a{" "}
-													<strong>{formData.email || "este email"}</strong> con
-													un enlace para que el alumno genere su contraseña
-													personal.
-												</p>
-											</div>
+											{!sinEmail ? (
+												<div className="bg-blue-50 text-blue-800 p-3 rounded-lg flex items-start gap-3 mt-4 border border-blue-100">
+													<Mail className="w-5 h-5 shrink-0 mt-0.5" />
+													<p className="text-xs font-medium">
+														Al guardar, el sistema le enviará automáticamente un
+														correo a{" "}
+														<strong>{formData.email || "este email"}</strong>{" "}
+														con un enlace para que el alumno genere su
+														contraseña personal.
+													</p>
+												</div>
+											) : (
+												<div className="bg-amber-50 text-amber-800 p-3 rounded-lg flex items-start gap-3 mt-4 border border-amber-100">
+													<AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+													<p className="text-xs font-medium">
+														El alumno será registrado para el control
+														administrativo, pero{" "}
+														<strong>
+															no podrá acceder al portal web de usuarios
+														</strong>{" "}
+														hasta que se le asigne un correo.
+													</p>
+												</div>
+											)}
 										</motion.div>
 									)}
 
-									{/* =========================================
-                      FORMULARIO: MENOR
-                  ========================================= */}
 									{tipoAlumno === "Menor" && (
 										<motion.div
 											initial={{ opacity: 0 }}
 											animate={{ opacity: 1 }}
 											className="space-y-6"
 										>
-											{/* BUSCADOR DE TUTOR */}
 											<div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
 												<label className="block text-sm font-bold text-[#252d62] mb-2">
 													1. Buscar Tutor (Titular)
@@ -622,7 +696,6 @@ export default function CreateStudentModal({
 												)}
 											</div>
 
-											{/* DATOS DEL MENOR */}
 											<div
 												className={`space-y-4 transition-opacity ${!foundTutor ? "opacity-50 pointer-events-none" : ""}`}
 											>
@@ -703,7 +776,6 @@ export default function CreateStudentModal({
 										</motion.div>
 									)}
 
-									{/* BOTONERA PRINCIPAL */}
 									<div className="pt-4 border-t border-gray-100 flex justify-end gap-2">
 										<Button
 											type="button"
@@ -739,13 +811,11 @@ export default function CreateStudentModal({
 				)}
 			</AnimatePresence>
 
-			{/* DIALOG DE ALERTAS (ERRORES O ÉXITO)*/}
 			<Dialog
 				open={alertDialog.isOpen}
 				onOpenChange={(isOpen) => {
 					if (!isOpen) {
 						setAlertDialog({ ...alertDialog, isOpen: false });
-						// Si era un mensaje de éxito, cerramos el modal principal de creación también
 						if (alertDialog.type === "success") {
 							handleClose();
 						}
@@ -802,7 +872,6 @@ export default function CreateStudentModal({
 				</DialogContent>
 			</Dialog>
 
-			{/*DIALOG DE CONFIRMACIÓN (MENOR > 18)*/}
 			<Dialog
 				open={confirmDialog.isOpen}
 				onOpenChange={(isOpen) =>

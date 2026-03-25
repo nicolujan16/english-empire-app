@@ -27,12 +27,14 @@ interface TitularFormFieldsProps {
 	form: TitularForm;
 	onChange: (e: ChangeEvent<HTMLInputElement>) => void;
 	onPhoneChange: (value?: string) => void;
+	isEmailEditable: boolean;
 }
 
 export function TitularFormFields({
 	form,
 	onChange,
 	onPhoneChange,
+	isEmailEditable,
 }: TitularFormFieldsProps) {
 	const edad = calcularEdad(form.fechaNacimiento);
 
@@ -98,11 +100,25 @@ export function TitularFormFields({
 
 			<SectionDivider label="Datos de Contacto" />
 
-			<ReadOnlyField
-				icon={Mail}
-				label="Email (credencial de acceso)"
-				value={form.email || "—"}
-			/>
+			{/* 🚀 LOGICA CONDICIONAL PARA EL EMAIL */}
+			{isEmailEditable ? (
+				<FieldGroup label="Email (Asignar credencial de acceso)" icon={Mail}>
+					<input
+						type="email"
+						id="email"
+						value={form.email}
+						onChange={onChange}
+						className={inputBase}
+						placeholder="correo@ejemplo.com"
+					/>
+				</FieldGroup>
+			) : (
+				<ReadOnlyField
+					icon={Mail}
+					label="Email (credencial de acceso)"
+					value={form.email || "—"}
+				/>
+			)}
 
 			<FieldGroup label="Teléfono" icon={Phone}>
 				<div className="w-full h-11 px-4 bg-gray-50 rounded-lg border border-gray-200 focus-within:border-[#252d62] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#252d62]/20 transition-all flex items-center">

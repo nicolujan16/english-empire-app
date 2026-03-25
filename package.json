@@ -18,6 +18,7 @@
 		"clsx": "^2.1.0",
 		"date-fns": "^4.1.0",
 		"firebase": "^12.9.0",
+		"firebase-admin": "^13.7.0",
 		"framer-motion": "^12.34.0",
 		"lucide-react": "^0.292.0",
 		"mercadopago": "^2.12.0",

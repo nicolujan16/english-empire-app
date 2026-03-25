@@ -23,6 +23,7 @@ import {
 	BookUser,
 	Printer,
 	Percent,
+	AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { collection, getDocs } from "firebase/firestore";
@@ -65,6 +66,10 @@ interface EtiquetaInfo {
 }
 
 type EtiquetasMap = Record<string, EtiquetaInfo>;
+
+interface AlumnosTableProps {
+	newStudent?: StudentRow | null;
+}
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -213,7 +218,7 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export default function AlumnosTable() {
+export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 	const [students, setStudents] = useState<StudentRow[]>([]);
 	const [coursesMap, setCoursesMap] = useState<CourseMap>({});
 	const [etiquetasMap, setEtiquetasMap] = useState<EtiquetasMap>({});
@@ -223,6 +228,8 @@ export default function AlumnosTable() {
 	const [courseFilter, setCourseFilter] = useState("Todos");
 	const [typeFilter, setTypeFilter] = useState("Todos");
 	const [etiquetaFilter, setEtiquetaFilter] = useState("Todas");
+	// 🚀 NUEVO: Estado para el filtro de mail pendiente
+	const [pendingEmailFilter, setPendingEmailFilter] = useState(false);
 	const [currentPage, setCurrentPage] = useState(1);
 
 	const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(
@@ -345,9 +352,26 @@ export default function AlumnosTable() {
 	useEffect(() => {
 		fetchData();
 	}, []);
+
+	useEffect(() => {
+		if (newStudent) {
+			setStudents((prev) => {
+				if (prev.some((s) => s.id === newStudent.id)) return prev;
+				const updatedList = [...prev, newStudent];
+				return updatedList.sort((a, b) => a.nombre.localeCompare(b.nombre));
+			});
+		}
+	}, [newStudent]);
+
 	useEffect(() => {
 		setCurrentPage(1);
-	}, [searchTerm, typeFilter, courseFilter, etiquetaFilter]);
+	}, [
+		searchTerm,
+		typeFilter,
+		courseFilter,
+		etiquetaFilter,
+		pendingEmailFilter,
+	]);
 
 	// ── Filtrado ──────────────────────────────────────────────────────────────
 
@@ -382,9 +406,30 @@ export default function AlumnosTable() {
 						: etiquetaFilter === "Sin Etiqueta"
 							? !s.etiquetas?.length
 							: (s.etiquetas ?? []).includes(etiquetaFilter);
-				return matchesSearch && matchesType && matchesCourse && matchesEtiqueta;
+
+				// 🚀 NUEVA LÓGICA: Filtro de mail pendiente
+				const matchesPendingEmail = pendingEmailFilter
+					? s.tipo === "Titular"
+						? !s.email
+						: !s.emailTutor
+					: true;
+
+				return (
+					matchesSearch &&
+					matchesType &&
+					matchesCourse &&
+					matchesEtiqueta &&
+					matchesPendingEmail
+				);
 			}),
-		[students, searchTerm, typeFilter, courseFilter, etiquetaFilter],
+		[
+			students,
+			searchTerm,
+			typeFilter,
+			courseFilter,
+			etiquetaFilter,
+			pendingEmailFilter,
+		],
 	);
 
 	const totalPages = Math.ceil(filteredStudents.length / ITEMS_PER_PAGE);
@@ -480,7 +525,7 @@ export default function AlumnosTable() {
 								<td className="py-2 pr-4 text-xs text-gray-600">
 									{s.tipo === "Titular" ? (
 										<span>
-											{s.email}
+											{s.email ? s.email : "Sin correo asignado"}
 											{s.telefono ? ` · ${s.telefono}` : ""}
 										</span>
 									) : (
@@ -517,7 +562,8 @@ export default function AlumnosTable() {
 
 				<div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col min-h-[600px]">
 					{/* ── Filtros ── */}
-					<div className="p-4 border-b border-gray-100 bg-gray-50/50">
+					<div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4">
+						{/* Fila principal de filtros */}
 						<div className="flex flex-col xl:flex-row gap-4 items-center justify-between">
 							<div className="relative w-full xl:w-96 group">
 								<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -620,6 +666,22 @@ export default function AlumnosTable() {
 								</button>
 							</div>
 						</div>
+
+						{/* 🚀 NUEVA FILA: Checkbox de correos pendientes */}
+						<div className="flex items-center gap-2 px-1">
+							<label className="flex items-center gap-2 cursor-pointer group">
+								<input
+									type="checkbox"
+									checked={pendingEmailFilter}
+									onChange={(e) => setPendingEmailFilter(e.target.checked)}
+									className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-600 cursor-pointer"
+								/>
+								<span className="text-sm font-semibold text-gray-600 group-hover:text-gray-900 transition-colors flex items-center gap-1.5">
+									<AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+									Ver únicamente usuarios con mail pendiente (Sin acceso web)
+								</span>
+							</label>
+						</div>
 					</div>
 
 					{/* ── Contenido ── */}
@@ -698,8 +760,12 @@ export default function AlumnosTable() {
 													<div className="flex flex-col gap-1">
 														<div className="flex items-center justify-between">
 															<span className="text-gray-500">Email:</span>
-															<span className="font-medium text-blue-600 truncate max-w-[200px]">
-																{student.email}
+															<span
+																className={`font-medium truncate max-w-[200px] ${student.email ? "text-blue-600" : "text-amber-600 italic"}`}
+															>
+																{student.email
+																	? student.email
+																	: "Sin correo asignado"}
 															</span>
 														</div>
 														{student.telefono && (
@@ -724,12 +790,20 @@ export default function AlumnosTable() {
 															<Phone className="w-3.5 h-3.5 text-gray-400" />
 															{student.telefonoTutor}
 														</span>
-														{student.emailTutor && (
-															<span className="flex items-center gap-1.5 text-gray-500 font-medium ml-5">
-																<Mail className="w-3.5 h-3.5 text-gray-400" />
-																{student.emailTutor}
+														<span className="flex items-center gap-1.5 text-gray-500 font-medium ml-5">
+															<Mail className="w-3.5 h-3.5 text-gray-400" />
+															<span
+																className={
+																	student.emailTutor
+																		? ""
+																		: "text-amber-600 italic"
+																}
+															>
+																{student.emailTutor
+																	? student.emailTutor
+																	: "Sin correo asignado"}
 															</span>
-														)}
+														</span>
 													</div>
 												)}
 												<div className="mt-2 pt-3 border-t border-gray-100">
@@ -829,7 +903,18 @@ export default function AlumnosTable() {
 															{student.tipo === "Titular" ? (
 																<>
 																	<span className="flex items-center gap-1">
-																		<Mail className="w-3 h-3" /> {student.email}
+																		<Mail className="w-3 h-3" />{" "}
+																		<span
+																			className={
+																				student.email
+																					? ""
+																					: "text-amber-600 italic font-semibold"
+																			}
+																		>
+																			{student.email
+																				? student.email
+																				: "Sin correo asignado"}
+																		</span>
 																	</span>
 																	{student.telefono && (
 																		<span className="flex items-center gap-1 mt-1">
@@ -848,12 +933,20 @@ export default function AlumnosTable() {
 																		<Phone className="w-3 h-3" />{" "}
 																		{student.telefonoTutor}
 																	</span>
-																	{student.emailTutor && (
-																		<span className="flex items-center gap-1 mt-1">
-																			<Mail className="w-3 h-3" />{" "}
-																			{student.emailTutor}
+																	<span className="flex items-center gap-1 mt-1">
+																		<Mail className="w-3 h-3" />{" "}
+																		<span
+																			className={
+																				student.emailTutor
+																					? ""
+																					: "text-amber-600 italic font-semibold"
+																			}
+																		>
+																			{student.emailTutor
+																				? student.emailTutor
+																				: "Sin correo asignado"}
 																		</span>
-																	)}
+																	</span>
 																</>
 															)}
 														</div>
