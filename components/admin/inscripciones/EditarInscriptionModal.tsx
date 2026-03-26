@@ -320,7 +320,7 @@ export default function EditInscriptionModal({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [formData.status]);
 
-	const handleSubmit = async (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.SyntheticEvent) => {
 		e.preventDefault();
 		if (!inscriptionToEdit) return;
 		setErrorMsg("");
@@ -388,7 +388,7 @@ export default function EditInscriptionModal({
 					finMes: cursoDetails?.finMes || 12, // Usamos el finMes recuperado
 				};
 
-				// Creamos la cuota
+				// 1. Creamos la cuota
 				await crearPrimeraCuota(
 					inscriptionToEdit.id,
 					alumnoSrv,
@@ -396,7 +396,7 @@ export default function EditInscriptionModal({
 					descuentos,
 				);
 
-				// Aplicamos el descuento al grupo
+				// 2. Aplicamos el descuento al grupo
 				if (grupoFamiliar.aplica) {
 					await aplicarDescuentoAlGrupo(
 						inscriptionToEdit.alumnoId,
@@ -404,6 +404,66 @@ export default function EditInscriptionModal({
 						grupoFamiliar.tutorId,
 						aplicarDescuentoMesActual,
 					);
+				}
+
+				// 🚀 PASO 3: ENVIAR CORREO DE COMPROBANTE
+				let emailDestino = "";
+
+				try {
+					// Buscamos el mail dependiendo de si es Menor o Titular
+					const esMenor =
+						inscriptionToEdit.alumnoTipo.toLowerCase() === "menor";
+
+					if (esMenor) {
+						const hijoSnap = await getDoc(
+							doc(db, "Hijos", inscriptionToEdit.alumnoId),
+						);
+						if (hijoSnap.exists()) {
+							const data = hijoSnap.data();
+							// Priorizamos datosTutor.email, sino buscamos el doc del tutor
+							emailDestino = data.datosTutor?.email || "";
+							if (!emailDestino && data.tutorId) {
+								const tutorSnap = await getDoc(doc(db, "Users", data.tutorId));
+								if (tutorSnap.exists())
+									emailDestino = tutorSnap.data().email || "";
+							}
+						}
+					} else {
+						const userSnap = await getDoc(
+							doc(db, "Users", inscriptionToEdit.alumnoId),
+						);
+						if (userSnap.exists()) {
+							emailDestino = userSnap.data().email || "";
+						}
+					}
+				} catch (e) {
+					console.error("Error buscando el email del alumno/tutor:", e);
+				}
+
+				// Si encontramos un email válido, disparamos a la API
+				if (emailDestino !== "") {
+					try {
+						await fetch("/api/correos/inscripcion", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								emailDestino: emailDestino,
+								nombreAlumno: inscriptionToEdit.alumnoNombre,
+								cursoNombre: inscriptionToEdit.cursoNombre,
+								montoAbonado:
+									parseFloat(formData.monto) ||
+									inscriptionToEdit.cursoInscripcion,
+								metodoPago: formData.metodoPago,
+								nroComprobante: `TXN-${inscriptionToEdit.id.slice(-8).toUpperCase()}`,
+							}),
+						});
+						console.log("✉️ Comprobante enviado por correo a:", emailDestino);
+					} catch (emailError) {
+						console.error(
+							"❌ Error enviando el comprobante por mail:",
+							emailError,
+						);
+					}
 				}
 			}
 

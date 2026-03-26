@@ -15,6 +15,8 @@ import {
 	serverTimestamp,
 } from "firebase/firestore";
 
+import { enviarCorreoInscripcion } from "@/lib/services/emailServices";
+
 const client = new MercadoPagoConfig({
 	accessToken: process.env.MP_ACCESS_TOKEN || "",
 });
@@ -29,9 +31,6 @@ function calcularMontoPrimerMes(
 	return dia >= 15 ? cuota1a10 * 0.5 : cuota1a10;
 }
 
-// Detecta si el grupo familiar del alumno tiene 2 o más miembros con cursos activos.
-// Se llama DESPUÉS de haber actualizado el array cursos del alumno nuevo,
-// así el propio alumno ya cuenta en el total.
 async function detectarDescuentoGrupoFamiliar(
 	alumnoId: string,
 	tipoAlumno: "adulto" | "menor",
@@ -41,13 +40,11 @@ async function detectarDescuentoGrupoFamiliar(
 		let miembrosConCurso = 0;
 
 		if (tipoAlumno === "adulto") {
-			// El titular es su propio tutor
 			const userSnap = await getDoc(doc(db, "Users", alumnoId));
 			if (userSnap.exists() && (userSnap.data().cursos ?? []).length > 0) {
-				miembrosConCurso++; // el titular mismo
+				miembrosConCurso++;
 			}
 
-			// Hijos con cursos activos
 			const hijosSnap = await getDocs(
 				query(collection(db, "Hijos"), where("tutorId", "==", alumnoId)),
 			);
@@ -55,17 +52,14 @@ async function detectarDescuentoGrupoFamiliar(
 				if ((h.data().cursos ?? []).length > 0) miembrosConCurso++;
 			}
 		} else {
-			// Menor: resolver tutorId
 			const hijoSnap = await getDoc(doc(db, "Hijos", alumnoId));
 			if (hijoSnap.exists()) tutorId = hijoSnap.data().tutorId ?? alumnoId;
 
-			// Titular con cursos activos
 			const tutorSnap = await getDoc(doc(db, "Users", tutorId));
 			if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
 				miembrosConCurso++;
 			}
 
-			// Todos los hijos del mismo tutor con cursos activos
 			const hijosSnap = await getDocs(
 				query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
 			);
@@ -85,11 +79,6 @@ async function detectarDescuentoGrupoFamiliar(
 	}
 }
 
-// Aplica el descuento de Grupo Familiar a las cuotas existentes del resto del grupo.
-// Regla:
-//   - Cuota del mes actual con esPrimerMes: true  → aplica (el miembro también se inscribió este mes)
-//   - Cuota del mes actual con esPrimerMes: false → NO aplica (ya venía cursando, no retroactivo)
-//   - Cuotas de meses futuros Pendientes           → siempre aplica si existen
 async function aplicarDescuentoAlRestoDeLaFamilia(
 	alumnoId: string,
 	tipoAlumno: "adulto" | "menor",
@@ -99,11 +88,9 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 	const mesActual = hoy.getMonth() + 1;
 	const anioActual = hoy.getFullYear();
 
-	// Recolectar los alumnoIds del grupo familiar EXCEPTO el recién inscripto
 	const alumnoIdsGrupo: string[] = [];
 
 	if (tipoAlumno === "adulto") {
-		// El titular se inscribió: buscar hijos con cursos activos
 		const hijosSnap = await getDocs(
 			query(collection(db, "Hijos"), where("tutorId", "==", alumnoId)),
 		);
@@ -111,7 +98,6 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 			if ((h.data().cursos ?? []).length > 0) alumnoIdsGrupo.push(h.id);
 		}
 	} else {
-		// Un hijo se inscribió: buscar al titular + hermanos con cursos activos
 		const tutorSnap = await getDoc(doc(db, "Users", tutorId));
 		if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
 			alumnoIdsGrupo.push(tutorId);
@@ -131,8 +117,6 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 	const DESCUENTO_GF = [{ porcentaje: 10, detalle: "Grupo Familiar" }];
 
 	for (const miembroId of alumnoIdsGrupo) {
-		// ── Cuota del mes actual ──────────────────────────────────────────────
-		// Solo aplicar si esPrimerMes: true (se inscribió este mes → mismo contexto)
 		const cuotaMesActualSnap = await getDocs(
 			query(
 				collection(db, "Cuotas"),
@@ -145,8 +129,6 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 
 		for (const cuotaDoc of cuotaMesActualSnap.docs) {
 			const data = cuotaDoc.data();
-
-			// Solo tocar si es primer mes (se inscribió este mismo mes)
 			if (!data.esPrimerMes) continue;
 
 			const descActuales = data.descuentos ?? [];
@@ -166,8 +148,6 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 			);
 		}
 
-		// ── Cuotas de meses futuros ───────────────────────────────────────────
-		// Se aplica siempre que existan y estén Pendientes, sin importar esPrimerMes
 		const cuotasFuturasSnap = await getDocs(
 			query(
 				collection(db, "Cuotas"),
@@ -179,10 +159,8 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 		for (const cuotaDoc of cuotasFuturasSnap.docs) {
 			const data = cuotaDoc.data();
 
-			// Saltear el mes actual (ya lo procesamos arriba con la regla esPrimerMes)
 			if (data.mes === mesActual && data.anio === anioActual) continue;
 
-			// Solo meses futuros
 			const esFuturo =
 				data.anio > anioActual ||
 				(data.anio === anioActual && data.mes > mesActual);
@@ -282,8 +260,6 @@ export async function POST(request: Request) {
 						}
 
 						// ── 3. Detectar descuento por Grupo Familiar ──────────────────
-						// Se consulta DESPUÉS de actualizar cursos para que el alumno
-						// recién inscripto ya cuente en el total del grupo.
 						const alumnoIdParaGrupo =
 							alumnoTipo === "adulto" ? metadata.user_id : metadata.alumno_id;
 
@@ -301,7 +277,6 @@ export async function POST(request: Request) {
 							console.log(
 								`🎉 Descuento Grupo Familiar aplicado — tutor: ${tutorId}`,
 							);
-							// Aplicar el descuento a cuotas existentes del resto del grupo
 							try {
 								await aplicarDescuentoAlRestoDeLaFamilia(
 									alumnoIdParaGrupo,
@@ -351,10 +326,10 @@ export async function POST(request: Request) {
 									fechaPago: null,
 									montoPagado: null,
 									metodoPago: null,
-									descuentos, // ← array vacío o con Grupo Familiar
+									descuentos,
 								};
 
-								// ── 4a. Cuota del mes actual ──────────────────────────────
+								// ── 4a. Cuota del mes actual
 								await addDoc(collection(db, "Cuotas"), {
 									...datosComunesAlumno,
 									mes: hoy.getMonth() + 1,
@@ -368,7 +343,7 @@ export async function POST(request: Request) {
 									`✅ PRIMERA CUOTA CREADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Monto: $${montoPrimerMes}${grupoFamiliarAplica ? " (con 10% Grupo Familiar)" : ""}`,
 								);
 
-								// ── 4b. Si día >= 20, la CF ya corrió → crear mes siguiente
+								// ── 4b. Mes siguiente si dia >= 20
 								if (dia >= 20) {
 									const fechaSiguiente = new Date(
 										hoy.getFullYear(),
@@ -396,6 +371,35 @@ export async function POST(request: Request) {
 							}
 						} catch (cuotaError) {
 							console.error("❌ Error al crear las cuotas:", cuotaError);
+						}
+
+						// ── 5. ENVIAR CORREO DE CONFIRMACIÓN ────────────────────
+						try {
+							let emailDestino = "";
+							const userSnap = await getDoc(doc(db, "Users", metadata.user_id));
+
+							if (userSnap.exists() && userSnap.data().email) {
+								emailDestino = userSnap.data().email;
+							}
+
+							if (emailDestino) {
+								await enviarCorreoInscripcion({
+									emailDestino,
+									nombreAlumno: metadata.alumno_nombre,
+									cursoNombre: metadata.curso_nombre,
+									montoAbonado: paymentInfo.transaction_amount || 0,
+									metodoPago: "Mercado Pago",
+									nroComprobante: `TXN-${paymentId.toString().slice(-8).toUpperCase()}`,
+								});
+								console.log(
+									`✉️ Correo de inscripción enviado a ${emailDestino}`,
+								);
+							}
+						} catch (emailError) {
+							console.error(
+								"❌ Error al enviar correo de confirmación:",
+								emailError,
+							);
 						}
 					}
 				}

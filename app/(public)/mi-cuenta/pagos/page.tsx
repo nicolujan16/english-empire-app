@@ -129,8 +129,9 @@ function CuotaCard({
 	const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
 	const montoMostrar = isPagada ? cuota.montoPagado : montoFinal;
 
+	const precioPrimerMes = cuota.montoPrimerMes ?? cuota.cuota1a10;
+
 	return (
-		// 🚀 AGREGADO: h-full flex flex-col justify-between para igualar alturas
 		<div
 			className={`h-full flex flex-col justify-between bg-white rounded-xl border p-5 transition-all hover:shadow-md ${isAtrasada ? "border-red-200 bg-red-50/30" : isPagada ? "border-gray-100" : "border-yellow-200 bg-yellow-50/20"}`}
 		>
@@ -215,39 +216,55 @@ function CuotaCard({
 						<p className="font-bold">
 							Precios con {mejorDescuento!.porcentaje}% de descuento
 						</p>
-						<div className="flex justify-between">
-							<span className="text-emerald-600">Hasta el día 10</span>
-							<span className="font-bold">
-								$
-								{aplicarDescuentos(
-									cuota.cuota1a10,
-									descuentosAAplicar,
-								).toLocaleString("es-AR")}
-								<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
-									${cuota.cuota1a10.toLocaleString("es-AR")}
-								</span>
-							</span>
-						</div>
-						{!cuota.esPrimerMes && (
+
+						{cuota.esPrimerMes ? (
 							<div className="flex justify-between">
-								<span className="text-emerald-600">Desde el día 11</span>
+								<span className="text-emerald-600">Monto primer mes</span>
 								<span className="font-bold">
 									$
 									{aplicarDescuentos(
-										cuota.cuota11enAdelante,
+										precioPrimerMes,
 										descuentosAAplicar,
 									).toLocaleString("es-AR")}
 									<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
-										${cuota.cuota11enAdelante.toLocaleString("es-AR")}
+										${precioPrimerMes.toLocaleString("es-AR")}
 									</span>
 								</span>
 							</div>
+						) : (
+							<>
+								<div className="flex justify-between">
+									<span className="text-emerald-600">Hasta el día 10</span>
+									<span className="font-bold">
+										$
+										{aplicarDescuentos(
+											cuota.cuota1a10,
+											descuentosAAplicar,
+										).toLocaleString("es-AR")}
+										<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
+											${cuota.cuota1a10.toLocaleString("es-AR")}
+										</span>
+									</span>
+								</div>
+								<div className="flex justify-between">
+									<span className="text-emerald-600">Desde el día 11</span>
+									<span className="font-bold">
+										$
+										{aplicarDescuentos(
+											cuota.cuota11enAdelante,
+											descuentosAAplicar,
+										).toLocaleString("es-AR")}
+										<span className="font-normal text-emerald-400 ml-1 line-through text-[10px]">
+											${cuota.cuota11enAdelante.toLocaleString("es-AR")}
+										</span>
+									</span>
+								</div>
+							</>
 						)}
 					</div>
 				)}
 			</div>
 
-			{/* Acción anclada abajo */}
 			<div className="mt-auto pt-3 border-t border-gray-100">
 				{isPagada ? (
 					<Button

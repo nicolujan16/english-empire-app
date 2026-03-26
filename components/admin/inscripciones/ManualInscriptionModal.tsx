@@ -53,6 +53,7 @@ export interface StudentData {
 	edad: number;
 	tutorId?: string;
 	etiquetas?: any[];
+	email?: string;
 }
 
 export interface CourseData {
@@ -365,6 +366,7 @@ export default function ManualInscriptionModal({
 					tipo: "Titular",
 					edad: calcularEdad(data.fechaNacimiento),
 					etiquetas: tagsGuardadas,
+					email: data.email || "",
 				};
 				setFoundStudent(student);
 				setIsSearching(false);
@@ -398,6 +400,7 @@ export default function ManualInscriptionModal({
 					edad: calcularEdad(data.fechaNacimiento),
 					tutorId: data.tutorId,
 					etiquetas: tagsGuardadas,
+					email: data.datosTutor?.email || "",
 				};
 				setFoundStudent(student);
 				setIsSearching(false);
@@ -506,6 +509,33 @@ export default function ManualInscriptionModal({
 						grupoFamiliar.tutorId,
 						aplicarDescuentoMesActual,
 					);
+				}
+
+				// 3. Enviamos corre de confirmación de inscripción.
+				if (foundStudent!.email !== "") {
+					try {
+						await fetch("/api/correos/inscripcion", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								emailDestino: foundStudent!.email,
+								nombreAlumno: `${foundStudent!.nombre} ${foundStudent!.apellido}`,
+								cursoNombre: cursoSeleccionado.nombre,
+								montoAbonado: montoInscripcionFinal,
+								metodoPago: metodoPago,
+								nroComprobante: `TXN-${inscripcionRef.id.slice(-8).toUpperCase()}`,
+							}),
+						});
+						console.log(
+							"✉️ Comprobante enviado por correo a:",
+							foundStudent!.email,
+						);
+					} catch (emailError) {
+						console.error(
+							"❌ Error enviando el comprobante por mail:",
+							emailError,
+						);
+					}
 				}
 			}
 
