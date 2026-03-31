@@ -431,7 +431,8 @@ export default function AdminDashboardPage() {
 									border: "1px solid #e5e7eb",
 									borderRadius: "8px",
 								}}
-								formatter={(value: number | string) => [
+								// eslint-disable-next-line @typescript-eslint/no-explicit-any
+								formatter={(value: any) => [
 									`$${Number(value).toLocaleString("es-AR")}`,
 								]}
 							/>
