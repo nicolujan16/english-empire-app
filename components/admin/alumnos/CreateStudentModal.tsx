@@ -47,6 +47,10 @@ import {
 import { initializeApp } from "firebase/app";
 import { app, db } from "@/lib/firebaseConfig";
 
+// 🚀 IMPORTAMOS LA LIBRERÍA DE TELÉFONOS
+import PhoneInput from "react-phone-number-input";
+import "react-phone-number-input/style.css";
+
 // 🚀 ACTUALIZADO: Permitimos que onSuccess reciba el objeto del nuevo estudiante (opcional)
 interface CreateStudentModalProps {
 	isOpen: boolean;
@@ -551,21 +555,26 @@ export default function CreateStudentModal({
 														className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none"
 													/>
 												</div>
+
+												{/* 🚀 ACÁ IMPLEMENTAMOS EL PHONE INPUT */}
 												<div>
 													<label className="block text-xs font-bold text-gray-700 mb-1">
 														Teléfono
 													</label>
-													<input
-														type="tel"
-														value={formData.telefono}
-														onChange={(e) =>
-															setFormData({
-																...formData,
-																telefono: e.target.value,
-															})
-														}
-														className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none"
-													/>
+													<div className="w-full">
+														<PhoneInput
+															international
+															defaultCountry="AR"
+															value={formData.telefono}
+															onChange={(value) =>
+																setFormData({
+																	...formData,
+																	telefono: value ? String(value) : "",
+																})
+															}
+															className="flex w-full px-3 py-2 border rounded-lg text-sm focus-within:ring-2 focus-within:ring-[#252d62]/20 focus-within:border-[#252d62] outline-none bg-white transition-all"
+														/>
+													</div>
 												</div>
 
 												<div>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -16,13 +17,18 @@ import {
 	ChevronUp,
 	AlertCircle,
 	PlusCircle,
-	AlertTriangle,
-	Check,
 	XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import {
+	collection,
+	getDocs,
+	doc,
+	updateDoc,
+	arrayUnion,
+	arrayRemove,
+} from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -42,14 +48,6 @@ interface Teacher {
 interface Curso {
 	id: string;
 	nombre: string;
-	profesorId?: string;
-	profesorNombre?: string;
-}
-
-interface PendingConfirm {
-	cursoId: string;
-	cursoNombre: string;
-	profesorActualNombre: string;
 }
 
 interface Props {
@@ -74,11 +72,8 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 		null,
 	);
 	const [selectedCursoId, setSelectedCursoId] = useState<string>("");
-	const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(
-		null,
-	);
 	const [isAssigning, setIsAssigning] = useState(false);
-	const [isRemoving, setIsRemoving] = useState<string | null>(null); // NUEVO ESTADO PARA ELIMINAR
+	const [isRemoving, setIsRemoving] = useState<string | null>(null);
 
 	// ── Fetch ────────────────────────────────────────────────────────────────
 
@@ -91,30 +86,29 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 				getDocs(collection(db, "Cursos")),
 			]);
 
-			// Mapa teacherId → nombre completo para el aviso de reemplazo
-			const teacherNameMap: Record<string, string> = {};
-			teachersSnap.docs.forEach((d) => {
-				const data = d.data();
-				teacherNameMap[d.id] = `${data.nombre} ${data.apellido}`;
+			// 1. Armamos un diccionario/mapa de cursos para buscar rápido el nombre
+			const cursosMap: Record<string, string> = {};
+			const cursosList: Curso[] = cursosSnap.docs.map((d) => {
+				cursosMap[d.id] = d.data().nombre;
+				return {
+					id: d.id,
+					nombre: d.data().nombre,
+				};
 			});
-
-			// Cursos enriquecidos
-			const cursosList: Curso[] = cursosSnap.docs.map((d) => ({
-				id: d.id,
-				nombre: d.data().nombre,
-				profesorId: d.data().profesorId || undefined,
-				profesorNombre: d.data().profesorId
-					? teacherNameMap[d.data().profesorId] || "Otro profesor"
-					: undefined,
-			}));
 			setAllCursos(cursosList);
 
-			// Teachers con sus cursos asignados
+			// 2. Mapeamos a los profesores y leemos su array "cursosAsignados"
 			const list: Teacher[] = teachersSnap.docs.map((d) => {
 				const data = d.data();
-				const cursosAsignados = cursosSnap.docs
-					.filter((c) => c.data().profesorId === d.id)
-					.map((c) => ({ id: c.id, nombre: c.data().nombre }));
+
+				// Asumimos que guardamos un array de strings (IDs) en Firebase
+				const asignadosDB: string[] = data.cursosAsignados || [];
+
+				const cursosAsignados = asignadosDB.map((cursoId) => ({
+					id: cursoId,
+					nombre: cursosMap[cursoId] || "Curso Desconocido",
+				}));
+
 				return {
 					id: d.id,
 					nombre: data.nombre,
@@ -174,40 +168,20 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 	const handleSelectCurso = (teacherId: string, cursoId: string) => {
 		setSelectedCursoId(cursoId);
 		if (!cursoId) return;
-
-		const curso = allCursos.find((c) => c.id === cursoId);
-		if (!curso) return;
-
-		if (curso.profesorId && curso.profesorId !== teacherId) {
-			setPendingConfirm({
-				cursoId: curso.id,
-				cursoNombre: curso.nombre,
-				profesorActualNombre: curso.profesorNombre || "otro profesor",
-			});
-		} else {
-			doAsignarCurso(teacherId, cursoId);
-		}
+		// 🚀 Ya no hay conflictos, asignamos directo
+		doAsignarCurso(teacherId, cursoId);
 	};
 
 	const doAsignarCurso = async (teacherId: string, cursoId: string) => {
 		setIsAssigning(true);
 		try {
-			await updateDoc(doc(db, "Cursos", cursoId), { profesorId: teacherId });
+			// 🚀 NUEVA LÓGICA: Guardamos en el array del Profesor usando arrayUnion
+			await updateDoc(doc(db, "Teachers", teacherId), {
+				cursosAsignados: arrayUnion(cursoId),
+			});
 
 			const cursoNombre =
 				allCursos.find((c) => c.id === cursoId)?.nombre || cursoId;
-			const teacherObj = teachers.find((t) => t.id === teacherId);
-			const teacherNombre = teacherObj
-				? `${teacherObj.nombre} ${teacherObj.apellido}`
-				: "";
-
-			setAllCursos((prev) =>
-				prev.map((c) =>
-					c.id === cursoId
-						? { ...c, profesorId: teacherId, profesorNombre: teacherNombre }
-						: c,
-				),
-			);
 
 			setTeachers((prev) =>
 				prev.map((t) => {
@@ -222,14 +196,10 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 							],
 						};
 					}
-					return {
-						...t,
-						cursosAsignados: t.cursosAsignados.filter((c) => c.id !== cursoId),
-					};
+					return t;
 				}),
 			);
 
-			setPendingConfirm(null);
 			setSelectedCursoId("");
 			setAssigningTeacherId(null);
 		} catch (err) {
@@ -240,23 +210,15 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 		}
 	};
 
-	// 🚀 NUEVO: DESASIGNAR CURSO
+	// 🚀 DESASIGNAR CURSO
 	const doQuitarCurso = async (teacherId: string, cursoId: string) => {
 		setIsRemoving(cursoId);
 		try {
-			// 1. Borrar profesorId en Firebase (poniéndolo en string vacío para que la UI lo entienda)
-			await updateDoc(doc(db, "Cursos", cursoId), { profesorId: "" });
+			// 🚀 NUEVA LÓGICA: Quitamos del array del Profesor usando arrayRemove
+			await updateDoc(doc(db, "Teachers", teacherId), {
+				cursosAsignados: arrayRemove(cursoId),
+			});
 
-			// 2. Liberar el curso en la lista general de cursos
-			setAllCursos((prev) =>
-				prev.map((c) =>
-					c.id === cursoId
-						? { ...c, profesorId: undefined, profesorNombre: undefined }
-						: c,
-				),
-			);
-
-			// 3. Quitar el curso del array del profesor
 			setTeachers((prev) =>
 				prev.map((t) => {
 					if (t.id === teacherId) {
@@ -278,15 +240,9 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 		}
 	};
 
-	const handleCancelAssign = () => {
-		setPendingConfirm(null);
-		setSelectedCursoId("");
-	};
-
 	const closeAssignMode = () => {
 		setAssigningTeacherId(null);
 		setSelectedCursoId("");
-		setPendingConfirm(null);
 	};
 
 	// ── Filtro ───────────────────────────────────────────────────────────────
@@ -434,7 +390,7 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 																{teacher.titulo}
 															</p>
 														)}
-														{/* Mostrar badges chiquitos solo si NO está expandido para no redundar */}
+														{/* Mostrar badges chiquitos solo si NO está expandido */}
 														{!isExpanded &&
 															teacher.cursosAsignados.length > 0 && (
 																<div className="flex flex-wrap gap-1 mt-1.5">
@@ -543,7 +499,6 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 																				onClick={() => {
 																					setAssigningTeacherId(teacher.id);
 																					setSelectedCursoId("");
-																					setPendingConfirm(null);
 																				}}
 																				className="text-[10px] font-bold text-[#4338ca] hover:text-[#3730a3] flex items-center gap-1 transition-colors"
 																			>
@@ -584,7 +539,7 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 																			</div>
 																		)}
 
-																	{/* Selector inline */}
+																	{/* Selector inline para agregar curso */}
 																	<AnimatePresence>
 																		{isAssigningThis && (
 																			<motion.div
@@ -593,121 +548,47 @@ export default function TeacherListModal({ isOpen, onClose }: Props) {
 																				exit={{ opacity: 0, y: -4 }}
 																				className="space-y-2 mt-2"
 																			>
-																				{/* Advertencia de reemplazo */}
-																				<AnimatePresence>
-																					{pendingConfirm && (
-																						<motion.div
-																							initial={{
-																								opacity: 0,
-																								height: 0,
-																							}}
-																							animate={{
-																								opacity: 1,
-																								height: "auto",
-																							}}
-																							exit={{ opacity: 0, height: 0 }}
-																							className="overflow-hidden"
-																						>
-																							<div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-																								<div className="flex items-start gap-2 mb-3">
-																									<AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-																									<div>
-																										<p className="text-xs font-bold text-amber-800">
-																											Este curso ya tiene un
-																											profesor asignado
-																										</p>
-																										<p className="text-xs text-amber-700 mt-0.5">
-																											<span className="font-semibold">
-																												{
-																													pendingConfirm.cursoNombre
-																												}
-																											</span>{" "}
-																											está asignado actualmente
-																											a{" "}
-																											<span className="font-semibold">
-																												{
-																													pendingConfirm.profesorActualNombre
-																												}
-																											</span>
-																											. ¿Deseas reemplazarlo?
-																										</p>
-																									</div>
-																								</div>
-																								<div className="flex gap-2 justify-end">
-																									<button
-																										onClick={handleCancelAssign}
-																										disabled={isAssigning}
-																										className="text-xs font-bold text-gray-600 hover:text-gray-800 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors"
-																									>
-																										<XCircle className="w-3.5 h-3.5" />
-																										Cancelar
-																									</button>
-																									<button
-																										onClick={() =>
-																											doAsignarCurso(
-																												teacher.id,
-																												pendingConfirm.cursoId,
-																											)
-																										}
-																										disabled={isAssigning}
-																										className="text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
-																									>
-																										{isAssigning ? (
-																											<Loader2 className="w-3.5 h-3.5 animate-spin" />
-																										) : (
-																											<>
-																												<Check className="w-3.5 h-3.5" />
-																												Sí, reemplazar
-																											</>
-																										)}
-																									</button>
-																								</div>
-																							</div>
-																						</motion.div>
-																					)}
-																				</AnimatePresence>
-
-																				{/* Select — visible solo sin confirmación pendiente */}
-																				{!pendingConfirm && (
-																					<div className="flex gap-2">
-																						<select
-																							value={selectedCursoId}
-																							onChange={(e) =>
-																								handleSelectCurso(
-																									teacher.id,
-																									e.target.value,
-																								)
-																							}
-																							className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-700 focus:ring-2 focus:ring-[#4338ca]/20 focus:border-[#4338ca] outline-none transition-all"
-																						>
-																							<option value="">
-																								— Elegir un curso —
-																							</option>
-																							{allCursos.map((c) => (
+																				<div className="flex gap-2">
+																					<select
+																						value={selectedCursoId}
+																						onChange={(e) =>
+																							handleSelectCurso(
+																								teacher.id,
+																								e.target.value,
+																							)
+																						}
+																						className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-700 focus:ring-2 focus:ring-[#4338ca]/20 focus:border-[#4338ca] outline-none transition-all"
+																					>
+																						<option value="">
+																							— Elegir un curso —
+																						</option>
+																						{allCursos.map((c) => {
+																							// Deshabilitamos el curso si el profesor YA LO TIENE asignado
+																							const yaTieneElCurso =
+																								teacher.cursosAsignados.some(
+																									(asig) => asig.id === c.id,
+																								);
+																							return (
 																								<option
 																									key={c.id}
 																									value={c.id}
-																									disabled={
-																										c.profesorId === teacher.id
-																									}
+																									disabled={yaTieneElCurso}
 																								>
 																									{c.nombre}
-																									{c.profesorId === teacher.id
+																									{yaTieneElCurso
 																										? " ✓ ya lo tiene"
-																										: c.profesorId
-																											? ` (${c.profesorNombre})`
-																											: ""}
+																										: ""}
 																								</option>
-																							))}
-																						</select>
-																						<button
-																							onClick={closeAssignMode}
-																							className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-400 transition-colors shrink-0"
-																						>
-																							<X className="w-3.5 h-3.5" />
-																						</button>
-																					</div>
-																				)}
+																							);
+																						})}
+																					</select>
+																					<button
+																						onClick={closeAssignMode}
+																						className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-400 transition-colors shrink-0"
+																					>
+																						<XCircle className="w-3.5 h-3.5" />
+																					</button>
+																				</div>
 																			</motion.div>
 																		)}
 																	</AnimatePresence>

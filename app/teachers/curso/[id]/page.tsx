@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -15,6 +15,8 @@ import {
 	History,
 	X,
 	CalendarPlus,
+	Clock,
+	FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -35,7 +37,10 @@ import {
 interface ClaseData {
 	id: string;
 	fecha: string;
+	fechaIso: string;
+	horaFormateada: string;
 	asistentesCount: number;
+	descripcion?: string;
 }
 
 export default function CursoDetallePage() {
@@ -50,108 +55,38 @@ export default function CursoDetallePage() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [isCreating, setIsCreating] = useState(false);
 
-	// ─── Estado para el modal de fecha pasada ────────────────────────────────
 	const [showDatePicker, setShowDatePicker] = useState(false);
 	const [fechaPasadaSeleccionada, setFechaPasadaSeleccionada] = useState("");
+	const [horaPasadaSeleccionada, setHoraPasadaSeleccionada] = useState("12:00");
 
-	// ─── Helpers ──────────────────────────────────────────────────────────────
-
-	/** Devuelve "YYYY-MM-DD" para una fecha dada */
-	const toFechaCorta = (date: Date): string => {
-		const yyyy = date.getFullYear();
-		const mm = String(date.getMonth() + 1).padStart(2, "0");
-		const dd = String(date.getDate()).padStart(2, "0");
-		return `${yyyy}-${mm}-${dd}`;
-	};
-
-	/**
-	 * Genera el próximo ID disponible para una fecha dada.
-	 *
-	 * Lógica de IDs (backward-compatible con clases ya creadas sin sufijo):
-	 *   1ª clase del día  →  cursoId_YYYY-MM-DD          (sin sufijo)
-	 *   2ª clase del día  →  cursoId_YYYY-MM-DD_2
-	 *   3ª clase del día  →  cursoId_YYYY-MM-DD_3
-	 *   …y así sucesivamente
-	 */
-	const getNextClaseId = async (fechaCorta: string): Promise<string> => {
-		const baseId = `${cursoId}_${fechaCorta}`;
-
-		// Primero intentamos el ID base (sin sufijo)
-		const baseSnap = await getDoc(doc(db, "Clases", baseId));
-		if (!baseSnap.exists()) return baseId;
-
-		// Ya existe una clase ese día → buscamos sufijo libre desde _2
-		let suffix = 2;
-		while (true) {
-			const candidateId = `${baseId}_${suffix}`;
-			const snap = await getDoc(doc(db, "Clases", candidateId));
-			if (!snap.exists()) return candidateId;
-			suffix++;
-		}
-	};
-
-	/** Crea el documento de la clase y redirige */
-	const crearClase = async (date: Date) => {
-		if (!currentUser) return;
-		setIsCreating(true);
-
-		try {
-			const fechaCorta = toFechaCorta(date);
-			const claseId = await getNextClaseId(fechaCorta);
-
-			const fechaFormateada = date.toLocaleDateString("es-AR", {
-				weekday: "long",
-				year: "numeric",
-				month: "long",
-				day: "numeric",
-			});
-
-			await setDoc(doc(db, "Clases", claseId), {
-				cursoId,
-				profesorId: currentUser.uid,
-				fechaIso: date.toISOString(),
-				fechaCorta,
-				fechaFormateada:
-					fechaFormateada.charAt(0).toUpperCase() + fechaFormateada.slice(1),
-				asistencia: [],
-				creadoEn: serverTimestamp(),
-			});
-
-			router.push(`/teachers/clase/${claseId}`);
-		} catch (error) {
-			console.error("Error creando clase:", error);
-			alert("Hubo un error al iniciar la clase.");
-			setIsCreating(false);
-		}
-	};
-
-	// ─── Handlers públicos ────────────────────────────────────────────────────
-
-	/** Botón "Iniciar Clase Hoy" */
-	const handleCrearClaseHoy = async () => {
-		await crearClase(new Date());
-	};
-
-	/** Botón "Confirmar" en el modal de fecha pasada */
-	const handleCrearClasePasada = async () => {
-		if (!fechaPasadaSeleccionada) return;
-		// Parseamos la fecha sin problema de timezone: YYYY-MM-DD → new Date(year, month-1, day)
-		const [yyyy, mm, dd] = fechaPasadaSeleccionada.split("-").map(Number);
-		const date = new Date(yyyy, mm - 1, dd);
-		setShowDatePicker(false);
-		await crearClase(date);
-	};
-
-	// ─── Carga de datos ───────────────────────────────────────────────────────
+	// ─── LÓGICA DE CARGA Y AUTORIZACIÓN (ACTUALIZADA) ──────────────────────────
 
 	const fetchCursoData = async (profesorId: string) => {
 		setIsLoading(true);
 		try {
+			const teacherRef = doc(db, "Teachers", profesorId);
+			const teacherSnap = await getDoc(teacherRef);
+
+			if (!teacherSnap.exists()) {
+				alert("Perfil de profesor no encontrado.");
+				router.push("/teachers");
+				return;
+			}
+
+			const teacherData = teacherSnap.data();
+			const tieneAcceso = (teacherData.cursosAsignados || []).includes(cursoId);
+
+			if (!tieneAcceso || teacherData.activo === false) {
+				alert("No tienes autorización para acceder a este curso.");
+				router.push("/teachers");
+				return;
+			}
+
 			const cursoRef = doc(db, "Cursos", cursoId);
 			const cursoSnap = await getDoc(cursoRef);
 
-			if (!cursoSnap.exists() || cursoSnap.data().profesorId !== profesorId) {
-				alert("Acceso denegado o curso no encontrado.");
+			if (!cursoSnap.exists()) {
+				alert("El curso no existe.");
 				router.push("/teachers");
 				return;
 			}
@@ -166,17 +101,28 @@ export default function CursoDetallePage() {
 			const clasesSnap = await getDocs(clasesQuery);
 			const clasesHistorial: ClaseData[] = clasesSnap.docs.map((d) => {
 				const data = d.data();
+				const fallbackHora = new Date(
+					data.fechaIso || new Date(),
+				).toLocaleTimeString("es-AR", {
+					hour: "2-digit",
+					minute: "2-digit",
+					hour12: false,
+				});
+
 				return {
 					id: d.id,
 					fecha: data.fechaFormateada || "Fecha desconocida",
-					// > 0 significa que la lista fue tomada al menos parcialmente
+					fechaIso: data.fechaIso || new Date().toISOString(),
+					horaFormateada: data.horaFormateada || fallbackHora,
 					asistentesCount: data.asistencia ? data.asistencia.length : 0,
+					descripcion: data.descripcion || "",
 				};
 			});
 
 			setClases(clasesHistorial);
 		} catch (error) {
 			console.error("Error cargando el curso:", error);
+			alert("Error al cargar los datos.");
 		} finally {
 			setIsLoading(false);
 		}
@@ -194,7 +140,110 @@ export default function CursoDetallePage() {
 		return () => unsubscribe();
 	}, [cursoId]);
 
-	// ─── RENDER ───────────────────────────────────────────────────────────────
+	// ─── EL RESTO DE TUS HELPERS Y LOGICA (INALTERADOS) ────────────────────────
+
+	const toFechaCorta = (date: Date): string => {
+		const yyyy = date.getFullYear();
+		const mm = String(date.getMonth() + 1).padStart(2, "0");
+		const dd = String(date.getDate()).padStart(2, "0");
+		return `${yyyy}-${mm}-${dd}`;
+	};
+
+	const getNextClaseId = async (fechaCorta: string): Promise<string> => {
+		const baseId = `${cursoId}_${fechaCorta}`;
+		const baseSnap = await getDoc(doc(db, "Clases", baseId));
+		if (!baseSnap.exists()) return baseId;
+		let suffix = 2;
+		while (true) {
+			const candidateId = `${baseId}_${suffix}`;
+			const snap = await getDoc(doc(db, "Clases", candidateId));
+			if (!snap.exists()) return candidateId;
+			suffix++;
+		}
+	};
+
+	const crearClase = async (date: Date) => {
+		if (!currentUser) return;
+		setIsCreating(true);
+		try {
+			const fechaCorta = toFechaCorta(date);
+			const claseId = await getNextClaseId(fechaCorta);
+			const fechaFormateada = date.toLocaleDateString("es-AR", {
+				weekday: "long",
+				year: "numeric",
+				month: "long",
+				day: "numeric",
+			});
+			const horaFormateada = date.toLocaleTimeString("es-AR", {
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			});
+			await setDoc(doc(db, "Clases", claseId), {
+				cursoId,
+				profesorId: currentUser.uid,
+				fechaIso: date.toISOString(),
+				fechaCorta,
+				fechaFormateada:
+					fechaFormateada.charAt(0).toUpperCase() + fechaFormateada.slice(1),
+				horaFormateada,
+				descripcion: "",
+				asistencia: [],
+				creadoEn: serverTimestamp(),
+			});
+			router.push(`/teachers/clase/${claseId}`);
+		} catch (error) {
+			console.error("Error creando clase:", error);
+			alert("Hubo un error al iniciar la clase.");
+			setIsCreating(false);
+		}
+	};
+
+	const handleCrearClaseHoy = async () => await crearClase(new Date());
+
+	const handleCrearClasePasada = async () => {
+		if (!fechaPasadaSeleccionada || !horaPasadaSeleccionada) return;
+		const [yyyy, mm, dd] = fechaPasadaSeleccionada.split("-").map(Number);
+		const [hh, min] = horaPasadaSeleccionada.split(":").map(Number);
+		const date = new Date(yyyy, mm - 1, dd, hh, min);
+		setShowDatePicker(false);
+		await crearClase(date);
+	};
+
+	const timelineData = useMemo(() => {
+		const mesesMap: Record<
+			string,
+			{ ordenDias: string[]; diasMap: Record<string, ClaseData[]> }
+		> = {};
+		const ordenMeses: string[] = [];
+		clases.forEach((clase) => {
+			const date = new Date(clase.fechaIso);
+			const mesAnio = date.toLocaleDateString("es-AR", {
+				month: "long",
+				year: "numeric",
+			});
+			const mesAnioCapitalized =
+				mesAnio.charAt(0).toUpperCase() + mesAnio.slice(1);
+			const diaExacto = clase.fecha;
+			if (!mesesMap[mesAnioCapitalized]) {
+				mesesMap[mesAnioCapitalized] = { ordenDias: [], diasMap: {} };
+				ordenMeses.push(mesAnioCapitalized);
+			}
+			if (!mesesMap[mesAnioCapitalized].diasMap[diaExacto]) {
+				mesesMap[mesAnioCapitalized].diasMap[diaExacto] = [];
+				mesesMap[mesAnioCapitalized].ordenDias.push(diaExacto);
+			}
+			mesesMap[mesAnioCapitalized].diasMap[diaExacto].push(clase);
+		});
+		return ordenMeses.map((mes) => ({
+			mes,
+			dias: mesesMap[mes].ordenDias.map((dia) => ({
+				fecha: dia,
+				clases: mesesMap[mes].diasMap[dia],
+			})),
+		}));
+	}, [clases]);
+
 	if (isLoading) {
 		return (
 			<div className="flex-1 flex flex-col items-center justify-center min-h-[60vh]">
@@ -206,7 +255,6 @@ export default function CursoDetallePage() {
 		);
 	}
 
-	// Fecha máxima para el date picker = ayer (no queremos que creen una "clase pasada" de hoy)
 	const ayerISO = toFechaCorta(new Date(Date.now() - 86400000));
 
 	return (
@@ -215,7 +263,6 @@ export default function CursoDetallePage() {
 			animate={{ opacity: 1 }}
 			className="space-y-6"
 		>
-			{/* Botón Volver */}
 			<button
 				onClick={() => router.push("/teachers")}
 				className="flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#4338ca] transition-colors"
@@ -223,7 +270,6 @@ export default function CursoDetallePage() {
 				<ArrowLeft className="w-4 h-4" /> Volver al Dashboard
 			</button>
 
-			{/* Header del Curso */}
 			<div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
 				<div>
 					<div className="flex items-center gap-3 mb-2">
@@ -237,13 +283,12 @@ export default function CursoDetallePage() {
 					</p>
 				</div>
 
-				{/* Botones de acción */}
 				<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-					{/* Botón fecha pasada */}
 					<Button
 						variant="outline"
 						onClick={() => {
 							setFechaPasadaSeleccionada(ayerISO);
+							setHoraPasadaSeleccionada("12:00");
 							setShowDatePicker(true);
 						}}
 						disabled={isCreating}
@@ -252,7 +297,6 @@ export default function CursoDetallePage() {
 						<History className="w-4 h-4 mr-2" /> Clase de fecha pasada
 					</Button>
 
-					{/* Botón clase de hoy */}
 					<Button
 						onClick={handleCrearClaseHoy}
 						disabled={isCreating}
@@ -269,7 +313,6 @@ export default function CursoDetallePage() {
 				</div>
 			</div>
 
-			{/* ── Modal de fecha pasada ── */}
 			<AnimatePresence>
 				{showDatePicker && (
 					<motion.div
@@ -281,12 +324,11 @@ export default function CursoDetallePage() {
 						<div className="flex items-start justify-between mb-4">
 							<div>
 								<h3 className="font-bold text-gray-900 flex items-center gap-2">
-									<CalendarPlus className="w-5 h-5 text-[#4338ca]" />
-									Registrar clase de fecha pasada
+									<CalendarPlus className="w-5 h-5 text-[#4338ca]" /> Registrar
+									clase pasada
 								</h3>
 								<p className="text-sm text-gray-500 mt-0.5">
-									Si el día ya tiene una clase registrada, se creará una segunda
-									para ese día.
+									Seleccioná el día y la hora aproximada de inicio de la clase.
 								</p>
 							</div>
 							<button
@@ -296,19 +338,30 @@ export default function CursoDetallePage() {
 								<X className="w-5 h-5" />
 							</button>
 						</div>
-
 						<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-							<input
-								type="date"
-								value={fechaPasadaSeleccionada}
-								max={ayerISO} // No permite seleccionar hoy ni el futuro
-								onChange={(e) => setFechaPasadaSeleccionada(e.target.value)}
-								className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#4338ca]/20 focus:border-[#4338ca] outline-none transition-all text-gray-800 font-medium"
-							/>
+							<div className="flex flex-1 gap-2 flex-wrap">
+								<input
+									type="date"
+									value={fechaPasadaSeleccionada}
+									max={ayerISO}
+									onChange={(e) => setFechaPasadaSeleccionada(e.target.value)}
+									className="w-2/3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none transition-all text-gray-800 font-medium"
+								/>
+								<input
+									type="time"
+									value={horaPasadaSeleccionada}
+									onChange={(e) => setHoraPasadaSeleccionada(e.target.value)}
+									className="w-1/3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none transition-all text-gray-800 font-medium"
+								/>
+							</div>
 							<Button
 								onClick={handleCrearClasePasada}
-								disabled={!fechaPasadaSeleccionada || isCreating}
-								className="bg-[#4338ca] hover:bg-[#3730a3] text-white py-3 px-6 rounded-xl font-bold shadow-md transition-all"
+								disabled={
+									!fechaPasadaSeleccionada ||
+									!horaPasadaSeleccionada ||
+									isCreating
+								}
+								className="bg-[#4338ca] hover:bg-[#3730a3] text-white py-3 px-6 rounded-xl font-bold shadow-md transition-all h-auto"
 							>
 								{isCreating ? (
 									<Loader2 className="w-4 h-4 animate-spin" />
@@ -321,14 +374,12 @@ export default function CursoDetallePage() {
 				)}
 			</AnimatePresence>
 
-			{/* Historial de Clases */}
 			<div>
-				<h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 px-1">
+				<h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2 px-1">
 					<CalendarDays className="w-5 h-5 text-[#4338ca]" /> Historial de
 					Clases
 				</h3>
-
-				{clases.length === 0 ? (
+				{timelineData.length === 0 ? (
 					<div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center">
 						<p className="text-gray-500 font-medium">
 							Aún no has registrado ninguna clase.
@@ -338,31 +389,83 @@ export default function CursoDetallePage() {
 						</p>
 					</div>
 				) : (
-					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{clases.map((clase, idx) => (
-							<motion.div
-								key={clase.id}
-								initial={{ opacity: 0, y: 10 }}
-								animate={{ opacity: 1, y: 0 }}
-								transition={{ delay: idx * 0.05 }}
-								onClick={() => router.push(`/teachers/clase/${clase.id}`)}
-								className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all p-5 flex items-center justify-between cursor-pointer group"
-							>
-								<div>
-									<p className="font-bold text-gray-900 text-md mb-1 group-hover:text-[#4338ca] transition-colors">
-										{clase.fecha}
-									</p>
-									<p className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
-										<Users className="w-3.5 h-3.5" />
-										{clase.asistentesCount === 0
-											? "Lista sin tomar"
-											: `${clase.asistentesCount} alumnos en el registro`}
-									</p>
+					<div className="space-y-10">
+						{timelineData.map((grupoMes, mIdx) => (
+							<div key={grupoMes.mes} className="space-y-6">
+								<div className="flex items-center gap-4">
+									<div className="h-px bg-indigo-200 flex-1"></div>
+									<span className="text-xs font-black text-indigo-800 uppercase tracking-widest bg-indigo-50 px-5 py-2 rounded-full border border-indigo-100 shadow-sm">
+										{grupoMes.mes}
+									</span>
+									<div className="h-px bg-indigo-200 flex-1"></div>
 								</div>
-								<div className="w-8 h-8 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center transition-colors">
-									<ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-[#4338ca]" />
+								<div className="relative border-l-2 border-gray-200 ml-4 sm:ml-8 pl-6 sm:pl-8 space-y-8 pb-4">
+									{grupoMes.dias.map((grupoDia, dIdx) => (
+										<div key={grupoDia.fecha} className="relative">
+											<div className="absolute -left-[31px] sm:-left-[39px] top-1 w-3.5 h-3.5 bg-gray-300 rounded-full border-2 border-white ring-4 ring-gray-50/50"></div>
+											<h4 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-2">
+												{grupoDia.fecha}
+											</h4>
+											<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+												{grupoDia.clases.map((clase, cIdx) => (
+													<motion.div
+														key={clase.id}
+														initial={{ opacity: 0, y: 10 }}
+														animate={{ opacity: 1, y: 0 }}
+														transition={{
+															delay: mIdx * 0.1 + dIdx * 0.05 + cIdx * 0.02,
+														}}
+														onClick={() =>
+															router.push(`/teachers/clase/${clase.id}`)
+														}
+														className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50 transition-all p-4 flex flex-col justify-between cursor-pointer group h-full relative"
+													>
+														<div className="flex justify-between items-start gap-2 mb-2">
+															<div className="flex items-center gap-2">
+																<p className="flex items-center gap-1.5 text-xs text-indigo-700 font-bold bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100">
+																	<Clock className="w-3.5 h-3.5" />
+																	{clase.horaFormateada} hs
+																</p>
+																<p className="flex items-center gap-1.5 text-xs text-gray-500 font-medium bg-gray-50 px-2.5 py-1 rounded-md border border-gray-100">
+																	<Users className="w-3.5 h-3.5 text-gray-400" />
+																	{clase.asistentesCount} pres.
+																</p>
+															</div>
+															<div className="w-6 h-6 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center transition-colors">
+																<ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-[#4338ca]" />
+															</div>
+														</div>
+														<div>
+															<p className="font-bold text-[#252d62] text-sm mt-1">
+																Ver registro de asistencia
+															</p>
+															<div className="flex items-center justify-between mt-1">
+																<p className="text-[10px] text-gray-400 font-mono uppercase">
+																	ID: {clase.id.split("_").pop()}
+																</p>
+																{clase.descripcion && (
+																	<div className="relative group/tooltip flex items-center justify-center cursor-help">
+																		<FileText className="w-4 h-4 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
+																		<div className="absolute bottom-full right-0 md:left-1/2 md:-translate-x-1/2 mb-2 w-48 sm:w-56 p-3 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-20 pointer-events-none shadow-xl">
+																			<p className="font-bold text-indigo-300 mb-1">
+																				Tema de la clase:
+																			</p>
+																			<p className="leading-snug">
+																				{clase.descripcion}
+																			</p>
+																			<div className="absolute top-full right-2 md:left-1/2 md:-translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+																		</div>
+																	</div>
+																)}
+															</div>
+														</div>
+													</motion.div>
+												))}
+											</div>
+										</div>
+									))}
 								</div>
-							</motion.div>
+							</div>
 						))}
 					</div>
 				)}

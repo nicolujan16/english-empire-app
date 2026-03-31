@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// Verificacion de edad:
+		// Verificacion de edad
 		const [birthYear, birthMonth, birthDay] = fechaNacimientoAlumno
 			.split("-")
 			.map(Number);
@@ -156,11 +156,9 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// ====================================================================
-		// ✅ LÓGICA DE ETIQUETAS Y DESCUENTOS (El "Buscador de Máximo Beneficio")
-		// ====================================================================
+		// LÓGICA DE ETIQUETAS Y DESCUENTOS
 		let maxDescuentoPorcentaje = 0;
-		let nombreDescuentoAplicado = "Ninguno";
+		let nombreDescuentoAplicado: string | null = null;
 
 		if (etiquetasAlumno.length > 0) {
 			const promesasEtiquetas = etiquetasAlumno.map((idEtiqueta) =>
@@ -174,29 +172,23 @@ export async function POST(request: Request) {
 					const dataEtiqueta = snap.data();
 					if (dataEtiqueta.descuentoInscripcion > maxDescuentoPorcentaje) {
 						maxDescuentoPorcentaje = dataEtiqueta.descuentoInscripcion;
-						nombreDescuentoAplicado = dataEtiqueta.nombre;
+						nombreDescuentoAplicado = dataEtiqueta.nombre; // Si hay, se pisa con el string real
 					}
 				}
 			});
 		}
 
-		// Calculamos el monto base
 		let montoACobrar =
 			cursoData.inscripcion > 0 ? cursoData.inscripcion : cursoData.cuota;
 
-		// Aplicamos el descuento si encontramos alguno mayor a 0%
 		if (maxDescuentoPorcentaje > 0) {
 			const descuentoEnPesos = montoACobrar * (maxDescuentoPorcentaje / 100);
 			montoACobrar = montoACobrar - descuentoEnPesos;
-			// Redondeamos para evitar problemas de centavos con MercadoPago (ARS no usa centavos en la práctica)
 			montoACobrar = Math.round(montoACobrar);
 		}
 
-		// ====================================================================
-		// ✅ CREACIÓN DE LA PREFERENCIA EN MERCADO PAGO
-		// ====================================================================
+		// CREACIÓN DE LA PREFERENCIA EN MERCADO PAGO
 
-		// Personalizamos el título del ítem para que el alumno vea el descuento aplicado en MP
 		const itemTitle =
 			maxDescuentoPorcentaje > 0
 				? `Inscripción: ${cursoData.nombre} (Desc. ${maxDescuentoPorcentaje}%)`

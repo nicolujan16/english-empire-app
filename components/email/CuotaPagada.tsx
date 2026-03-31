@@ -11,26 +11,47 @@ import {
 	Column,
 	Row,
 	Img,
-	Link,
+	Link, // 🚀 Importamos Link
 } from "@react-email/components";
 
-interface InscripcionProps {
+interface CuotaProps {
 	nombreAlumno: string;
 	cursoNombre: string;
+	mes: number;
+	anio: number;
 	montoAbonado: number;
 	metodoPago: string;
 	fecha: string;
 	nroComprobante: string;
 }
 
-export default function InscripcionConfirmada({
+const MESES = [
+	"Enero",
+	"Febrero",
+	"Marzo",
+	"Abril",
+	"Mayo",
+	"Junio",
+	"Julio",
+	"Agosto",
+	"Septiembre",
+	"Octubre",
+	"Noviembre",
+	"Diciembre",
+];
+
+export default function CuotaPagada({
 	nombreAlumno = "Alumno",
 	cursoNombre = "Curso de Inglés",
+	mes = 1,
+	anio = 2024,
 	montoAbonado = 0,
 	metodoPago = "Transferencia",
 	fecha = new Date().toLocaleDateString("es-AR"),
 	nroComprobante = "TXN-00000000",
-}: InscripcionProps) {
+}: CuotaProps) {
+	const baseUrl = "https://englishempire.com.ar";
+
 	return (
 		<Html>
 			<Body
@@ -48,11 +69,11 @@ export default function InscripcionConfirmada({
 						maxWidth: "600px",
 					}}
 				>
-					{/* SECCIÓN DEL LOGO CLICKEABLE */}
-					<Section style={{ textAlign: "center", marginBottom: "30px" }}>
+					{/* 🚀 SECCIÓN DEL LOGO CLICKEABLE */}
+					<Section style={{ textAlign: "center", marginBottom: "24px" }}>
 						<Link href="https://englishempire.com.ar">
 							<Img
-								src="https://englishempire.com.ar/logo.png"
+								src={`${baseUrl}/logo.png`}
 								width="180"
 								height="auto"
 								alt="English Empire Institute"
@@ -68,7 +89,7 @@ export default function InscripcionConfirmada({
 							margin: "0 0 20px",
 						}}
 					>
-						¡Welcome to English Empire! 🇬🇧
+						¡Pago Recibido! 🎉
 					</Heading>
 
 					<Text style={{ color: "#333", fontSize: "16px", lineHeight: "24px" }}>
@@ -76,13 +97,15 @@ export default function InscripcionConfirmada({
 					</Text>
 
 					<Text style={{ color: "#333", fontSize: "16px", lineHeight: "24px" }}>
-						Nos alegra confirmarte que tu inscripción al curso{" "}
-						<strong>{cursoNombre}</strong> ha sido procesada con éxito. Ya sos
-						oficialmente parte del instituto.
+						Confirmamos la recepción de tu pago correspondiente a la cuota de{" "}
+						<strong>
+							{MESES[mes - 1]} {anio}
+						</strong>{" "}
+						para el curso <strong>{cursoNombre}</strong>.
 					</Text>
 
 					<Button
-						href="https://englishempire.com.ar/iniciar-sesion"
+						href="https://englishempire.com.ar/mi-cuenta/pagos"
 						style={{
 							backgroundColor: "#EE1120",
 							color: "#fff",
@@ -95,12 +118,11 @@ export default function InscripcionConfirmada({
 							margin: "30px 0",
 						}}
 					>
-						Acceder al portal de alumnos
+						Ver mis pagos
 					</Button>
 
 					<Hr style={{ borderColor: "#e5e7eb", margin: "30px 0" }} />
 
-					{/* SECCIÓN: Recibo / Comprobante */}
 					<Text
 						style={{
 							fontSize: "12px",
@@ -111,10 +133,9 @@ export default function InscripcionConfirmada({
 							margin: "0 0 16px",
 						}}
 					>
-						Detalle de tu inscripción
+						Detalle del pago
 					</Text>
 
-					{/* Sello verde de confirmación */}
 					<Section
 						style={{
 							backgroundColor: "#f0fdf4",
@@ -132,7 +153,7 @@ export default function InscripcionConfirmada({
 								color: "#166534",
 							}}
 						>
-							✓ Pago confirmado correctamente
+							✓ Cuota pagada correctamente
 						</Text>
 						<Text
 							style={{ margin: "4px 0 0", fontSize: "12px", color: "#16a34a" }}
@@ -141,7 +162,6 @@ export default function InscripcionConfirmada({
 						</Text>
 					</Section>
 
-					{/* Datos del recibo (Usamos Rows de react-email) */}
 					<Section style={{ marginBottom: "24px" }}>
 						<Row style={{ marginBottom: "8px" }}>
 							<Column style={{ width: "50%" }}>
@@ -184,7 +204,6 @@ export default function InscripcionConfirmada({
 						</Row>
 					</Section>
 
-					{/* Tabla de importes */}
 					<Section
 						style={{
 							width: "100%",
@@ -238,7 +257,7 @@ export default function InscripcionConfirmada({
 								<Text
 									style={{ margin: "0", fontSize: "14px", color: "#1a1a2e" }}
 								>
-									Inscripción — {cursoNombre}
+									Cuota {MESES[mes - 1]} {anio} — {cursoNombre}
 								</Text>
 							</Column>
 							<Column style={{ padding: "16px", textAlign: "right" }}>
@@ -282,7 +301,6 @@ export default function InscripcionConfirmada({
 						</Row>
 					</Section>
 
-					{/* FOOTER */}
 					<Section style={{ marginTop: "30px", textAlign: "center" }}>
 						<Text
 							style={{
@@ -292,7 +310,7 @@ export default function InscripcionConfirmada({
 								lineHeight: "16px",
 							}}
 						>
-							Este documento es un comprobante válido de inscripción emitido por
+							Este documento es un comprobante válido de pago emitido por
 							English Empire Institute. No es válido como factura.
 						</Text>
 						<Text

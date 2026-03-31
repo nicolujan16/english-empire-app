@@ -72,6 +72,30 @@ const PAGE_SIZE = 15;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function obtenerMontoPorFiltro(
+	montoTotal: number,
+	metodoPago: string,
+	filtro: FiltroMetodo,
+): number {
+	if (filtro === "Todos" || filtro === "Mixto" || !metodoPago.includes("+")) {
+		return montoTotal;
+	}
+	const partes = metodoPago.split("+");
+	const parteEncontrada = partes.find((p) =>
+		p.toLowerCase().includes(filtro.toLowerCase()),
+	);
+
+	if (parteEncontrada) {
+		const match = parteEncontrada.match(/\$\s*([\d.,]+)/);
+		if (match && match[1]) {
+			const numeroLimpio = match[1].replace(/\./g, "").replace(/,/g, ".");
+			return parseFloat(numeroLimpio) || 0;
+		}
+	}
+
+	return 0;
+}
+
 function formatFecha(fecha: Date): string {
 	return fecha.toLocaleDateString("es-AR", {
 		day: "2-digit",
@@ -220,30 +244,36 @@ export default function IngresosPage() {
 	}, []);
 
 	// ── Filtros ────────────────────────────────────────────────────────────────
-	const ingresosFiltrados = ingresos.filter((item) => {
-		const matchTipo =
-			filtroTipo === "todos" ||
-			(filtroTipo === "cuotas" && item.tipo === "cuota") ||
-			(filtroTipo === "inscripciones" && item.tipo === "inscripcion") ||
-			(filtroTipo === "especiales" && item.tipo === "especial");
+	const ingresosFiltrados = ingresos
+		.filter((item) => {
+			const matchTipo =
+				filtroTipo === "todos" ||
+				(filtroTipo === "cuotas" && item.tipo === "cuota") ||
+				(filtroTipo === "inscripciones" && item.tipo === "inscripcion") ||
+				(filtroTipo === "especiales" && item.tipo === "especial");
 
-		const matchBusqueda =
-			busqueda === "" ||
-			item.alumnoNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-			item.alumnoDni.includes(busqueda) ||
-			item.cursoNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-			(item.registradoPor &&
-				item.registradoPor.toLowerCase().includes(busqueda.toLowerCase()));
+			const matchBusqueda =
+				busqueda === "" ||
+				item.alumnoNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+				item.alumnoDni.includes(busqueda) ||
+				item.cursoNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+				(item.registradoPor &&
+					item.registradoPor.toLowerCase().includes(busqueda.toLowerCase()));
 
-		const matchMes =
-			filtroMes === 0 ||
-			(item.tipo === "cuota" && item.mes === filtroMes) ||
-			((item.tipo === "inscripcion" || item.tipo === "especial") &&
-				item.fecha.getMonth() + 1 === filtroMes);
+			const matchMes =
+				filtroMes === 0 ||
+				(item.tipo === "cuota" && item.mes === filtroMes) ||
+				((item.tipo === "inscripcion" || item.tipo === "especial") &&
+					item.fecha.getMonth() + 1 === filtroMes);
 
-		const matchMetodo = matchMetodoPago(item.metodoPago, filtroMetodo);
-		return matchTipo && matchBusqueda && matchMes && matchMetodo;
-	});
+			const matchMetodo = matchMetodoPago(item.metodoPago, filtroMetodo);
+
+			return matchTipo && matchBusqueda && matchMes && matchMetodo;
+		})
+		.map((item) => ({
+			...item,
+			monto: obtenerMontoPorFiltro(item.monto, item.metodoPago, filtroMetodo),
+		}));
 
 	const totalPages = Math.ceil(ingresosFiltrados.length / PAGE_SIZE);
 	const paginatedIngresos = ingresosFiltrados.slice(

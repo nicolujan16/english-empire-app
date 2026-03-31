@@ -1,9 +1,8 @@
-// proxy.ts (en la raíz del proyecto, al lado del app/ folder)
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export default function proxy(req: NextRequest) {
-	const url = req.nextUrl.clone(); // ✅ clonar para no mutar el original
+	const url = req.nextUrl.clone();
 	const hostname = req.headers.get("host") || "";
 
 	// Soporte para desarrollo local con puerto
@@ -13,7 +12,6 @@ export default function proxy(req: NextRequest) {
 		hostname === `admin.${mainDomain}` ||
 		hostname === "admin.localhost:3000"
 	) {
-		// Evitar doble prefijo si ya empieza con /admin
 		if (!url.pathname.startsWith("/admin")) {
 			url.pathname = `/admin${url.pathname}`;
 		}

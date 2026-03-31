@@ -11,8 +11,8 @@ import {
 	CalendarClock,
 	ChevronRight,
 	BookOpen,
-	Eye, // <-- AGREGADO
-	EyeOff, // <-- AGREGADO
+	Eye,
+	EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -23,14 +23,7 @@ import {
 	onAuthStateChanged,
 	User,
 } from "firebase/auth";
-import {
-	doc,
-	getDoc,
-	collection,
-	query,
-	where,
-	getDocs,
-} from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseConfig";
 import Link from "next/link";
 
@@ -53,7 +46,7 @@ export default function ProfesoresPage() {
 
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-	const [showPassword, setShowPassword] = useState(false); // <-- NUEVO ESTADO
+	const [showPassword, setShowPassword] = useState(false);
 	const [error, setError] = useState("");
 
 	const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -62,36 +55,47 @@ export default function ProfesoresPage() {
 	const [cursos, setCursos] = useState<CursoAsignado[]>([]);
 
 	// ─── 1. CREAR FUNCION PARA TRAER CURSOS DEL PROFESOR ───────────────────────────
-	const fetchCursosDelProfe = async (profesorId: string) => {
+	// 🚀 NUEVA LÓGICA: Recibimos el array de IDs directamente desde el documento del profesor
+	const fetchCursosDelProfe = async (cursosIds: string[]) => {
+		if (!cursosIds || cursosIds.length === 0) {
+			setCursos([]);
+			return;
+		}
+
 		try {
-			const q = query(
-				collection(db, "Cursos"),
-				where("profesorId", "==", profesorId),
-				where("active", "==", true),
-			);
-			const snap = await getDocs(q);
+			// 🚀 Buscamos solo los cursos exactos que están en el array
+			const promesas = cursosIds.map((id) => getDoc(doc(db, "Cursos", id)));
+			const snaps = await Promise.all(promesas);
 
-			const cursosList: CursoAsignado[] = snap.docs.map((d) => {
-				const data = d.data();
-				let horarioFinal = "Horario a definir";
+			const cursosList: CursoAsignado[] = [];
 
-				if (data.horarios) {
-					if (typeof data.horarios === "string") {
-						horarioFinal = data.horarios;
-					} else if (Array.isArray(data.horarios)) {
-						horarioFinal = data.horarios.join(" - ");
-					} else if (typeof data.horarios === "object") {
-						horarioFinal =
-							Object.keys(data.horarios).join(" - ") || "Horario a definir";
+			snaps.forEach((d) => {
+				// Solo mostramos el curso si existe y sigue activo
+				if (d.exists() && d.data().active !== false) {
+					const data = d.data();
+					let horarioFinal = "Horario a definir";
+
+					if (data.horarios) {
+						if (typeof data.horarios === "string") {
+							horarioFinal = data.horarios;
+						} else if (Array.isArray(data.horarios)) {
+							horarioFinal = data.horarios.join(" - ");
+						} else if (typeof data.horarios === "object") {
+							horarioFinal =
+								Object.keys(data.horarios).join(" - ") || "Horario a definir";
+						}
 					}
-				}
 
-				return {
-					id: d.id,
-					nombre: data.nombre,
-					horario: horarioFinal,
-				};
+					cursosList.push({
+						id: d.id,
+						nombre: data.nombre,
+						horario: horarioFinal,
+					});
+				}
 			});
+
+			// Ordenamos alfabéticamente para que se vea prolijo
+			cursosList.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
 			setCursos(cursosList);
 		} catch (err) {
@@ -109,13 +113,18 @@ export default function ProfesoresPage() {
 
 					if (docSnap.exists() && docSnap.data().activo !== false) {
 						setCurrentUser(user);
+						const data = docSnap.data();
+
 						setTeacherData({
 							id: docSnap.id,
-							nombre: docSnap.data().nombre,
-							apellido: docSnap.data().apellido,
-							email: docSnap.data().email,
+							nombre: data.nombre,
+							apellido: data.apellido,
+							email: data.email,
 						});
-						fetchCursosDelProfe(user.uid);
+
+						// 🚀 Extraemos el array de cursosAsignados y se lo pasamos a la función
+						const cursosAsignados = data.cursosAsignados || [];
+						fetchCursosDelProfe(cursosAsignados);
 					} else {
 						await signOut(auth);
 						setError("Acceso denegado. No tienes permisos de docente.");
@@ -217,14 +226,13 @@ export default function ProfesoresPage() {
 							</label>
 							<div className="relative">
 								<input
-									type={showPassword ? "text" : "password"} // <-- TERNARIO DE TIPO
+									type={showPassword ? "text" : "password"}
 									required
 									value={password}
 									onChange={(e) => setPassword(e.target.value)}
 									className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#4338ca]/20 focus:border-[#4338ca] outline-none transition-all"
 									placeholder="••••••••"
 								/>
-								{/* 🚀 BOTÓN MOSTRAR/OCULTAR */}
 								<button
 									type="button"
 									onClick={() => setShowPassword(!showPassword)}

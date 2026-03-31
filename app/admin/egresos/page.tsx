@@ -64,6 +64,37 @@ const PAGE_SIZE = 15;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function obtenerMontoPorFiltro(
+	montoTotal: number,
+	metodoPago: string | undefined,
+	filtro: FiltroMetodo,
+): number {
+	if (
+		!metodoPago ||
+		filtro === "Todos" ||
+		filtro === "Mixto" ||
+		!metodoPago.includes("+")
+	) {
+		return montoTotal;
+	}
+
+	const partes = metodoPago.split("+");
+
+	const parteEncontrada = partes.find((p) =>
+		p.toLowerCase().includes(filtro.toLowerCase()),
+	);
+
+	if (parteEncontrada) {
+		const match = parteEncontrada.match(/\$\s*([\d.,]+)/);
+		if (match && match[1]) {
+			const numeroLimpio = match[1].replace(/\./g, "").replace(/,/g, ".");
+			return parseFloat(numeroLimpio) || 0;
+		}
+	}
+
+	return 0;
+}
+
 function formatFecha(fecha: Date): string {
 	return fecha.toLocaleDateString("es-AR", {
 		day: "2-digit",
@@ -146,17 +177,23 @@ export default function EgresosPage() {
 
 	// ── Filtros ────────────────────────────────────────────────────────────────
 
-	const egresosFiltrados = egresos.filter((item) => {
-		const matchBusqueda =
-			busqueda === "" ||
-			item.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
-			item.registradoPor.toLowerCase().includes(busqueda.toLowerCase());
+	const egresosFiltrados = egresos
+		.filter((item) => {
+			const matchBusqueda =
+				busqueda === "" ||
+				item.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
+				item.registradoPor.toLowerCase().includes(busqueda.toLowerCase());
 
-		const matchMes = filtroMes === 0 || item.fecha.getMonth() + 1 === filtroMes;
-		const matchMetodo = matchMetodoPago(item.metodoPago || "", filtroMetodo);
+			const matchMes =
+				filtroMes === 0 || item.fecha.getMonth() + 1 === filtroMes;
+			const matchMetodo = matchMetodoPago(item.metodoPago || "", filtroMetodo);
 
-		return matchBusqueda && matchMes && matchMetodo;
-	});
+			return matchBusqueda && matchMes && matchMetodo;
+		})
+		.map((item) => ({
+			...item,
+			monto: obtenerMontoPorFiltro(item.monto, item.metodoPago, filtroMetodo),
+		}));
 
 	const totalPages = Math.ceil(egresosFiltrados.length / PAGE_SIZE);
 	const paginatedEgresos = egresosFiltrados.slice(

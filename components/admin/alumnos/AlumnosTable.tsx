@@ -24,9 +24,10 @@ import {
 	Printer,
 	Percent,
 	AlertCircle,
+	UserMinus,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import UserInfoModal from "./UserInfoModal";
 import EditUserInfoModal from "./EditUserInfoModal";
@@ -107,7 +108,6 @@ const calcularEdad = (fecha: string) => {
 	return Math.max(0, edad);
 };
 
-// "Consejo de Ciencias Económicas" → "CCE" | "Referidos" → "Referidos"
 const getIniciales = (nombre: string): string => {
 	const palabras = nombre.trim().split(/\s+/);
 	if (palabras.length === 1) return palabras[0].slice(0, 7);
@@ -134,7 +134,7 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 		const rect = badgeRef.current.getBoundingClientRect();
 
 		let x = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
-		let y = rect.top - TOOLTIP_HEIGHT - 10; // 10px de margen
+		let y = rect.top - TOOLTIP_HEIGHT - 10;
 
 		if (x + TOOLTIP_WIDTH > window.innerWidth - 8) {
 			x = window.innerWidth - TOOLTIP_WIDTH - 8;
@@ -159,7 +159,6 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 				{iniciales}
 			</span>
 
-			{/* Tooltip renderizado en posición fixed — escapa del overflow */}
 			{tooltipPos && (
 				<div
 					className="fixed z-[9999] pointer-events-none"
@@ -170,14 +169,12 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 					}}
 				>
 					<div className="bg-[#1a2248] text-white rounded-xl shadow-xl p-2">
-						{/* Título */}
 						<div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/10">
 							<span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
 							<p className="text-xs font-bold leading-tight">
 								{etiqueta.nombre}
 							</p>
 						</div>
-						{/* Descuentos */}
 						<div className="space-y-1">
 							{etiqueta.descuentoInscripcion && (
 								<div className="flex items-center justify-between text-[11px]">
@@ -196,7 +193,6 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 								</div>
 							)}
 						</div>
-						{/* Acumulación */}
 						<div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-1.5 text-[10px]">
 							<Percent className="w-2.5 h-2.5 text-white/40 shrink-0" />
 							<span className="text-white/50">
@@ -206,7 +202,6 @@ function EtiquetaBadge({ etiqueta }: { etiqueta: EtiquetaInfo }) {
 							</span>
 						</div>
 					</div>
-					{/* Flecha apuntando hacia abajo (hacia el badge) */}
 					<div className="flex justify-center -mt-1">
 						<div className="w-2 h-2 bg-[#1a2248] rotate-45" />
 					</div>
@@ -222,14 +217,21 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 	const [students, setStudents] = useState<StudentRow[]>([]);
 	const [coursesMap, setCoursesMap] = useState<CourseMap>({});
 	const [etiquetasMap, setEtiquetasMap] = useState<EtiquetasMap>({});
+
+	const [bajasHistorial, setBajasHistorial] = useState<
+		Record<string, string[]>
+	>({});
+
 	const [isLoading, setIsLoading] = useState(true);
 
 	const [searchTerm, setSearchTerm] = useState("");
 	const [courseFilter, setCourseFilter] = useState("Todos");
 	const [typeFilter, setTypeFilter] = useState("Todos");
 	const [etiquetaFilter, setEtiquetaFilter] = useState("Todas");
-	// 🚀 NUEVO: Estado para el filtro de mail pendiente
+
 	const [pendingEmailFilter, setPendingEmailFilter] = useState(false);
+	const [bajaFilter, setBajaFilter] = useState(false);
+
 	const [currentPage, setCurrentPage] = useState(1);
 
 	const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(
@@ -255,8 +257,8 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 		setIsEditModalOpen(false);
 		setTimeout(() => setEditStudent(null), 300);
 	};
-	const handleEditSuccess = (updated: StudentRow) => {
-		setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+	const handleEditSuccess = () => {
+		window.location.reload();
 	};
 
 	// ── Carga de datos ────────────────────────────────────────────────────────
@@ -264,12 +266,18 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 	const fetchData = async () => {
 		setIsLoading(true);
 		try {
-			const [cursosSnap, etiquetasSnap, usersSnap, hijosSnap] =
+			const bajasQuery = query(
+				collection(db, "ReasignacionesCursos"),
+				where("tipo", "==", "baja"),
+			);
+
+			const [cursosSnap, etiquetasSnap, usersSnap, hijosSnap, bajasSnap] =
 				await Promise.all([
 					getDocs(collection(db, "Cursos")),
 					getDocs(collection(db, "EtiquetasDescuento")),
 					getDocs(collection(db, "Users")),
 					getDocs(collection(db, "Hijos")),
+					getDocs(bajasQuery),
 				]);
 
 			const cMap: CourseMap = {};
@@ -291,6 +299,20 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 				};
 			});
 			setEtiquetasMap(eMap);
+
+			const bajasMap: Record<string, string[]> = {};
+			bajasSnap.forEach((doc) => {
+				const data = doc.data();
+				if (data.alumnoId && data.cursoAnteriorNombre) {
+					if (!bajasMap[data.alumnoId]) {
+						bajasMap[data.alumnoId] = [];
+					}
+					if (!bajasMap[data.alumnoId].includes(data.cursoAnteriorNombre)) {
+						bajasMap[data.alumnoId].push(data.cursoAnteriorNombre);
+					}
+				}
+			});
+			setBajasHistorial(bajasMap);
 
 			const usersData: StudentRow[] = usersSnap.docs.map((d) => {
 				const data = d.data();
@@ -371,6 +393,7 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 		courseFilter,
 		etiquetaFilter,
 		pendingEmailFilter,
+		bajaFilter,
 	]);
 
 	// ── Filtrado ──────────────────────────────────────────────────────────────
@@ -407,19 +430,21 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 							? !s.etiquetas?.length
 							: (s.etiquetas ?? []).includes(etiquetaFilter);
 
-				// 🚀 NUEVA LÓGICA: Filtro de mail pendiente
 				const matchesPendingEmail = pendingEmailFilter
 					? s.tipo === "Titular"
 						? !s.email
 						: !s.emailTutor
 					: true;
 
+				const matchesBaja = bajaFilter ? !!bajasHistorial[s.id] : true;
+
 				return (
 					matchesSearch &&
 					matchesType &&
 					matchesCourse &&
 					matchesEtiqueta &&
-					matchesPendingEmail
+					matchesPendingEmail &&
+					matchesBaja
 				);
 			}),
 		[
@@ -429,6 +454,8 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 			courseFilter,
 			etiquetaFilter,
 			pendingEmailFilter,
+			bajaFilter,
+			bajasHistorial,
 		],
 	);
 
@@ -563,7 +590,6 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 				<div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col min-h-[600px]">
 					{/* ── Filtros ── */}
 					<div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4">
-						{/* Fila principal de filtros */}
 						<div className="flex flex-col xl:flex-row gap-4 items-center justify-between">
 							<div className="relative w-full xl:w-96 group">
 								<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -667,8 +693,7 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 							</div>
 						</div>
 
-						{/* 🚀 NUEVA FILA: Checkbox de correos pendientes */}
-						<div className="flex items-center gap-2 px-1">
+						<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 px-1">
 							<label className="flex items-center gap-2 cursor-pointer group">
 								<input
 									type="checkbox"
@@ -679,6 +704,19 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 								<span className="text-sm font-semibold text-gray-600 group-hover:text-gray-900 transition-colors flex items-center gap-1.5">
 									<AlertCircle className="w-3.5 h-3.5 text-amber-500" />
 									Ver únicamente usuarios con mail pendiente (Sin acceso web)
+								</span>
+							</label>
+
+							<label className="flex items-center gap-2 cursor-pointer group">
+								<input
+									type="checkbox"
+									checked={bajaFilter}
+									onChange={(e) => setBajaFilter(e.target.checked)}
+									className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-600 cursor-pointer"
+								/>
+								<span className="text-sm font-semibold text-gray-600 group-hover:text-gray-900 transition-colors flex items-center gap-1.5">
+									<UserMinus className="w-3.5 h-3.5 text-red-500" />
+									Ver alumnos con historial de baja
 								</span>
 							</label>
 						</div>
@@ -723,7 +761,6 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 													{student.nombre.charAt(0).toUpperCase()}
 												</div>
 												<div className="min-w-0">
-													{/* Nombre + etiquetas */}
 													<div className="flex items-center gap-1.5 flex-wrap">
 														<h3 className="font-bold text-[#252d62] text-base leading-tight">
 															{student.nombre} {student.apellido}
@@ -796,7 +833,7 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 																className={
 																	student.emailTutor
 																		? ""
-																		: "text-amber-600 italic"
+																		: "text-amber-600 italic font-semibold"
 																}
 															>
 																{student.emailTutor
@@ -810,21 +847,33 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 													<span className="text-xs text-gray-400 block mb-2 font-bold uppercase tracking-wider">
 														Cursos Asignados
 													</span>
-													<div className="flex flex-wrap gap-1.5">
-														{student.cursos.length > 0 ? (
-															student.cursos.map((id) => (
-																<span
-																	key={id}
-																	className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#252d62]/10 text-[#252d62]"
-																>
-																	{coursesMap[id] || "Curso Desconocido"}
+													<div className="flex flex-col gap-1.5">
+														<div className="flex flex-wrap gap-1.5">
+															{student.cursos.length > 0 ? (
+																student.cursos.map((id) => (
+																	<span
+																		key={id}
+																		className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#252d62]/10 text-[#252d62]"
+																	>
+																		{coursesMap[id] || "Curso Desconocido"}
+																	</span>
+																))
+															) : (
+																<span className="text-xs text-red-500 font-medium bg-red-50 px-2 py-1 rounded-md border border-red-100 w-fit">
+																	Sin cursos
 																</span>
-															))
-														) : (
-															<span className="text-xs text-red-500 font-medium bg-red-50 px-2 py-1 rounded-md border border-red-100">
-																Sin cursos
-															</span>
-														)}
+															)}
+														</div>
+														{student.cursos.length === 0 &&
+															bajasHistorial[student.id] && (
+																<p className="text-[10px] text-gray-500 mt-1 leading-tight">
+																	Baja:
+																	<br />
+																	<span className="font-semibold text-gray-600">
+																		{bajasHistorial[student.id].join(" · ")}
+																	</span>
+																</p>
+															)}
 													</div>
 												</div>
 											</div>
@@ -872,7 +921,6 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 																{student.nombre.charAt(0).toUpperCase()}
 															</div>
 															<div className="flex flex-col min-w-0">
-																{/* Nombre + badges en la misma línea */}
 																<div className="flex items-center gap-1.5 flex-wrap">
 																	<span className="text-sm font-bold text-[#252d62]">
 																		{student.nombre} {student.apellido}
@@ -952,21 +1000,33 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 														</div>
 													</td>
 													<td className="px-6 py-4">
-														<div className="flex flex-wrap gap-1.5">
-															{student.cursos.length > 0 ? (
-																student.cursos.map((id) => (
-																	<span
-																		key={id}
-																		className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-[#252d62]/10 text-[#252d62] whitespace-nowrap"
-																	>
-																		{coursesMap[id] || "Curso Desconocido"}
+														<div className="flex flex-col gap-1.5">
+															<div className="flex flex-wrap gap-1.5">
+																{student.cursos.length > 0 ? (
+																	student.cursos.map((id) => (
+																		<span
+																			key={id}
+																			className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-[#252d62]/10 text-[#252d62] whitespace-nowrap"
+																		>
+																			{coursesMap[id] || "Curso Desconocido"}
+																		</span>
+																	))
+																) : (
+																	<span className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-gray-50 text-gray-900 border border-gray-100 w-fit">
+																		Sin cursos
 																	</span>
-																))
-															) : (
-																<span className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-gray-50 text-gray-900 border border-gray-100">
-																	Sin cursos
-																</span>
-															)}
+																)}
+															</div>
+															{student.cursos.length === 0 &&
+																bajasHistorial[student.id] && (
+																	<p className="text-[10px] text-gray-500 leading-tight mt-1">
+																		Baja de:
+																		<br />
+																		<span className="font-semibold text-gray-600">
+																			{bajasHistorial[student.id].join(" · ")}
+																		</span>
+																	</p>
+																)}
 														</div>
 													</td>
 													<td className="px-6 py-4 whitespace-nowrap text-right">

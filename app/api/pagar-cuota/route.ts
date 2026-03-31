@@ -57,10 +57,7 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// ── Cálculo del monto con descuentos acumulables ──────────────────────
-		// 1. Precio base según fecha (cuota1a10 / cuota11enAdelante / montoPrimerMes)
 		const precioBase = calcularPrecioBase(cuotaData);
-		// 2. Aplicar todos los descuentos del array sobre el precio base
 
 		const mejorDescuento = cuotaData.descuentos?.length
 			? cuotaData.descuentos.reduce((max, d) =>
@@ -69,9 +66,19 @@ export async function POST(request: Request) {
 			: null;
 
 		const descuentosAAplicar = mejorDescuento ? [mejorDescuento] : [];
-
 		const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
-		// ─────────────────────────────────────────────────────────────────────
+
+		let user_id_resuelto = cuotaData.alumnoId;
+
+		if (
+			cuotaData.alumnoTipo === "menor" ||
+			cuotaData.alumnoTipo.toLowerCase() === "menor"
+		) {
+			const hijoSnap = await getDoc(doc(db, "Hijos", cuotaData.alumnoId));
+			if (hijoSnap.exists() && hijoSnap.data().tutorId) {
+				user_id_resuelto = hijoSnap.data().tutorId;
+			}
+		}
 
 		const mesNombre = MESES[cuotaData.mes - 1];
 
@@ -97,6 +104,7 @@ export async function POST(request: Request) {
 				metadata: {
 					cuota_id: cuotaId,
 					alumno_id: cuotaData.alumnoId,
+					user_id: user_id_resuelto,
 					alumno_nombre: cuotaData.alumnoNombre,
 					curso_id: cuotaData.cursoId,
 					curso_nombre: cuotaData.cursoNombre,

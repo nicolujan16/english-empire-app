@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import React, { useState, useEffect, ChangeEvent } from "react";
@@ -384,6 +385,84 @@ export default function EditUserInfoModal({
 		return "";
 	};
 
+	// ── Limpiar Grupo Familiar (Efecto Dominó) ────────────────────────────────
+	const limpiarGrupoFamiliarSiCorresponde = async () => {
+		if (!student) return;
+
+		try {
+			// 1. Obtener tutorId
+			let tutorId = student.id;
+			if (student.tipo !== "Titular") {
+				const hijoSnap = await getDoc(doc(db, "Hijos", student.id));
+				if (hijoSnap.exists()) tutorId = hijoSnap.data().tutorId || student.id;
+			}
+
+			// 2. Buscar todos los miembros de la familia y ver quiénes tienen cursos ACTIVOS
+			const miembrosActivosIds: string[] = [];
+
+			// Revisamos al tutor
+			const tutorSnap = await getDoc(doc(db, "Users", tutorId));
+			if (tutorSnap.exists() && (tutorSnap.data().cursos?.length || 0) > 0) {
+				miembrosActivosIds.push(tutorId);
+			}
+
+			// Revisamos a todos los hijos
+			const hijosSnap = await getDocs(
+				query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
+			);
+			hijosSnap.forEach((h) => {
+				if ((h.data().cursos?.length || 0) > 0) {
+					miembrosActivosIds.push(h.id);
+				}
+			});
+
+			// 3. Validar si quedó 1 solo miembro activo
+			if (miembrosActivosIds.length === 1) {
+				const unicoMiembroId = miembrosActivosIds[0];
+				console.log(
+					`🧹 Grupo familiar roto. Removiendo descuento al alumno: ${unicoMiembroId}`,
+				);
+
+				// Buscar sus cuotas pendientes
+				const cuotasSnap = await getDocs(
+					query(
+						collection(db, "Cuotas"),
+						where("alumnoId", "==", unicoMiembroId),
+						where("estado", "==", "Pendiente"),
+					),
+				);
+
+				for (const cuotaDoc of cuotasSnap.docs) {
+					const data = cuotaDoc.data();
+
+					// Solo le quitamos el descuento a las cuotas FUTURAS (para no alterar deuda vieja que ya se facturó)
+					if (esCuotaFutura(data.mes, data.anio)) {
+						const descuentosActuales = data.descuentos || [];
+
+						// Verificamos si tiene el descuento aplicado
+						const tieneGrupoFamiliar = descuentosActuales.some(
+							(d: any) => d.detalle === "Grupo Familiar",
+						);
+
+						if (tieneGrupoFamiliar) {
+							// Filtramos el array para quitar SOLO el de Grupo Familiar (mantiene otros descuentos si tuviera)
+							const nuevosDescuentos = descuentosActuales.filter(
+								(d: any) => d.detalle !== "Grupo Familiar",
+							);
+
+							await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
+								descuentos: nuevosDescuentos,
+								actualizadoEn: serverTimestamp(),
+							});
+						}
+					}
+				}
+			}
+		} catch (error) {
+			console.error("Error al limpiar el grupo familiar:", error);
+		}
+	};
+
 	// ── Guardar ───────────────────────────────────────────────────────────────
 	const handleSave = async () => {
 		if (!student) return;
@@ -433,7 +512,6 @@ export default function EditUserInfoModal({
 					}
 				}
 
-				// 🚀 LÓGICA DE ASIGNACIÓN DE EMAIL VIA API
 				const isAssigningNewEmail =
 					!student.email && titularForm.email.trim() !== "";
 				let finalEmail = student.email || ""; // Mantenemos el original si no se asignó nada
@@ -473,16 +551,30 @@ export default function EditUserInfoModal({
 					fechaNacimiento: titularForm.fechaNacimiento,
 					edadTitular: calcularEdad(titularForm.fechaNacimiento),
 					telefono: titularForm.telefono,
-					// Guardamos el email final (el que tenía o el nuevo).
-					// La API ya actualizó esto y "sinAccesoWeb", pero lo pisamos de nuevo por seguridad.
 					...(isAssigningNewEmail
 						? { email: finalEmail, sinAccesoWeb: false }
 						: {}),
 				});
 
+				if (student.isTutor && hijosIds.length > 0) {
+					const promesasHijos = hijosIds.map((hijoId) =>
+						updateDoc(doc(db, "Hijos", hijoId), {
+							"datosTutor.nombre": titularForm.nombre.trim(),
+							"datosTutor.apellido": titularForm.apellido.trim(),
+							"datosTutor.dni": titularForm.dni.trim(),
+							"datosTutor.telefono": titularForm.telefono,
+							"datosTutor.email": finalEmail,
+						}),
+					);
+					await Promise.all(promesasHijos);
+				}
+
 				await procesarBajas();
 				await procesarReasignaciones();
 				await guardarEtiquetas();
+				if (hayBajas) {
+					await limpiarGrupoFamiliarSiCorresponde();
+				}
 
 				const cursosActualizados = student.cursos
 					.filter((id) => !bajas[id])
@@ -521,9 +613,15 @@ export default function EditUserInfoModal({
 					dni: menorForm.dni.trim(),
 					fechaNacimiento: menorForm.fechaNacimiento,
 				});
+
 				await procesarBajas();
 				await procesarReasignaciones();
 				await guardarEtiquetas();
+
+				if (hayBajas) {
+					await limpiarGrupoFamiliarSiCorresponde();
+				}
+
 				const cursosActualizados = student.cursos
 					.filter((id) => !bajas[id])
 					.map((id) => {

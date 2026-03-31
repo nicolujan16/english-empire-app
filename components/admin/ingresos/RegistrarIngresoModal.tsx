@@ -14,9 +14,9 @@ import {
 	CheckCircle2,
 	AlertCircle,
 	CreditCard,
-	SplitSquareHorizontal, // NUEVO
-	Plus, // NUEVO
-	Trash2, // NUEVO
+	SplitSquareHorizontal,
+	Plus,
+	Trash2,
 } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
@@ -29,12 +29,12 @@ interface RegistrarIngresoModalProps {
 	onSuccess: () => void;
 }
 
-const SUGERENCIAS = [
+const CATEGORIAS_PREDEFINIDAS = [
 	"Venta de uniforme",
 	"Venta de útiles escolares",
 	"Alquiler de espacio",
 	"Donación",
-	"Otro",
+	"Otro (Escribir manualmente...)",
 ];
 
 export default function RegistrarIngresoModal({
@@ -45,6 +45,9 @@ export default function RegistrarIngresoModal({
 	const { adminData } = useAdminAuth();
 
 	const [descripcion, setDescripcion] = useState("");
+
+	const [modoEscritura, setModoEscritura] = useState(false);
+
 	const [monto, setMonto] = useState("");
 	const [metodoPago, setMetodoPago] = useState("");
 	const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
@@ -52,7 +55,6 @@ export default function RegistrarIngresoModal({
 	const [error, setError] = useState<string | null>(null);
 	const [exito, setExito] = useState(false);
 
-	// ─── LÓGICA DE PAGOS MÚLTIPLES (Split Payment) ───────────────────────────
 	const [isSplitPayment, setIsSplitPayment] = useState(false);
 	const [partialPayments, setPartialPayments] = useState<
 		{ method: string; amount: number }[]
@@ -65,12 +67,10 @@ export default function RegistrarIngresoModal({
 	);
 	const saldoRestante = montoNum - totalIngresado;
 
-	// Efecto Concatenador para Split Payment
 	useEffect(() => {
 		if (isSplitPayment) {
 			const allMethodsSelected = partialPayments.every((p) => p.method !== "");
 
-			// La matemática tiene que cuadrar exacto para armar el String
 			if (
 				montoNum > 0 &&
 				totalIngresado === montoNum &&
@@ -82,7 +82,7 @@ export default function RegistrarIngresoModal({
 					.join(" + ");
 				setMetodoPago(stringFormateado);
 			} else {
-				setMetodoPago(""); // Esto vacía el estado y bloquea el submit indirectamente
+				setMetodoPago("");
 			}
 		}
 	}, [partialPayments, isSplitPayment, montoNum, totalIngresado]);
@@ -109,11 +109,11 @@ export default function RegistrarIngresoModal({
 		const newPayments = partialPayments.filter((_, i) => i !== index);
 		setPartialPayments(newPayments);
 	};
-	// ─────────────────────────────────────────────────────────────────────────
 
 	const handleClose = () => {
 		if (isLoading) return;
 		setDescripcion("");
+		setModoEscritura(false);
 		setMonto("");
 		setMetodoPago("");
 		setIsSplitPayment(false);
@@ -127,8 +127,11 @@ export default function RegistrarIngresoModal({
 	const handleSubmit = async () => {
 		setError(null);
 
-		if (!descripcion.trim()) {
-			setError("La descripción es obligatoria.");
+		if (
+			!descripcion.trim() ||
+			descripcion === "Otro (Escribir manualmente...)"
+		) {
+			setError("Debes seleccionar o escribir una descripción válida.");
 			return;
 		}
 		if (!monto || isNaN(montoNum) || montoNum <= 0) {
@@ -153,7 +156,7 @@ export default function RegistrarIngresoModal({
 			await addDoc(collection(db, "IngresosEspeciales"), {
 				descripcion: descripcion.trim(),
 				monto: montoNum,
-				metodoPago: metodoPago, // Guarda el string limpio o concatenado
+				metodoPago: metodoPago,
 				fecha: new Date(fecha + "T12:00:00"),
 				registradoPor: adminData?.nombre || adminData?.email || "Admin",
 				creadoEn: serverTimestamp(),
@@ -175,7 +178,6 @@ export default function RegistrarIngresoModal({
 	return (
 		<Dialog open={isOpen} onOpenChange={handleClose}>
 			<DialogContent className="sm:max-w-[480px] p-0 overflow-hidden">
-				{/* Header */}
 				<DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-100 bg-gray-50/50">
 					<div className="flex items-center gap-3">
 						<div className="bg-[#252d62] p-2 rounded-lg">
@@ -192,7 +194,6 @@ export default function RegistrarIngresoModal({
 					</div>
 				</DialogHeader>
 
-				{/* Contenido */}
 				<div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
 					{exito && (
 						<div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
@@ -210,43 +211,70 @@ export default function RegistrarIngresoModal({
 						</div>
 					)}
 
-					{/* Descripción */}
+					{/* 🚀 NUEVA SECCIÓN DE CATEGORÍA / DESCRIPCIÓN */}
 					<div>
 						<label className="block text-sm font-semibold text-gray-700 mb-1.5">
 							<span className="flex items-center gap-1.5">
 								<FileText className="w-3.5 h-3.5 text-gray-400" />
-								Descripción
+								Concepto del ingreso
 							</span>
 						</label>
-						<input
-							type="text"
-							value={descripcion}
-							onChange={(e) => setDescripcion(e.target.value)}
-							placeholder="Ej: Venta de 3 uniformes escolares"
-							maxLength={120}
-							disabled={isLoading || exito}
-							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
-						/>
-						<p className="text-xs text-gray-400 mt-1 text-right">
-							{descripcion.length}/120
-						</p>
 
-						<div className="flex flex-wrap gap-1.5 mt-2">
-							{SUGERENCIAS.map((s) => (
-								<button
-									key={s}
-									type="button"
-									onClick={() => setDescripcion(s)}
+						{!modoEscritura ? (
+							<select
+								value={descripcion}
+								onChange={(e) => {
+									const val = e.target.value;
+									if (val === "Otro (Escribir manualmente...)") {
+										setModoEscritura(true);
+										setDescripcion(""); // Limpiamos para que escriba libre
+									} else {
+										setDescripcion(val);
+									}
+								}}
+								disabled={isLoading || exito}
+								className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all bg-white font-medium"
+							>
+								<option value="" disabled>
+									Selecciona una categoría...
+								</option>
+								{CATEGORIAS_PREDEFINIDAS.map((cat) => (
+									<option key={cat} value={cat}>
+										{cat}
+									</option>
+								))}
+							</select>
+						) : (
+							<div className="space-y-2">
+								<input
+									type="text"
+									value={descripcion}
+									onChange={(e) => setDescripcion(e.target.value)}
+									placeholder="Ej: Compra de libro de actividades"
+									maxLength={120}
 									disabled={isLoading || exito}
-									className="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-500 hover:border-[#252d62] hover:text-[#252d62] hover:bg-[#252d62]/5 transition-all disabled:opacity-50"
-								>
-									{s}
-								</button>
-							))}
-						</div>
+									autoFocus
+									className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
+								/>
+								<div className="flex justify-between items-center">
+									<button
+										type="button"
+										onClick={() => {
+											setModoEscritura(false);
+											setDescripcion("");
+										}}
+										className="text-[11px] font-bold text-[#EE1120] hover:text-[#b30000] transition-colors"
+									>
+										« Volver a la lista
+									</button>
+									<p className="text-[10px] text-gray-400">
+										{descripcion.length}/120
+									</p>
+								</div>
+							</div>
+						)}
 					</div>
 
-					{/* Monto y fecha */}
 					<div className="grid grid-cols-2 gap-4">
 						<div>
 							<label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -261,7 +289,6 @@ export default function RegistrarIngresoModal({
 									value={monto}
 									onChange={(e) => {
 										setMonto(e.target.value);
-										// Si cambian el monto, actualizamos el primer pago parcial si está en Split
 										if (isSplitPayment && partialPayments.length === 1) {
 											setPartialPayments([
 												{
@@ -306,7 +333,7 @@ export default function RegistrarIngresoModal({
 							onChange={(e) => {
 								if (e.target.value === "multiple") {
 									setIsSplitPayment(true);
-									setMetodoPago(""); // Reseteamos hasta que cuadre la matemática
+									setMetodoPago("");
 									setPartialPayments([{ method: "", amount: montoNum }]);
 								} else {
 									setIsSplitPayment(false);
@@ -330,7 +357,6 @@ export default function RegistrarIngresoModal({
 							</option>
 						</select>
 
-						{/* UI de Split Payment */}
 						{isSplitPayment && (
 							<div className="p-4 border border-blue-200 bg-blue-50/30 rounded-xl space-y-3">
 								<div className="flex justify-between items-center pb-2 border-b border-blue-100">
@@ -427,7 +453,6 @@ export default function RegistrarIngresoModal({
 						)}
 					</div>
 
-					{/* Registrado por */}
 					<div className="bg-gray-50 rounded-lg px-4 py-3 flex items-center justify-between mt-2">
 						<p className="text-xs text-gray-500">Registrado por</p>
 						<p className="text-xs font-semibold text-gray-700">
@@ -436,7 +461,6 @@ export default function RegistrarIngresoModal({
 					</div>
 				</div>
 
-				{/* Footer */}
 				<div className="px-6 py-4 flex gap-3 justify-end border-t border-gray-100 bg-gray-50/50">
 					<button
 						onClick={handleClose}
@@ -447,7 +471,7 @@ export default function RegistrarIngresoModal({
 					</button>
 					<button
 						onClick={handleSubmit}
-						disabled={isLoading || exito || !metodoPago} // Bloqueo automático si los pagos no cuadran
+						disabled={isLoading || exito || (!metodoPago && !isSplitPayment)}
 						className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-[#252d62] text-white rounded-lg hover:bg-[#1a2050] transition-all disabled:opacity-50 shadow-sm"
 					>
 						{isLoading ? (

@@ -148,7 +148,10 @@ export default function Step1SearchStudent({
 										<p className="text-xs text-emerald-700 mt-0.5">
 											Al inscribir y <strong>confirmar</strong> el pago, todos
 											recibirán un{" "}
-											<span className="font-bold">10% de descuento</span>.
+											<span className="font-bold">
+												10% de descuento en cuotas
+											</span>
+											.
 										</p>
 									</div>
 								</div>
@@ -181,7 +184,7 @@ export default function Step1SearchStudent({
 										className="w-4 h-4 text-emerald-600 rounded"
 									/>
 									<span className="text-xs font-semibold text-emerald-800">
-										Aplicar descuento en mes actual
+										Aplicar descuento en cuota del mes actual
 									</span>
 								</label>
 							</motion.div>

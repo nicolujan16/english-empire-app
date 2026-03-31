@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { enviarCorreoInscripcion } from "@/lib/services/emailServices";
+import { enviarCorreoCuota } from "@/lib/services/emailServices";
 
 export async function POST(request: Request) {
 	try {
 		const body = await request.json();
 
+		// Extraemos todos los datos que nos va a mandar el RegistrarCuotaModal
 		const {
 			emailDestino,
 			nombreAlumno,
 			cursoNombre,
+			mes,
+			anio,
 			montoAbonado,
 			metodoPago,
 			nroComprobante,
@@ -16,16 +19,18 @@ export async function POST(request: Request) {
 
 		if (!emailDestino || !nombreAlumno || !cursoNombre) {
 			return NextResponse.json(
-				{ error: "Faltan datos requeridos" },
+				{ error: "Faltan datos requeridos para enviar correo" },
 				{ status: 400 },
 			);
 		}
 
-		const result = await enviarCorreoInscripcion({
+		const result = await enviarCorreoCuota({
 			emailDestino,
 			nombreAlumno,
 			cursoNombre,
-			montoAbonado,
+			mes: Number(mes),
+			anio: Number(anio),
+			montoAbonado: Number(montoAbonado),
 			metodoPago,
 			nroComprobante,
 		});
@@ -34,11 +39,14 @@ export async function POST(request: Request) {
 			throw new Error("Fallo al enviar en Resend");
 		}
 
-		return NextResponse.json({ success: true, message: "Correo enviado" });
+		return NextResponse.json({
+			success: true,
+			message: "Correo de cuota enviado",
+		});
 	} catch (error) {
-		console.error("Error en endpoint de correos:", error);
+		console.error("❌ Error en endpoint de correos (Cuota):", error);
 		return NextResponse.json(
-			{ error: "Error enviando correo" },
+			{ error: "Error enviando correo de cuota" },
 			{ status: 500 },
 		);
 	}

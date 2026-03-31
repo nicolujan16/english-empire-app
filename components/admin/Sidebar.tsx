@@ -18,6 +18,7 @@ import {
 	TrendingUp,
 	TrendingDown,
 	Tags,
+	ClipboardCheck,
 } from "lucide-react";
 
 import {
@@ -76,6 +77,12 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 			icon: Users,
 			label: "Usuarios",
 			path: "/admin/usuarios",
+			adminOnly: false,
+		},
+		{
+			icon: ClipboardCheck,
+			label: "Asistencias",
+			path: "/admin/asistencias",
 			adminOnly: false,
 		},
 		{

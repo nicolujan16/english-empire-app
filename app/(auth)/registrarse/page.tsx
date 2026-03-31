@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
-// --- NUEVO: Importamos los íconos del ojito ---
 import { Eye, EyeOff } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
@@ -272,6 +271,19 @@ export default function RegisterPage() {
 				});
 			}
 
+			try {
+				await fetch("/api/correos/bienvenida", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						emailDestino: form.email,
+						nombreUsuario: form.nombre,
+					}),
+				});
+			} catch (emailError) {
+				console.error("Error enviando correo de bienvenida:", emailError);
+			}
+
 			router.push("/mi-cuenta");
 
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -437,7 +449,7 @@ export default function RegisterPage() {
 							className="w-5 h-5 text-[#EE1120] rounded border-gray-300 focus:ring-[#EE1120] cursor-pointer"
 						/>
 						<span className="font-bold text-[#252d62]">
-							Soy tutor / Inscribo a un menor
+							Soy tutor - Inscribo a un menor
 						</span>
 					</label>
 
