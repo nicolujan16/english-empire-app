@@ -1,8 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-
 import logo from "@/assets/logo-empire.png";
+
+export const metadata = {
+	title: "Autenticación - English Empire Institute",
+	description:
+		"Accede a tu cuenta del English Empire Institute para gestionar tus cursos, ver tu progreso y más.",
+};
 
 export default function AuthLayout({
 	children,
