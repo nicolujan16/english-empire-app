@@ -1,7 +1,8 @@
 "use client";
 
 import { MainBanner } from "@/components/website/common/MainBanner";
-import { Facebook, Instagram, MessageCircle, MapPin, Mail } from "lucide-react";
+import { MessageCircle, MapPin, Mail } from "lucide-react";
+import { FiFacebook, FiInstagram } from "react-icons/fi";
 
 export default function ContactPage() {
 	return (
@@ -52,7 +53,7 @@ export default function ContactPage() {
 						className="group flex flex-col items-center text-center p-10 bg-white rounded-3xl shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 hover:-translate-y-2"
 					>
 						<div className="w-20 h-20 bg-pink-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-gradient-to-tr group-hover:from-[#FD1D1D] group-hover:to-[#833AB4] transition-all duration-300">
-							<Instagram className="w-10 h-10 text-[#E4405F] group-hover:text-white transition-colors" />
+							<FiInstagram className="w-10 h-10 text-[#E4405F] group-hover:text-white transition-colors" />
 						</div>
 						<h3 className="text-2xl font-bold text-[#252d62] mb-2">
 							Instagram
@@ -74,7 +75,7 @@ export default function ContactPage() {
 						className="group flex flex-col items-center text-center p-10 bg-white rounded-3xl shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 hover:-translate-y-2"
 					>
 						<div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-[#1877F2] transition-colors duration-300">
-							<Facebook className="w-10 h-10 text-[#1877F2] group-hover:text-white transition-colors" />
+							<FiFacebook className="w-10 h-10 text-[#1877F2] group-hover:text-white transition-colors" />
 						</div>
 						<h3 className="text-2xl font-bold text-[#252d62] mb-2">Facebook</h3>
 						<p className="text-gray-500 mb-6">
