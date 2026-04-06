@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
@@ -45,28 +46,41 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 	useEffect(() => {
 		const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 			if (currentUser) {
-				const adminDocRef = doc(db, "Admins", currentUser.uid);
-				const adminDocSnap = await getDoc(adminDocRef);
+				// 🚀 Agregamos el try/catch para atrapar el error de permisos de Firebase
+				try {
+					const adminDocRef = doc(db, "Admins", currentUser.uid);
+					const adminDocSnap = await getDoc(adminDocRef);
 
-				if (adminDocSnap.exists()) {
-					const data = adminDocSnap.data();
+					if (adminDocSnap.exists()) {
+						const data = adminDocSnap.data();
 
-					// Verificar si la cuenta está inhabilitada
-					if (data.activo === false) {
-						await signOut(auth);
+						// Verificar si la cuenta está inhabilitada
+						if (data.activo === false) {
+							await signOut(auth);
+							setAdminUser(null);
+							setAdminData(null);
+							setIsLoading(false);
+							return;
+						}
+
+						setAdminUser(currentUser);
+						setAdminData({ uid: currentUser.uid, ...data } as AdminData);
+					} else {
+						// Si el documento no existe, no es admin
 						setAdminUser(null);
 						setAdminData(null);
-						setIsLoading(false);
-						return;
 					}
-
-					setAdminUser(currentUser);
-					setAdminData({ uid: currentUser.uid, ...data } as AdminData);
+				} catch (error) {
+					console.log(error);
+					console.warn("Usuario actual no tiene permisos de administrador.");
+					setAdminUser(null);
+					setAdminData(null);
 				}
 			} else {
 				setAdminUser(null);
 				setAdminData(null);
 			}
+			// Aseguramos apagar el loading siempre
 			setIsLoading(false);
 		});
 
@@ -85,18 +99,29 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 
 		const userCredential = await signInWithEmailAndPassword(auth, email, pass);
 
-		// ✅ Verificar activo ANTES de resolver
-		const adminDocRef = doc(db, "Admins", userCredential.user.uid);
-		const adminDocSnap = await getDoc(adminDocRef);
+		// Verificar activo ANTES de resolver
+		try {
+			const adminDocRef = doc(db, "Admins", userCredential.user.uid);
+			const adminDocSnap = await getDoc(adminDocRef);
 
-		if (!adminDocSnap.exists()) {
-			await signOut(auth);
-			throw { code: "auth/not-admin" };
-		}
+			if (!adminDocSnap.exists()) {
+				await signOut(auth);
+				throw { code: "auth/not-admin" };
+			}
 
-		if (adminDocSnap.data().activo === false) {
-			await signOut(auth);
-			throw { code: "auth/account-disabled" };
+			if (adminDocSnap.data().activo === false) {
+				await signOut(auth);
+				throw { code: "auth/account-disabled" };
+			}
+		} catch (error: any) {
+			if (
+				error.code !== "auth/not-admin" &&
+				error.code !== "auth/account-disabled"
+			) {
+				await signOut(auth);
+				throw { code: "auth/not-admin" };
+			}
+			throw error;
 		}
 	};
 
@@ -113,5 +138,4 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 	);
 }
 
-// Hook personalizado para usar este contexto fácilmente
 export const useAdminAuth = () => useContext(AdminAuthContext);

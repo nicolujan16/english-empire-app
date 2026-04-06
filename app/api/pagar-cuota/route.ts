@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Preference } from "mercadopago";
-import { db } from "@/lib/firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
+import { adminDb } from "@/lib/firebaseAdmin";
 import {
 	type Cuota,
 	calcularPrecioBase,
@@ -38,10 +37,10 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// Buscar la cuota en Firestore
-		const cuotaSnap = await getDoc(doc(db, "Cuotas", cuotaId));
+		const cuotaSnap = await adminDb.collection("Cuotas").doc(cuotaId).get();
 
-		if (!cuotaSnap.exists()) {
+		// 🚀 Ojo: en admin SDK, .exists es una propiedad (sin paréntesis)
+		if (!cuotaSnap.exists) {
 			return NextResponse.json(
 				{ error: "La cuota no existe." },
 				{ status: 404 },
@@ -74,9 +73,13 @@ export async function POST(request: Request) {
 			cuotaData.alumnoTipo === "menor" ||
 			cuotaData.alumnoTipo.toLowerCase() === "menor"
 		) {
-			const hijoSnap = await getDoc(doc(db, "Hijos", cuotaData.alumnoId));
-			if (hijoSnap.exists() && hijoSnap.data().tutorId) {
-				user_id_resuelto = hijoSnap.data().tutorId;
+			const hijoSnap = await adminDb
+				.collection("Hijos")
+				.doc(cuotaData.alumnoId)
+				.get();
+
+			if (hijoSnap.exists && hijoSnap.data()?.tutorId) {
+				user_id_resuelto = hijoSnap.data()?.tutorId;
 			}
 		}
 

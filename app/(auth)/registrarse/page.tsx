@@ -9,15 +9,7 @@ import "react-phone-number-input/style.css";
 import { Eye, EyeOff } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
-import {
-	collection,
-	query,
-	where,
-	getDocs,
-	addDoc,
-	updateDoc,
-	doc,
-} from "firebase/firestore";
+import { addDoc, updateDoc, doc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 
 interface HijoForm {
@@ -175,54 +167,23 @@ export default function RegisterPage() {
 		}
 
 		try {
-			const usersRef = collection(db, "Users");
 			const hijosRef = collection(db, "Hijos");
 
-			const dniQuery = query(usersRef, where("dni", "==", form.dni));
-			const dniSnapshot = await getDocs(dniQuery);
+			const validacion = await fetch("/api/validar-registro", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					dni: form.dni,
+					telefono: form.telefono,
+					hijosData: form.isTutor ? form.hijos : [],
+				}),
+			});
 
-			const dniHijosQuery = query(hijosRef, where("dni", "==", form.dni));
-			const dniHijosSnapshot = await getDocs(dniHijosQuery);
-
-			if (!dniSnapshot.empty || !dniHijosSnapshot.empty) {
-				setErrorMsg("Ya existe una cuenta registrada con el DNI del titular.");
+			if (!validacion.ok) {
+				const { error } = await validacion.json();
+				setErrorMsg(error);
 				setIsLoading(false);
 				return;
-			}
-
-			const phoneQuery = query(
-				usersRef,
-				where("telefono", "==", form.telefono),
-			);
-			const phoneSnapshot = await getDocs(phoneQuery);
-
-			if (!phoneSnapshot.empty) {
-				setErrorMsg("Este número de teléfono ya está asociado a otra cuenta.");
-				setIsLoading(false);
-				return;
-			}
-
-			if (form.isTutor && form.hijos.length > 0) {
-				for (const hijo of form.hijos) {
-					const hijoDniQuery = query(hijosRef, where("dni", "==", hijo.dni));
-					const hijoDniSnapshot = await getDocs(hijoDniQuery);
-
-					if (!hijoDniSnapshot.empty) {
-						setErrorMsg(
-							`El DNI ${hijo.dni} del alumno a cargo ya se encuentra registrado en el instituto.`,
-						);
-						setIsLoading(false);
-						return;
-					}
-
-					if (hijo.dni === form.dni) {
-						setErrorMsg(
-							`El DNI del alumno a cargo no puede ser igual al del titular.`,
-						);
-						setIsLoading(false);
-						return;
-					}
-				}
 			}
 
 			const userCredential = await register({

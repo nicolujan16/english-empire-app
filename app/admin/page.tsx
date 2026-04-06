@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useAdminAuth } from "@/context/AdminAuthContext";
+import { useRouter } from "next/navigation";
 import MetricsCard from "@/components/admin/MetricsCard";
 import {
 	Users,
@@ -12,6 +14,7 @@ import {
 	Scale,
 	Clock,
 	AlertTriangle,
+	CalendarDays,
 } from "lucide-react";
 import {
 	BarChart,
@@ -42,7 +45,29 @@ interface ChartData {
 	egresos: number;
 }
 
+const MESES_NOMBRES = [
+	"Ene",
+	"Feb",
+	"Mar",
+	"Abr",
+	"May",
+	"Jun",
+	"Jul",
+	"Ago",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dic",
+];
+
 export default function AdminDashboardPage() {
+	const router = useRouter();
+	const { adminUser, adminData, isLoading: authLoading } = useAdminAuth();
+
+	// 🚀 ESTADOS PARA EL FILTRO DE FECHA (Por defecto: mes y año actual)
+	const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+	const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+
 	const [isLoading, setIsLoading] = useState(true);
 	const [metrics, setMetrics] = useState({
 		totalAlumnos: 0,
@@ -55,30 +80,35 @@ export default function AdminDashboardPage() {
 	});
 	const [chartData, setChartData] = useState<ChartData[]>([]);
 
+	// 🚀 Años disponibles para el filtro (ej: desde 2024 hasta el año actual + 1)
+	const currentRealYear = new Date().getFullYear();
+	const yearsOptions = Array.from(
+		{ length: 5 },
+		(_, i) => currentRealYear - 2 + i,
+	);
+
 	useEffect(() => {
+		// 1. Candado de Autenticación
+		if (authLoading) return;
+		if (!adminUser || adminData?.rol !== "admin") {
+			if (adminData?.rol == "secretario") {
+				router.push("/admin/inscripciones");
+				return;
+			}
+			router.push("/admin-login");
+			return;
+		}
+
+		// 2. Carga de datos basada en los filtros
 		const fetchDashboardData = async () => {
 			try {
 				setIsLoading(true);
-				const today = new Date();
-				const currentYear = today.getFullYear();
-				const currentMonthIndex = today.getMonth();
 
-				const mesesNombres = [
-					"Ene",
-					"Feb",
-					"Mar",
-					"Abr",
-					"May",
-					"Jun",
-					"Jul",
-					"Ago",
-					"Sep",
-					"Oct",
-					"Nov",
-					"Dic",
-				];
+				// 🚀 Usamos los valores del filtro en lugar del Date actual
+				const currentYear = selectedYear;
+				const currentMonthIndex = selectedMonth;
 
-				const yearData: ChartData[] = mesesNombres.map((mes) => ({
+				const yearData: ChartData[] = MESES_NOMBRES.map((mes) => ({
 					mes,
 					inscripciones: 0,
 					ingresos: 0,
@@ -98,7 +128,7 @@ export default function AdminDashboardPage() {
 
 				// ── 3. Cuotas pagadas ──────────────────────────────────────────
 				const snapCuotas = await getDocs(
-					query(collection(db, "Cuotas"), where("estado", "==", "Pagado")), // ✅ capital P
+					query(collection(db, "Cuotas"), where("estado", "==", "Pagado")),
 				);
 
 				let ingresosMesActual = 0;
@@ -107,7 +137,7 @@ export default function AdminDashboardPage() {
 					const data = doc.data();
 					const mes: number = data.mes;
 					const anio: number = data.anio;
-					const monto: number = data.montoPagado ?? 0; // ✅ campo correcto
+					const monto: number = data.montoPagado ?? 0;
 
 					if (anio === currentYear) {
 						const mesIndex = mes - 1;
@@ -135,6 +165,7 @@ export default function AdminDashboardPage() {
 				snapPendientes.forEach((doc) => {
 					const data = doc.data();
 					cuotasPendientes++;
+					// Se considera atrasada si el mes de la cuota es menor al mes filtrado
 					if (data.mes < currentMonthIndex + 1) {
 						cuotasAtrasadas++;
 					}
@@ -227,9 +258,10 @@ export default function AdminDashboardPage() {
 		};
 
 		fetchDashboardData();
-	}, []);
+		// 🚀 Agregamos selectedYear y selectedMonth a las dependencias para que se dispare al cambiar
+	}, [authLoading, adminUser, adminData, router, selectedYear, selectedMonth]);
 
-	if (isLoading) {
+	if (authLoading || isLoading) {
 		return (
 			<div className="flex h-[70vh] items-center justify-center">
 				<Loader2 className="w-10 h-10 animate-spin text-[#252d62]" />
@@ -241,6 +273,45 @@ export default function AdminDashboardPage() {
 
 	return (
 		<div className="space-y-6">
+			{/* 🚀 FILTRO SUPERIOR */}
+			<div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+				<div>
+					<h2 className="text-xl font-bold text-[#1a237e]">
+						Resumen Financiero
+					</h2>
+					<p className="text-sm text-gray-500">
+						Métricas según el período seleccionado
+					</p>
+				</div>
+
+				<div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-lg border border-gray-200">
+					<CalendarDays className="w-4 h-4 text-gray-500 ml-2" />
+					<select
+						value={selectedMonth}
+						onChange={(e) => setSelectedMonth(Number(e.target.value))}
+						className="bg-transparent text-sm font-semibold text-[#252d62] outline-none cursor-pointer pl-1 pr-2 py-1"
+					>
+						{MESES_NOMBRES.map((mes, index) => (
+							<option key={mes} value={index}>
+								{mes}
+							</option>
+						))}
+					</select>
+					<span className="text-gray-300">|</span>
+					<select
+						value={selectedYear}
+						onChange={(e) => setSelectedYear(Number(e.target.value))}
+						className="bg-transparent text-sm font-semibold text-[#252d62] outline-none cursor-pointer pl-2 pr-2 py-1"
+					>
+						{yearsOptions.map((year) => (
+							<option key={year} value={year}>
+								{year}
+							</option>
+						))}
+					</select>
+				</div>
+			</div>
+
 			{/* ── Fila 1: métricas principales ── */}
 			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 				<MetricsCard
@@ -251,9 +322,9 @@ export default function AdminDashboardPage() {
 				/>
 				<MetricsCard
 					icon={UserPlus}
-					label="Inscripciones este mes"
+					label="Inscripciones del mes"
 					value={`+${metrics.nuevasInscripcionesMes}`}
-					trend="Alta de nuevos alumnos"
+					trend={`En ${MESES_NOMBRES[selectedMonth]}`}
 				/>
 				<MetricsCard
 					icon={BookOpen}
@@ -279,7 +350,7 @@ export default function AdminDashboardPage() {
 				>
 					<div className="flex items-center justify-between mb-3">
 						<p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-							Ingresos del mes
+							Ingresos ({MESES_NOMBRES[selectedMonth]})
 						</p>
 						<div className="bg-green-50 p-2 rounded-lg">
 							<TrendingUp className="w-4 h-4 text-green-600" />
@@ -301,7 +372,7 @@ export default function AdminDashboardPage() {
 				>
 					<div className="flex items-center justify-between mb-3">
 						<p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-							Egresos del mes
+							Egresos ({MESES_NOMBRES[selectedMonth]})
 						</p>
 						<div className="bg-red-50 p-2 rounded-lg">
 							<TrendingDown className="w-4 h-4 text-red-500" />
@@ -325,7 +396,7 @@ export default function AdminDashboardPage() {
 				>
 					<div className="flex items-center justify-between mb-3">
 						<p className="text-xs font-semibold text-white/70 uppercase tracking-wider">
-							Balance del mes
+							Balance de {MESES_NOMBRES[selectedMonth]}
 						</p>
 						<div className="bg-white/10 p-2 rounded-lg">
 							<Scale className="w-4 h-4 text-white" />
@@ -372,7 +443,7 @@ export default function AdminDashboardPage() {
 					className="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
 				>
 					<h3 className="text-lg font-bold text-[#252d62] mb-6">
-						Inscripciones por mes
+						Inscripciones en {selectedYear}
 					</h3>
 					<ResponsiveContainer width="100%" height={280}>
 						<BarChart data={chartData}>
@@ -411,7 +482,7 @@ export default function AdminDashboardPage() {
 					className="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
 				>
 					<h3 className="text-lg font-bold text-[#252d62] mb-6">
-						Ingresos vs Egresos (ARS)
+						Ingresos vs Egresos {selectedYear} (ARS)
 					</h3>
 					<ResponsiveContainer width="100%" height={280}>
 						<LineChart data={chartData}>

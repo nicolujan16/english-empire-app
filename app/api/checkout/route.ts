@@ -1,18 +1,7 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseConfig";
-import {
-	collection,
-	query,
-	where,
-	getDocs,
-	doc,
-	getDoc,
-} from "firebase/firestore";
-
-// 1. IMPORTAMOS MERCADO PAGO
+import { adminDb } from "@/lib/firebaseAdmin";
 import { MercadoPagoConfig, Preference } from "mercadopago";
 
-// 2. INICIALIZAMOS EL CLIENTE CON TU TOKEN
 const client = new MercadoPagoConfig({
 	accessToken: process.env.MP_ACCESS_TOKEN || "FALTA_TOKEN",
 });
@@ -35,30 +24,27 @@ export async function POST(request: Request) {
 		let etiquetasAlumno: string[] = [];
 
 		// --- VALIDACIONES DE NEGOCIO ---
-		const userRef = doc(db, "Users", userId);
-		const userSnap = await getDoc(userRef);
+		const userSnap = await adminDb.doc(`Users/${userId}`).get();
 
-		if (!userSnap.exists()) {
+		if (!userSnap.exists) {
 			return NextResponse.json(
 				{ error: "Usuario no encontrado." },
 				{ status: 404 },
 			);
 		}
 
-		const userData = userSnap.data();
+		const userData = userSnap.data()!;
 
 		if (userData.dni === alumnoDni) {
 			fechaNacimientoAlumno = userData.fechaNacimiento;
 			nombreAlumno = `${userData.nombre} ${userData.apellido}`;
-			etiquetasAlumno = userData.etiquetas || []; // Extraemos etiquetas del titular
+			etiquetasAlumno = userData.etiquetas || [];
 		} else {
-			const hijosRef = collection(db, "Hijos");
-			const qHijos = query(
-				hijosRef,
-				where("tutorId", "==", userId),
-				where("dni", "==", alumnoDni),
-			);
-			const hijosSnap = await getDocs(qHijos);
+			const hijosSnap = await adminDb
+				.collection("Hijos")
+				.where("tutorId", "==", userId)
+				.where("dni", "==", alumnoDni)
+				.get();
 
 			if (hijosSnap.empty) {
 				return NextResponse.json(
@@ -69,11 +55,12 @@ export async function POST(request: Request) {
 					{ status: 403 },
 				);
 			}
+
 			const hijoData = hijosSnap.docs[0].data();
 			fechaNacimientoAlumno = hijoData.fechaNacimiento;
 			nombreAlumno = `${hijoData.nombre} ${hijoData.apellido}`;
 			tipoAlumno = "Menor/A cargo";
-			etiquetasAlumno = hijoData.etiquetas || []; // Extraemos etiquetas del menor
+			etiquetasAlumno = hijoData.etiquetas || [];
 		}
 
 		if (!fechaNacimientoAlumno) {
@@ -86,17 +73,16 @@ export async function POST(request: Request) {
 			);
 		}
 
-		const cursoRef = doc(db, "Cursos", cursoId);
-		const cursoSnap = await getDoc(cursoRef);
+		const cursoSnap = await adminDb.doc(`Cursos/${cursoId}`).get();
 
-		if (!cursoSnap.exists()) {
+		if (!cursoSnap.exists) {
 			return NextResponse.json(
 				{ error: "El curso solicitado no existe." },
 				{ status: 404 },
 			);
 		}
 
-		const cursoData = cursoSnap.data();
+		const cursoData = cursoSnap.data()!;
 
 		if (cursoData.active === false) {
 			return NextResponse.json(
@@ -137,14 +123,11 @@ export async function POST(request: Request) {
 			);
 		}
 
-		const inscripcionesRef = collection(db, "Inscripciones");
-		const qInscripciones = query(
-			inscripcionesRef,
-			where("alumnoDni", "==", alumnoDni),
-			where("status", "in", ["Confirmado", "Pendiente"]),
-		);
-
-		const inscripcionesSnap = await getDocs(qInscripciones);
+		const inscripcionesSnap = await adminDb
+			.collection("Inscripciones")
+			.where("alumnoDni", "==", alumnoDni)
+			.where("status", "in", ["Confirmado", "Pendiente"])
+			.get();
 
 		if (!inscripcionesSnap.empty) {
 			const inscripcionExistente = inscripcionesSnap.docs[0].data();
@@ -162,17 +145,17 @@ export async function POST(request: Request) {
 
 		if (etiquetasAlumno.length > 0) {
 			const promesasEtiquetas = etiquetasAlumno.map((idEtiqueta) =>
-				getDoc(doc(db, "EtiquetasDescuento", idEtiqueta)),
+				adminDb.doc(`EtiquetasDescuento/${idEtiqueta}`).get(),
 			);
 
 			const snapsEtiquetas = await Promise.all(promesasEtiquetas);
 
 			snapsEtiquetas.forEach((snap) => {
-				if (snap.exists()) {
-					const dataEtiqueta = snap.data();
+				if (snap.exists) {
+					const dataEtiqueta = snap.data()!;
 					if (dataEtiqueta.descuentoInscripcion > maxDescuentoPorcentaje) {
 						maxDescuentoPorcentaje = dataEtiqueta.descuentoInscripcion;
-						nombreDescuentoAplicado = dataEtiqueta.nombre; // Si hay, se pisa con el string real
+						nombreDescuentoAplicado = dataEtiqueta.nombre;
 					}
 				}
 			});
@@ -188,7 +171,6 @@ export async function POST(request: Request) {
 		}
 
 		// CREACIÓN DE LA PREFERENCIA EN MERCADO PAGO
-
 		const itemTitle =
 			maxDescuentoPorcentaje > 0
 				? `Inscripción: ${cursoData.nombre} (Desc. ${maxDescuentoPorcentaje}%)`
@@ -214,7 +196,6 @@ export async function POST(request: Request) {
 					pending: `${process.env.NEXT_PUBLIC_APP_URL}?pago=pendiente`,
 				},
 				auto_return: "approved",
-
 				metadata: {
 					user_id: userId,
 					alumno_dni: alumnoDni,

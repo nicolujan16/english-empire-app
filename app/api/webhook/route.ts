@@ -1,19 +1,7 @@
 import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
-import { db } from "@/lib/firebaseConfig";
-import {
-	doc,
-	getDoc,
-	getDocs,
-	setDoc,
-	addDoc,
-	updateDoc,
-	arrayUnion,
-	collection,
-	query,
-	where,
-	serverTimestamp,
-} from "firebase/firestore";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
 
 import { enviarCorreoInscripcion } from "@/lib/services/emailServices";
 
@@ -40,29 +28,35 @@ async function detectarDescuentoGrupoFamiliar(
 		let miembrosConCurso = 0;
 
 		if (tipoAlumno === "adulto") {
-			const userSnap = await getDoc(doc(db, "Users", alumnoId));
-			if (userSnap.exists() && (userSnap.data().cursos ?? []).length > 0) {
+			const userSnap = await adminDb.collection("Users").doc(alumnoId).get();
+			if (userSnap.exists && (userSnap.data()?.cursos ?? []).length > 0) {
 				miembrosConCurso++;
 			}
 
-			const hijosSnap = await getDocs(
-				query(collection(db, "Hijos"), where("tutorId", "==", alumnoId)),
-			);
+			const hijosSnap = await adminDb
+				.collection("Hijos")
+				.where("tutorId", "==", alumnoId)
+				.get();
+
 			for (const h of hijosSnap.docs) {
 				if ((h.data().cursos ?? []).length > 0) miembrosConCurso++;
 			}
 		} else {
-			const hijoSnap = await getDoc(doc(db, "Hijos", alumnoId));
-			if (hijoSnap.exists()) tutorId = hijoSnap.data().tutorId ?? alumnoId;
+			const hijoSnap = await adminDb.collection("Hijos").doc(alumnoId).get();
+			if (hijoSnap.exists) {
+				tutorId = hijoSnap.data()?.tutorId ?? alumnoId;
+			}
 
-			const tutorSnap = await getDoc(doc(db, "Users", tutorId));
-			if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
+			const tutorSnap = await adminDb.collection("Users").doc(tutorId).get();
+			if (tutorSnap.exists && (tutorSnap.data()?.cursos ?? []).length > 0) {
 				miembrosConCurso++;
 			}
 
-			const hijosSnap = await getDocs(
-				query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
-			);
+			const hijosSnap = await adminDb
+				.collection("Hijos")
+				.where("tutorId", "==", tutorId)
+				.get();
+
 			for (const h of hijosSnap.docs) {
 				if ((h.data().cursos ?? []).length > 0) miembrosConCurso++;
 			}
@@ -91,20 +85,24 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 	const alumnoIdsGrupo: string[] = [];
 
 	if (tipoAlumno === "adulto") {
-		const hijosSnap = await getDocs(
-			query(collection(db, "Hijos"), where("tutorId", "==", alumnoId)),
-		);
+		const hijosSnap = await adminDb
+			.collection("Hijos")
+			.where("tutorId", "==", alumnoId)
+			.get();
+
 		for (const h of hijosSnap.docs) {
 			if ((h.data().cursos ?? []).length > 0) alumnoIdsGrupo.push(h.id);
 		}
 	} else {
-		const tutorSnap = await getDoc(doc(db, "Users", tutorId));
-		if (tutorSnap.exists() && (tutorSnap.data().cursos ?? []).length > 0) {
+		const tutorSnap = await adminDb.collection("Users").doc(tutorId).get();
+		if (tutorSnap.exists && (tutorSnap.data()?.cursos ?? []).length > 0) {
 			alumnoIdsGrupo.push(tutorId);
 		}
-		const hijosSnap = await getDocs(
-			query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
-		);
+		const hijosSnap = await adminDb
+			.collection("Hijos")
+			.where("tutorId", "==", tutorId)
+			.get();
+
 		for (const h of hijosSnap.docs) {
 			if (h.id !== alumnoId && (h.data().cursos ?? []).length > 0) {
 				alumnoIdsGrupo.push(h.id);
@@ -117,15 +115,13 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 	const DESCUENTO_GF = [{ porcentaje: 10, detalle: "Grupo Familiar" }];
 
 	for (const miembroId of alumnoIdsGrupo) {
-		const cuotaMesActualSnap = await getDocs(
-			query(
-				collection(db, "Cuotas"),
-				where("alumnoId", "==", miembroId),
-				where("mes", "==", mesActual),
-				where("anio", "==", anioActual),
-				where("estado", "==", "Pendiente"),
-			),
-		);
+		const cuotaMesActualSnap = await adminDb
+			.collection("Cuotas")
+			.where("alumnoId", "==", miembroId)
+			.where("mes", "==", mesActual)
+			.where("anio", "==", anioActual)
+			.where("estado", "==", "Pendiente")
+			.get();
 
 		for (const cuotaDoc of cuotaMesActualSnap.docs) {
 			const data = cuotaDoc.data();
@@ -139,22 +135,23 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 			)
 				continue;
 
-			await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
-				descuentos: [...descActuales, ...DESCUENTO_GF],
-				actualizadoEn: serverTimestamp(),
-			});
+			await adminDb
+				.collection("Cuotas")
+				.doc(cuotaDoc.id)
+				.update({
+					descuentos: [...descActuales, ...DESCUENTO_GF],
+					actualizadoEn: FieldValue.serverTimestamp(),
+				});
 			console.log(
 				`✅ Descuento GF aplicado a cuota primer mes — alumno: ${miembroId} | ${mesActual}/${anioActual}`,
 			);
 		}
 
-		const cuotasFuturasSnap = await getDocs(
-			query(
-				collection(db, "Cuotas"),
-				where("alumnoId", "==", miembroId),
-				where("estado", "==", "Pendiente"),
-			),
-		);
+		const cuotasFuturasSnap = await adminDb
+			.collection("Cuotas")
+			.where("alumnoId", "==", miembroId)
+			.where("estado", "==", "Pendiente")
+			.get();
 
 		for (const cuotaDoc of cuotasFuturasSnap.docs) {
 			const data = cuotaDoc.data();
@@ -174,10 +171,13 @@ async function aplicarDescuentoAlRestoDeLaFamilia(
 			)
 				continue;
 
-			await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
-				descuentos: [...descActuales, ...DESCUENTO_GF],
-				actualizadoEn: serverTimestamp(),
-			});
+			await adminDb
+				.collection("Cuotas")
+				.doc(cuotaDoc.id)
+				.update({
+					descuentos: [...descActuales, ...DESCUENTO_GF],
+					actualizadoEn: FieldValue.serverTimestamp(),
+				});
 			console.log(
 				`✅ Descuento GF aplicado a cuota futura — alumno: ${miembroId} | ${data.mes}/${data.anio}`,
 			);
@@ -230,8 +230,11 @@ export async function POST(request: Request) {
 						};
 
 						const inscripcionId = `MP_${paymentId}`;
-						const inscripcionRef = doc(db, "Inscripciones", inscripcionId);
-						await setDoc(inscripcionRef, nuevaInscripcion);
+						await adminDb
+							.collection("Inscripciones")
+							.doc(inscripcionId)
+							.set(nuevaInscripcion);
+
 						console.log("✅ INSCRIPCIÓN GUARDADA:", inscripcionId);
 
 						// ── 2. Agregar el curso al array del alumno ───────────────────
@@ -240,16 +243,22 @@ export async function POST(request: Request) {
 
 						try {
 							if (alumnoTipo === "adulto") {
-								await updateDoc(doc(db, "Users", metadata.user_id), {
-									cursos: arrayUnion(metadata.curso_id),
-								});
+								await adminDb
+									.collection("Users")
+									.doc(metadata.user_id)
+									.update({
+										cursos: FieldValue.arrayUnion(metadata.curso_id),
+									});
 								console.log(
 									`✅ CURSO ${metadata.curso_id} AGREGADO AL TITULAR`,
 								);
 							} else {
-								await updateDoc(doc(db, "Hijos", metadata.alumno_id), {
-									cursos: arrayUnion(metadata.curso_id),
-								});
+								await adminDb
+									.collection("Hijos")
+									.doc(metadata.alumno_id)
+									.update({
+										cursos: FieldValue.arrayUnion(metadata.curso_id),
+									});
 								console.log(`✅ CURSO ${metadata.curso_id} AGREGADO AL HIJO`);
 							}
 						} catch (updateError) {
@@ -293,20 +302,21 @@ export async function POST(request: Request) {
 
 						// ── 4. Crear cuotas ───────────────────────────────────────────
 						try {
-							const cursoSnap = await getDoc(
-								doc(db, "Cursos", metadata.curso_id),
-							);
+							const cursoSnap = await adminDb
+								.collection("Cursos")
+								.doc(metadata.curso_id)
+								.get();
 
-							if (!cursoSnap.exists()) {
+							if (!cursoSnap.exists) {
 								console.error(
 									`❌ No se encontró el curso ${metadata.curso_id} para crear la cuota.`,
 								);
 							} else {
 								const cursoData = cursoSnap.data();
-								const cuota1a10: number = cursoData.cuota1a10 ?? 0;
+								const cuota1a10: number = cursoData?.cuota1a10 ?? 0;
 								const cuota11enAdelante: number =
-									cursoData.cuota11enAdelante ?? 0;
-								const finMes: number = cursoData.finMes ?? 12;
+									cursoData?.cuota11enAdelante ?? 0;
+								const finMes: number = cursoData?.finMes ?? 12;
 
 								const hoy = new Date();
 								const dia = hoy.getDate();
@@ -330,14 +340,14 @@ export async function POST(request: Request) {
 								};
 
 								// ── 4a. Cuota del mes actual
-								await addDoc(collection(db, "Cuotas"), {
+								await adminDb.collection("Cuotas").add({
 									...datosComunesAlumno,
 									mes: hoy.getMonth() + 1,
 									anio: hoy.getFullYear(),
 									esPrimerMes: true,
 									montoPrimerMes,
-									creadoEn: serverTimestamp(),
-									actualizadoEn: serverTimestamp(),
+									creadoEn: FieldValue.serverTimestamp(),
+									actualizadoEn: FieldValue.serverTimestamp(),
 								});
 								console.log(
 									`✅ PRIMERA CUOTA CREADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Monto: $${montoPrimerMes}${grupoFamiliarAplica ? " (con 10% Grupo Familiar)" : ""}`,
@@ -354,14 +364,14 @@ export async function POST(request: Request) {
 									const anioSiguiente = fechaSiguiente.getFullYear();
 
 									if (mesSiguiente <= finMes) {
-										await addDoc(collection(db, "Cuotas"), {
+										await adminDb.collection("Cuotas").add({
 											...datosComunesAlumno,
 											mes: mesSiguiente,
 											anio: anioSiguiente,
 											esPrimerMes: false,
 											montoPrimerMes: null,
-											creadoEn: serverTimestamp(),
-											actualizadoEn: serverTimestamp(),
+											creadoEn: FieldValue.serverTimestamp(),
+											actualizadoEn: FieldValue.serverTimestamp(),
 										});
 										console.log(
 											`✅ CUOTA ADICIONAL CREADA — ${mesSiguiente}/${anioSiguiente} (inscripción post-CF)`,
@@ -376,10 +386,13 @@ export async function POST(request: Request) {
 						// ── 5. ENVIAR CORREO DE CONFIRMACIÓN ────────────────────
 						try {
 							let emailDestino = "";
-							const userSnap = await getDoc(doc(db, "Users", metadata.user_id));
+							const userSnap = await adminDb
+								.collection("Users")
+								.doc(metadata.user_id)
+								.get();
 
-							if (userSnap.exists() && userSnap.data().email) {
-								emailDestino = userSnap.data().email;
+							if (userSnap.exists && userSnap.data()?.email) {
+								emailDestino = userSnap.data()?.email;
 							}
 
 							if (emailDestino) {

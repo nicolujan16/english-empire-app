@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
-import { db } from "@/lib/firebaseConfig";
-import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
 import { enviarCorreoCuota } from "@/lib/services/emailServices";
 
 const client = new MercadoPagoConfig({
@@ -37,16 +37,36 @@ export async function POST(request: Request) {
 					return NextResponse.json({ success: true }, { status: 200 });
 				}
 
-				const cuotaRef = doc(db, "Cuotas", metadata.cuota_id);
+				const cuotaSnap = await adminDb
+					.collection("Cuotas")
+					.doc(metadata.cuota_id)
+					.get();
 
-				await updateDoc(cuotaRef, {
-					estado: "Pagado",
-					montoPagado: metadata.monto_final,
-					fechaPago: new Date().toLocaleDateString("es-AR"),
-					metodoPago: "Mercado Pago",
-					paymentId: String(paymentId),
-					actualizadoEn: serverTimestamp(),
-				});
+				if (!cuotaSnap.exists) {
+					console.error("❌ La cuota no existe en la base de datos.");
+					return NextResponse.json({ success: true }, { status: 200 });
+				}
+
+				if (cuotaSnap.data()?.estado === "Pagado") {
+					console.log(
+						`⚠️ PAGO DUPLICADO IGNORADO: La cuota ${metadata.cuota_id} ya figura como Pagada.`,
+					);
+					return NextResponse.json(
+						{ success: true, message: "Already processed" },
+						{ status: 200 },
+					);
+				}
+				await adminDb
+					.collection("Cuotas")
+					.doc(metadata.cuota_id)
+					.update({
+						estado: "Pagado",
+						montoPagado: metadata.monto_final,
+						fechaPago: new Date().toLocaleDateString("es-AR"),
+						metodoPago: "Mercado Pago",
+						paymentId: String(paymentId),
+						actualizadoEn: FieldValue.serverTimestamp(),
+					});
 
 				console.log(
 					`✅ CUOTA ${metadata.cuota_id} MARCADA COMO PAGADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Mes ${metadata.mes}/${metadata.anio} | Base: $${metadata.monto_base} | Final: $${metadata.monto_final}`,
@@ -56,9 +76,12 @@ export async function POST(request: Request) {
 					let emailDestino = "";
 
 					if (metadata.user_id) {
-						const userSnap = await getDoc(doc(db, "Users", metadata.user_id));
-						if (userSnap.exists() && userSnap.data().email) {
-							emailDestino = userSnap.data().email;
+						const userSnap = await adminDb
+							.collection("Users")
+							.doc(metadata.user_id)
+							.get();
+						if (userSnap.exists && userSnap.data()?.email) {
+							emailDestino = userSnap.data()?.email;
 						}
 					}
 

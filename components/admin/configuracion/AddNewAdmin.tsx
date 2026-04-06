@@ -216,8 +216,8 @@ export default function AddNewAdmin({ isOpen, onClose }: AddNewPersonalProps) {
 								</div>
 								<p className="text-xs text-gray-400 mt-2">
 									{rol === "admin"
-										? "Acceso total al panel, incluyendo creación de cuentas."
-										: "Acceso a gestión diaria. No puede crear ni eliminar cuentas."}
+										? "Acceso total al panel de administración."
+										: "Acceso a gestión diaria. No incluye sección de Resumen, Cursos y Personal."}
 								</p>
 							</div>
 
