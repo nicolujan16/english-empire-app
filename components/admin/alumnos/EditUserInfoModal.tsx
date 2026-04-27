@@ -348,15 +348,61 @@ export default function EditUserInfoModal({
 		if (!student) return;
 		const etiquetasArray = [...etiquetasSeleccionadas];
 		const colName = student.tipo === "Titular" ? "Users" : "Hijos";
+		
 		await updateDoc(doc(db, colName, student.id), {
 			etiquetas: etiquetasArray,
 		});
+
+		await actualizarCuotasFuturasPorEtiquetas(student.id, etiquetasArray);
+
 		if (student.isTutor && aplicarAHijos && hijosIds.length > 0) {
 			await Promise.all(
 				hijosIds.map((hijoId) =>
 					updateDoc(doc(db, "Hijos", hijoId), { etiquetas: etiquetasArray }),
 				),
 			);
+			await Promise.all(
+				hijosIds.map((hijoId) =>
+					actualizarCuotasFuturasPorEtiquetas(hijoId, etiquetasArray)
+				)
+			);
+		}
+	};
+
+	const actualizarCuotasFuturasPorEtiquetas = async (alumnoId: string, nuevasEtiquetasIds: string[]) => {
+		const nuevosDescuentosEtiqueta = nuevasEtiquetasIds
+			.map(id => etiquetasDisponibles.find(e => e.id === id))
+			.filter(e => e && e.descuentoCuota && e.descuentoCuota > 0)
+			.map(e => ({
+				detalle: e!.nombre,
+				porcentaje: e!.descuentoCuota,
+			}));
+
+		const cuotasSnap = await getDocs(
+			query(
+				collection(db, "Cuotas"),
+				where("alumnoId", "==", alumnoId),
+				where("estado", "==", "Pendiente")
+			)
+		);
+
+		for (const cuotaDoc of cuotasSnap.docs) {
+			const data = cuotaDoc.data();
+			if (esCuotaFutura(data.mes, data.anio)) {
+				const descuentosActuales = data.descuentos || [];
+				
+				const descuentoGF = descuentosActuales.find((d: any) => d.detalle === "Grupo Familiar");
+				
+				const nuevosDescuentos = [...nuevosDescuentosEtiqueta];
+				if (descuentoGF) {
+					nuevosDescuentos.push(descuentoGF);
+				}
+
+				await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
+					descuentos: nuevosDescuentos,
+					actualizadoEn: serverTimestamp(),
+				});
+			}
 		}
 	};
 

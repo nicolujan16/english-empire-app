@@ -45,3 +45,11 @@ next-env.d.ts
 
 # function env
 functions/.env
+
+
+#md files
+Manual.md
+db.md
+
+#firebase rules
+firebaserules.txt

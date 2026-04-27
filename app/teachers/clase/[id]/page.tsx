@@ -17,6 +17,9 @@ import {
 	Trash2,
 	AlertTriangle,
 	FileText,
+	X,
+	UserPlus,
+	Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -94,6 +97,14 @@ export default function TomarAsistenciaPage() {
 	const [isAbsenceAlertOpen, setIsAbsenceAlertOpen] = useState(false);
 	const [alumnosEnRiesgo, setAlumnosEnRiesgo] = useState<AlumnoRiesgo[]>([]);
 
+	// ── Estados para eliminar alumno ─────────────────────────────────────────
+	const [alumnoAEliminar, setAlumnoAEliminar] = useState<AsistenciaRecord | null>(null);
+
+	// ── Estados para agregar alumno por DNI ──────────────────────────────────
+	const [dniAgregar, setDniAgregar] = useState("");
+	const [isAddingAlumno, setIsAddingAlumno] = useState(false);
+	const [errorAgregar, setErrorAgregar] = useState<string | null>(null);
+
 	useEffect(() => {
 		const unsubscribe = onAuthStateChanged(auth, async (user) => {
 			if (user) {
@@ -121,6 +132,7 @@ export default function TomarAsistenciaPage() {
 			const dataClase = claseSnap.data();
 			const cursoId = dataClase.cursoId;
 			const asistenciaGuardada: AsistenciaRecord[] = dataClase.asistencia || [];
+			const alumnoIdsSnapshot: string[] | undefined = dataClase.alumnoIdsSnapshot;
 
 			const dbHora =
 				dataClase.horaFormateada ||
@@ -145,28 +157,48 @@ export default function TomarAsistenciaPage() {
 				fechaIso: dataClase.fechaIso || new Date().toISOString(),
 			});
 
-			const qUsers = query(
-				collection(db, "Users"),
-				where("cursos", "array-contains", cursoId),
-			);
-			const qHijos = query(
-				collection(db, "Hijos"),
-				where("cursos", "array-contains", cursoId),
-			);
-
-			const [usersSnap, hijosSnap] = await Promise.all([
-				getDocs(qUsers),
-				getDocs(qHijos),
-			]);
-
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const activeStudents: any[] = [];
-			usersSnap.forEach((d) =>
-				activeStudents.push({ id: d.id, tipo: "Titular", ...d.data() }),
-			);
-			hijosSnap.forEach((d) =>
-				activeStudents.push({ id: d.id, tipo: "Menor", ...d.data() }),
-			);
+			let activeStudents: any[] = [];
+
+			if (alumnoIdsSnapshot && alumnoIdsSnapshot.length > 0) {
+				// ── NUEVO: usar el snapshot guardado al crear la clase ────────────
+				const userFetches = alumnoIdsSnapshot.map(async (id) => {
+					// Intentamos primero en Users, luego en Hijos
+					const userSnap = await getDoc(doc(db, "Users", id));
+					if (userSnap.exists()) {
+						return { id, tipo: "Titular", ...userSnap.data() };
+					}
+					const hijoSnap = await getDoc(doc(db, "Hijos", id));
+					if (hijoSnap.exists()) {
+						return { id, tipo: "Menor", ...hijoSnap.data() };
+					}
+					return null;
+				});
+				const results = await Promise.all(userFetches);
+				activeStudents = results.filter(Boolean);
+				// ─────────────────────────────────────────────────────────────────
+			} else {
+				// ── FALLBACK: comportamiento anterior para clases sin snapshot ────
+				const qUsers = query(
+					collection(db, "Users"),
+					where("cursos", "array-contains", cursoId),
+				);
+				const qHijos = query(
+					collection(db, "Hijos"),
+					where("cursos", "array-contains", cursoId),
+				);
+				const [usersSnap, hijosSnap] = await Promise.all([
+					getDocs(qUsers),
+					getDocs(qHijos),
+				]);
+				usersSnap.forEach((d) =>
+					activeStudents.push({ id: d.id, tipo: "Titular", ...d.data() }),
+				);
+				hijosSnap.forEach((d) =>
+					activeStudents.push({ id: d.id, tipo: "Menor", ...d.data() }),
+				);
+				// ─────────────────────────────────────────────────────────────────
+			}
 
 			const currentRecords: AsistenciaRecord[] = activeStudents.map(
 				(student) => {
@@ -219,6 +251,73 @@ export default function TomarAsistenciaPage() {
 			),
 		);
 		setShowSuccess(false);
+	};
+
+	const handleConfirmarEliminar = () => {
+		if (!alumnoAEliminar) return;
+		setAsistencia((prev) =>
+			prev.filter((a) => a.alumnoId !== alumnoAEliminar.alumnoId),
+		);
+		setAlumnoAEliminar(null);
+		setShowSuccess(false);
+	};
+
+	const handleAgregarPorDni = async () => {
+		const dni = dniAgregar.trim();
+		if (!dni) return;
+		if (asistencia.some((a) => a.dni === dni)) {
+			setErrorAgregar("El alumno con ese DNI ya está en la lista.");
+			return;
+		}
+		setIsAddingAlumno(true);
+		setErrorAgregar(null);
+		try {
+			// Buscar en Users
+			const qUsers = query(collection(db, "Users"), where("dni", "==", dni));
+			const qHijos = query(collection(db, "Hijos"), where("dni", "==", dni));
+			const [usersSnap, hijosSnap] = await Promise.all([getDocs(qUsers), getDocs(qHijos)]);
+
+			let found: AsistenciaRecord | null = null;
+			if (!usersSnap.empty) {
+				const d = usersSnap.docs[0];
+				const data = d.data();
+				found = {
+					alumnoId: d.id,
+					nombre: `${data.nombre} ${data.apellido}`.trim(),
+					dni: data.dni || dni,
+					tipo: "Titular",
+					estado: "Presente",
+					emailDestino: data.email,
+				};
+			} else if (!hijosSnap.empty) {
+				const d = hijosSnap.docs[0];
+				const data = d.data();
+				found = {
+					alumnoId: d.id,
+					nombre: `${data.nombre} ${data.apellido}`.trim(),
+					dni: data.dni || dni,
+					tipo: "Menor",
+					estado: "Presente",
+					emailDestino: data.datosTutor?.email,
+				};
+			}
+
+			if (!found) {
+				setErrorAgregar("No se encontró ningún alumno con ese DNI.");
+				return;
+			}
+
+			setAsistencia((prev) =>
+				[...prev, found!].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+			);
+			setDniAgregar("");
+			setShowSuccess(false);
+		} catch (err) {
+			console.error(err);
+			setErrorAgregar("Error al buscar el alumno.");
+		} finally {
+			setIsAddingAlumno(false);
+		}
 	};
 
 	const handleGuardar = async () => {
@@ -423,12 +522,44 @@ export default function TomarAsistenciaPage() {
 					</div>
 				</div>
 
+				{/* Agregar alumno por DNI */}
+				<div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+					<p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+						<UserPlus className="w-3.5 h-3.5" /> Agregar alumno a la planilla
+					</p>
+					<div className="flex gap-2">
+						<div className="relative flex-1">
+							<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+							<input
+								type="text"
+								value={dniAgregar}
+								onChange={(e) => { setDniAgregar(e.target.value); setErrorAgregar(null); }}
+								onKeyDown={(e) => e.key === "Enter" && handleAgregarPorDni()}
+								placeholder="Buscar por DNI..."
+								className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4338ca]/20 focus:border-[#4338ca] transition-all"
+							/>
+						</div>
+						<Button
+							onClick={handleAgregarPorDni}
+							disabled={!dniAgregar.trim() || isAddingAlumno}
+							className="bg-[#4338ca] hover:bg-[#3730a3] text-white font-bold px-4 rounded-lg disabled:opacity-50"
+						>
+							{isAddingAlumno ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+						</Button>
+					</div>
+					{errorAgregar && (
+						<p className="text-xs text-red-600 font-semibold mt-2 flex items-center gap-1">
+							<AlertTriangle className="w-3.5 h-3.5" /> {errorAgregar}
+						</p>
+					)}
+				</div>
+
 				{/* Lista de Alumnos */}
 				<div className="space-y-3">
 					{asistencia.length === 0 ? (
 						<div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center">
 							<p className="text-gray-500 font-medium">
-								No hay alumnos inscritos en este curso.
+								No hay alumnos en la planilla. Agregá uno por DNI.
 							</p>
 						</div>
 					) : (
@@ -437,12 +568,12 @@ export default function TomarAsistenciaPage() {
 								key={alumno.alumnoId}
 								className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
 							>
-								<div className="flex items-center gap-3">
+								<div className="flex items-center gap-3 flex-1 min-w-0">
 									<div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-[#4338ca] font-bold shrink-0">
 										{alumno.nombre.charAt(0).toUpperCase()}
 									</div>
-									<div>
-										<p className="font-bold text-gray-900 leading-tight">
+									<div className="min-w-0">
+										<p className="font-bold text-gray-900 leading-tight truncate">
 											{alumno.nombre}
 										</p>
 										<p className="text-xs text-gray-500 mt-0.5">
@@ -451,40 +582,51 @@ export default function TomarAsistenciaPage() {
 									</div>
 								</div>
 
-								<div className="flex items-center w-full md:w-auto bg-gray-100 p-1 rounded-lg">
+								<div className="flex items-center gap-2 w-full md:w-auto">
+									<div className="flex items-center flex-1 md:flex-none bg-gray-100 p-1 rounded-lg">
+										<button
+											onClick={() =>
+												handleToggleEstado(alumno.alumnoId, "Presente")
+											}
+											className={`flex-1 md:w-28 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
+												alumno.estado === "Presente"
+													? "bg-white text-green-700 shadow-sm ring-1 ring-green-500/50"
+													: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+											}`}
+										>
+											<UserCheck className="w-3.5 h-3.5" /> Presente
+										</button>
+										<button
+											onClick={() => handleToggleEstado(alumno.alumnoId, "Tarde")}
+											className={`flex-1 md:w-24 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
+												alumno.estado === "Tarde"
+													? "bg-white text-amber-600 shadow-sm ring-1 ring-amber-500/50"
+													: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+											}`}
+										>
+											<Clock className="w-3.5 h-3.5" /> Tarde
+										</button>
+										<button
+											onClick={() =>
+												handleToggleEstado(alumno.alumnoId, "Ausente")
+											}
+											className={`flex-1 md:w-28 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
+												alumno.estado === "Ausente"
+													? "bg-white text-red-600 shadow-sm ring-1 ring-red-500/50"
+													: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+											}`}
+										>
+											<UserX className="w-3.5 h-3.5" /> Ausente
+										</button>
+									</div>
+
+									{/* Botón eliminar alumno */}
 									<button
-										onClick={() =>
-											handleToggleEstado(alumno.alumnoId, "Presente")
-										}
-										className={`flex-1 md:w-28 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
-											alumno.estado === "Presente"
-												? "bg-white text-green-700 shadow-sm ring-1 ring-green-500/50"
-												: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
-										}`}
+										onClick={() => setAlumnoAEliminar(alumno)}
+										className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+										title="Quitar de la planilla"
 									>
-										<UserCheck className="w-3.5 h-3.5" /> Presente
-									</button>
-									<button
-										onClick={() => handleToggleEstado(alumno.alumnoId, "Tarde")}
-										className={`flex-1 md:w-24 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
-											alumno.estado === "Tarde"
-												? "bg-white text-amber-600 shadow-sm ring-1 ring-amber-500/50"
-												: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
-										}`}
-									>
-										<Clock className="w-3.5 h-3.5" /> Tarde
-									</button>
-									<button
-										onClick={() =>
-											handleToggleEstado(alumno.alumnoId, "Ausente")
-										}
-										className={`flex-1 md:w-28 flex justify-center items-center gap-1.5 py-2 px-2 text-xs font-bold rounded-md transition-all ${
-											alumno.estado === "Ausente"
-												? "bg-white text-red-600 shadow-sm ring-1 ring-red-500/50"
-												: "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
-										}`}
-									>
-										<UserX className="w-3.5 h-3.5" /> Ausente
+										<X className="w-4 h-4" />
 									</button>
 								</div>
 							</div>
@@ -535,6 +677,44 @@ export default function TomarAsistenciaPage() {
 				cursoNombre={metadata.cursoNombre}
 				onSuccess={handleAlertSuccess}
 			/>
+
+			{/* Modal: Confirmar eliminar alumno de la planilla */}
+			<Dialog open={!!alumnoAEliminar} onOpenChange={(open) => !open && setAlumnoAEliminar(null)}>
+				<DialogContent className="sm:max-w-[420px] rounded-xl z-50">
+					<DialogHeader>
+						<div className="flex items-center gap-3 mb-2">
+							<div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+								<AlertTriangle className="w-5 h-5 text-orange-600" />
+							</div>
+							<DialogTitle className="text-lg text-gray-900">
+								Quitar alumno de la planilla
+							</DialogTitle>
+						</div>
+						<DialogDescription className="text-gray-600 text-sm mt-2">
+							¿Segús que querés eliminar a{" "}
+							<strong className="text-gray-900">{alumnoAEliminar?.nombre}</strong>
+							{" "}de la planilla de asistencia?
+							<br /><br />
+							Esto no elimina al alumno del curso, solo lo quita de este registro.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter className="mt-4 gap-2 sm:gap-0">
+						<Button
+							variant="outline"
+							onClick={() => setAlumnoAEliminar(null)}
+							className="border-gray-300 text-gray-700 hover:bg-gray-50"
+						>
+							Cancelar
+						</Button>
+						<Button
+							onClick={handleConfirmarEliminar}
+							className="bg-orange-600 hover:bg-orange-700 text-white"
+						>
+							Sí, quitar
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 
 			{/* Modal de Confirmación de Borrado */}
 			<Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

@@ -158,6 +158,7 @@ export default function RegistrarEgresoModal({
 				metodoPago: metodoPago,
 				fecha: new Date(fecha + "T12:00:00"),
 				registradoPor: adminData?.nombre || adminData?.email || "Admin",
+				registradoPorId: adminData?.uid || null,
 				creadoEn: serverTimestamp(),
 			});
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 
 // --- IMPORTACIONES DE FIREBASE ---
 import { addDoc, updateDoc, doc, collection } from "firebase/firestore";
@@ -114,6 +114,13 @@ export default function RegisterPage() {
 				...form.hijos,
 				{ nombre: "", apellido: "", dni: "", fechaNacimiento: "" },
 			],
+		});
+	};
+
+	const eliminarHijo = (indexToRemove: number) => {
+		setForm({
+			...form,
+			hijos: form.hijos.filter((_, index) => index !== indexToRemove),
 		});
 	};
 
@@ -422,10 +429,22 @@ export default function RegisterPage() {
 									key={index}
 									className="flex flex-col gap-3 pt-3 border-t border-gray-200 mt-1"
 								>
-									<p className="text-sm font-bold text-[#EE1120] m-0">
-										Datos del Alumno{" "}
-										{form.hijos.length > 1 ? `#${index + 1}` : ""}
-									</p>
+									<div className="flex justify-between items-center">
+										<p className="text-sm font-bold text-[#EE1120] m-0">
+											Datos del Alumno{" "}
+											{form.hijos.length > 1 ? `#${index + 1}` : ""}
+										</p>
+										{form.hijos.length > 1 && (
+											<button
+												type="button"
+												onClick={() => eliminarHijo(index)}
+												className="text-gray-400 hover:text-[#EE1120] transition-colors focus:outline-none"
+												title="Eliminar alumno"
+											>
+												<X size={18} />
+											</button>
+										)}
+									</div>
 									<div className="grid grid-cols-2 gap-3">
 										<input
 											type="text"

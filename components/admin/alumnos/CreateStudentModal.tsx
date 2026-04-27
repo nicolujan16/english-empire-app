@@ -47,11 +47,9 @@ import {
 import { initializeApp } from "firebase/app";
 import { app, db } from "@/lib/firebaseConfig";
 
-// 🚀 IMPORTAMOS LA LIBRERÍA DE TELÉFONOS
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 
-// 🚀 ACTUALIZADO: Permitimos que onSuccess reciba el objeto del nuevo estudiante (opcional)
 interface CreateStudentModalProps {
 	isOpen: boolean;
 	onClose: () => void;
@@ -105,12 +103,9 @@ export default function CreateStudentModal({
 	const [foundTutor, setFoundTutor] = useState<any | null>(null);
 	const [tutorError, setTutorError] = useState("");
 
-	const [menorData, setMenorData] = useState({
-		nombre: "",
-		apellido: "",
-		dni: "",
-		fechaNacimiento: "",
-	});
+	const [menoresData, setMenoresData] = useState([
+		{ nombre: "", apellido: "", dni: "", fechaNacimiento: "" },
+	]);
 
 	const resetForm = () => {
 		setTipoAlumno("Titular");
@@ -123,7 +118,7 @@ export default function CreateStudentModal({
 			fechaNacimiento: "",
 		});
 		setSinEmail(false);
-		setMenorData({ nombre: "", apellido: "", dni: "", fechaNacimiento: "" });
+		setMenoresData([{ nombre: "", apellido: "", dni: "", fechaNacimiento: "" }]);
 		setTutorDni("");
 		setFoundTutor(null);
 		setTutorError("");
@@ -271,60 +266,64 @@ export default function CreateStudentModal({
 				}
 			} else {
 				const hijosRef = collection(db, "Hijos");
+				const nuevosHijosIds: string[] = [];
 
-				const nuevoMenorData = {
-					nombre: menorData.nombre,
-					apellido: menorData.apellido,
-					dni: menorData.dni,
-					fechaNacimiento: menorData.fechaNacimiento,
-					tutorId: foundTutor.id,
-					cursos: [],
-					datosTutor: {
-						nombre: foundTutor.nombre,
-						apellido: foundTutor.apellido,
-						dni: foundTutor.dni,
-						email: foundTutor.email,
-						telefono: foundTutor.telefono,
-					},
-				};
+				for (const menor of menoresData) {
+					const nuevoMenorData = {
+						nombre: menor.nombre,
+						apellido: menor.apellido,
+						dni: menor.dni,
+						fechaNacimiento: menor.fechaNacimiento,
+						tutorId: foundTutor.id,
+						cursos: [],
+						datosTutor: {
+							nombre: foundTutor.nombre,
+							apellido: foundTutor.apellido,
+							dni: foundTutor.dni,
+							email: foundTutor.email,
+							telefono: foundTutor.telefono,
+						},
+					};
 
-				const nuevoHijoRef = await addDoc(hijosRef, nuevoMenorData);
+					const nuevoHijoRef = await addDoc(hijosRef, nuevoMenorData);
+					nuevosHijosIds.push(nuevoHijoRef.id);
+
+					// 🚀 ACTUALIZADO: Disparamos onSuccess enviando los datos
+					if (onSuccess) {
+						onSuccess({
+							id: nuevoHijoRef.id,
+							nombre: menor.nombre,
+							apellido: menor.apellido,
+							dni: menor.dni,
+							email: "Menor",
+							telefono: "",
+							fechaNacimiento: menor.fechaNacimiento,
+							edad: calcularEdad(menor.fechaNacimiento),
+							cursos: [],
+							tipo: "Menor",
+							isTutor: false,
+							nombreTutor: `${foundTutor.nombre} ${foundTutor.apellido}`,
+							telefonoTutor: foundTutor.telefono || "Sin teléfono",
+							emailTutor: foundTutor.email || "",
+							dniTutor: foundTutor.dni || "",
+							etiquetas: [],
+						});
+					}
+				}
 
 				const tutorRef = doc(db, "Users", foundTutor.id);
 				await setDoc(
 					tutorRef,
 					{
 						isTutor: true,
-						hijos: arrayUnion(nuevoHijoRef.id),
+						hijos: arrayUnion(...nuevosHijosIds),
 					},
 					{ merge: true },
 				);
 
-				// 🚀 ACTUALIZADO: Disparamos onSuccess enviando los datos
-				if (onSuccess) {
-					onSuccess({
-						id: nuevoHijoRef.id,
-						nombre: menorData.nombre,
-						apellido: menorData.apellido,
-						dni: menorData.dni,
-						email: "Menor",
-						telefono: "",
-						fechaNacimiento: menorData.fechaNacimiento,
-						edad: calcularEdad(menorData.fechaNacimiento),
-						cursos: [],
-						tipo: "Menor",
-						isTutor: false,
-						nombreTutor: `${foundTutor.nombre} ${foundTutor.apellido}`,
-						telefonoTutor: foundTutor.telefono || "Sin teléfono",
-						emailTutor: foundTutor.email || "",
-						dniTutor: foundTutor.dni || "",
-						etiquetas: [],
-					});
-				}
-
 				showAlert(
-					"¡Alumno Creado!",
-					"El alumno menor ha sido registrado y vinculado a su tutor exitosamente.",
+					"¡Alumnos Creados!",
+					"Los alumnos menores han sido registrados y vinculados a su tutor exitosamente.",
 					"success",
 				);
 			}
@@ -394,22 +393,38 @@ export default function CreateStudentModal({
 				return;
 			}
 
-			const dniExists = await checkDniInUse(menorData.dni);
-			if (dniExists) {
+			const dnisInForm = menoresData.map((m) => m.dni);
+			const uniqueDnis = new Set(dnisInForm);
+			if (uniqueDnis.size !== dnisInForm.length) {
 				showAlert(
 					"DNI Duplicado",
-					`El DNI ${menorData.dni} ya se encuentra registrado en el sistema.`,
+					"Has ingresado DNIs duplicados para los menores en el formulario.",
 					"error",
 				);
 				return;
 			}
 
-			if (calcularEdad(menorData.fechaNacimiento) >= 18) {
+			for (const menor of menoresData) {
+				const dniExists = await checkDniInUse(menor.dni);
+				if (dniExists) {
+					showAlert(
+						"DNI Duplicado",
+						`El DNI ${menor.dni} ya se encuentra registrado en el sistema.`,
+						"error",
+					);
+					return;
+				}
+			}
+
+			const menoresMayores = menoresData.filter(
+				(menor) => calcularEdad(menor.fechaNacimiento) >= 18,
+			);
+			if (menoresMayores.length > 0) {
 				setConfirmDialog({
 					isOpen: true,
 					title: "Alumno Mayor de Edad",
 					message:
-						"El alumno que intentas registrar ya es mayor de edad (18+).\n\nTe recomendamos crearle una cuenta como 'Alumno Titular' para que tenga su propio acceso y gestión.\n\n¿Estás seguro de que deseas continuar y registrarlo como menor a cargo de todas formas?",
+						"Al menos uno de los alumnos que intentas registrar ya es mayor de edad (18+).\n\nTe recomendamos crearle una cuenta como 'Alumno Titular' para que tenga su propio acceso y gestión.\n\n¿Estás seguro de que deseas continuar y registrarlo como menor a cargo de todas formas?",
 					onConfirm: () => {
 						setConfirmDialog({ ...confirmDialog, isOpen: false });
 						processCreation(true);
@@ -711,76 +726,101 @@ export default function CreateStudentModal({
 												<label className="block text-sm font-bold text-[#252d62]">
 													2. Datos del Menor
 												</label>
-												<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-													<div>
-														<label className="block text-xs font-bold text-gray-700 mb-1">
-															Nombre
-														</label>
-														<input
-															required={tipoAlumno === "Menor"}
-															type="text"
-															value={menorData.nombre}
-															onChange={(e) =>
-																setMenorData({
-																	...menorData,
-																	nombre: e.target.value,
-																})
-															}
-															className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
-														/>
+												
+												{menoresData.map((menor, index) => (
+													<div key={index} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm relative">
+														{menoresData.length > 1 && (
+															<button
+																type="button"
+																onClick={() => {
+																	const nuevos = [...menoresData];
+																	nuevos.splice(index, 1);
+																	setMenoresData(nuevos);
+																}}
+																className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-gray-100 transition-colors"
+															>
+																<X className="w-4 h-4" />
+															</button>
+														)}
+														<h4 className="text-xs font-bold text-[#EE1120] uppercase tracking-wider mb-3">
+															Datos del Alumno {menoresData.length > 1 ? `#${index + 1}` : ""}
+														</h4>
+														<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+															<div>
+																<label className="block text-xs font-bold text-gray-700 mb-1">
+																	Nombre
+																</label>
+																<input
+																	required={tipoAlumno === "Menor"}
+																	type="text"
+																	value={menor.nombre}
+																	onChange={(e) => {
+																		const nuevos = [...menoresData];
+																		nuevos[index].nombre = e.target.value;
+																		setMenoresData(nuevos);
+																	}}
+																	className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
+																/>
+															</div>
+															<div>
+																<label className="block text-xs font-bold text-gray-700 mb-1">
+																	Apellido
+																</label>
+																<input
+																	required={tipoAlumno === "Menor"}
+																	type="text"
+																	value={menor.apellido}
+																	onChange={(e) => {
+																		const nuevos = [...menoresData];
+																		nuevos[index].apellido = e.target.value;
+																		setMenoresData(nuevos);
+																	}}
+																	className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
+																/>
+															</div>
+															<div>
+																<label className="block text-xs font-bold text-gray-700 mb-1">
+																	DNI
+																</label>
+																<input
+																	required={tipoAlumno === "Menor"}
+																	type="text"
+																	value={menor.dni}
+																	onChange={(e) => {
+																		const nuevos = [...menoresData];
+																		nuevos[index].dni = e.target.value;
+																		setMenoresData(nuevos);
+																	}}
+																	className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
+																/>
+															</div>
+															<div>
+																<label className="block text-xs font-bold text-gray-700 mb-1">
+																	Fecha de Nacimiento
+																</label>
+																<input
+																	required={tipoAlumno === "Menor"}
+																	type="date"
+																	value={menor.fechaNacimiento}
+																	onChange={(e) => {
+																		const nuevos = [...menoresData];
+																		nuevos[index].fechaNacimiento = e.target.value;
+																		setMenoresData(nuevos);
+																	}}
+																	className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
+																/>
+															</div>
+														</div>
 													</div>
-													<div>
-														<label className="block text-xs font-bold text-gray-700 mb-1">
-															Apellido
-														</label>
-														<input
-															required={tipoAlumno === "Menor"}
-															type="text"
-															value={menorData.apellido}
-															onChange={(e) =>
-																setMenorData({
-																	...menorData,
-																	apellido: e.target.value,
-																})
-															}
-															className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
-														/>
-													</div>
-													<div>
-														<label className="block text-xs font-bold text-gray-700 mb-1">
-															DNI
-														</label>
-														<input
-															required={tipoAlumno === "Menor"}
-															type="text"
-															value={menorData.dni}
-															onChange={(e) =>
-																setMenorData({
-																	...menorData,
-																	dni: e.target.value,
-																})
-															}
-															className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
-														/>
-													</div>
-													<div>
-														<label className="block text-xs font-bold text-gray-700 mb-1">
-															Fecha de Nacimiento
-														</label>
-														<input
-															required={tipoAlumno === "Menor"}
-															type="date"
-															value={menorData.fechaNacimiento}
-															onChange={(e) =>
-																setMenorData({
-																	...menorData,
-																	fechaNacimiento: e.target.value,
-																})
-															}
-															className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
-														/>
-													</div>
-												</div>
+												))}
+
+												<button
+													type="button"
+													onClick={() => setMenoresData([...menoresData, { nombre: "", apellido: "", dni: "", fechaNacimiento: "" }])}
+													className="text-sm font-bold text-[#252d62] hover:text-[#EE1120] mt-1 transition-colors flex items-center gap-1"
+												>
+													+ Agregar otro alumno
+												</button>
 											</div>
 										</motion.div>
 									)}

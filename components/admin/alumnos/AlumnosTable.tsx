@@ -402,9 +402,11 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 		() =>
 			students.filter((s) => {
 				const sl = searchTerm.toLowerCase();
+				const fullName1 = `${s.nombre} ${s.apellido}`.toLowerCase();
+				const fullName2 = `${s.apellido} ${s.nombre}`.toLowerCase();
 				const matchesSearch =
-					s.nombre.toLowerCase().includes(sl) ||
-					s.apellido.toLowerCase().includes(sl) ||
+					fullName1.includes(sl) ||
+					fullName2.includes(sl) ||
 					s.dni.includes(sl) ||
 					(s.dniTutor && s.dniTutor.includes(sl));
 				const matchesType =

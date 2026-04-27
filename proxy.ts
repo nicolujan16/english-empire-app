@@ -1,55 +1,70 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// ✅ Solo estos dominios base usan la lógica de subdominios
+const SUBDOMAIN_DOMAINS = [
+	"englishempire.com.ar",
+	"localhost:3000",
+	"localhost",
+];
+
 export default function proxy(req: NextRequest) {
 	const url = req.nextUrl.clone();
 	const hostname = req.headers.get("host") || "";
-	const protocol = req.nextUrl.protocol; // Atrapa http (localhost) o https (producción)
-	const cleanHostname = hostname.replace("www.", ""); // Limpiamos el www. por las dudas
+	const protocol = req.nextUrl.protocol;
+	const cleanHostname = hostname.replace("www.", "");
 
-	// ─── 1. CANDADOS DE REDIRECCIÓN (Protección del dominio principal) ───
+	// Obtenemos el dominio base (sin prefijo admin./teachers.)
+	const baseDomain = cleanHostname
+		.replace(/^admin\./, "")
+		.replace(/^teachers\./, "");
 
-	if (
-		!hostname.startsWith("admin.") &&
-		(url.pathname.startsWith("/admin") ||
-			url.pathname.startsWith("/admin-login"))
-	) {
-		const targetPath = url.pathname === "/admin" ? "/" : url.pathname;
-		const newUrl = new URL(
-			`${protocol}//admin.${cleanHostname}${targetPath}${url.search}`,
-		);
-		return NextResponse.redirect(newUrl);
-	}
+	// ✅ Solo aplicamos la lógica de subdominios en dominios habilitados
+	const isSubdomainEnabled = SUBDOMAIN_DOMAINS.includes(baseDomain);
 
-	if (
-		!hostname.startsWith("teachers.") &&
-		url.pathname.startsWith("/teachers")
-	) {
-		const targetPath = url.pathname === "/teachers" ? "/" : url.pathname;
-		const newUrl = new URL(
-			`${protocol}//teachers.${cleanHostname}${targetPath}${url.search}`,
-		);
-		return NextResponse.redirect(newUrl);
-	}
-
-	// ─── 2. LÓGICA DE REESCRITURA (Lo que ya tenías) ───
-
-	if (url.pathname.includes(".")) {
-		return NextResponse.next();
-	}
-
-	if (hostname.startsWith("admin.")) {
-		if (!url.pathname.startsWith("/admin")) {
-			url.pathname = `/admin${url.pathname}`;
+	if (isSubdomainEnabled) {
+		// ─── 1. CANDADOS DE REDIRECCIÓN ───
+		if (
+			!hostname.startsWith("admin.") &&
+			(url.pathname.startsWith("/admin") ||
+				url.pathname.startsWith("/admin-login"))
+		) {
+			const targetPath = url.pathname === "/admin" ? "/" : url.pathname;
+			const newUrl = new URL(
+				`${protocol}//admin.${cleanHostname}${targetPath}${url.search}`,
+			);
+			return NextResponse.redirect(newUrl);
 		}
-		return NextResponse.rewrite(url);
-	}
 
-	if (hostname.startsWith("teachers.")) {
-		if (!url.pathname.startsWith("/teachers")) {
-			url.pathname = `/teachers${url.pathname}`;
+		if (
+			!hostname.startsWith("teachers.") &&
+			url.pathname.startsWith("/teachers")
+		) {
+			const targetPath = url.pathname === "/teachers" ? "/" : url.pathname;
+			const newUrl = new URL(
+				`${protocol}//teachers.${cleanHostname}${targetPath}${url.search}`,
+			);
+			return NextResponse.redirect(newUrl);
 		}
-		return NextResponse.rewrite(url);
+
+		// ─── 2. LÓGICA DE REESCRITURA ───
+		if (url.pathname.includes(".")) {
+			return NextResponse.next();
+		}
+
+		if (hostname.startsWith("admin.")) {
+			if (!url.pathname.startsWith("/admin")) {
+				url.pathname = `/admin${url.pathname}`;
+			}
+			return NextResponse.rewrite(url);
+		}
+
+		if (hostname.startsWith("teachers.")) {
+			if (!url.pathname.startsWith("/teachers")) {
+				url.pathname = `/teachers${url.pathname}`;
+			}
+			return NextResponse.rewrite(url);
+		}
 	}
 
 	return NextResponse.next();

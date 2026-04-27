@@ -179,6 +179,18 @@ export default function CursoDetallePage() {
 				minute: "2-digit",
 				hour12: false,
 			});
+
+			// ── Capturar snapshot de alumnos inscriptos en este momento ──────────
+			const [usersSnap, hijosSnap] = await Promise.all([
+				getDocs(query(collection(db, "Users"), where("cursos", "array-contains", cursoId))),
+				getDocs(query(collection(db, "Hijos"), where("cursos", "array-contains", cursoId))),
+			]);
+			const alumnoIdsSnapshot: string[] = [
+				...usersSnap.docs.map((d) => d.id),
+				...hijosSnap.docs.map((d) => d.id),
+			];
+			// ─────────────────────────────────────────────────────────────────────
+
 			await setDoc(doc(db, "Clases", claseId), {
 				cursoId,
 				profesorId: currentUser.uid,
@@ -189,6 +201,7 @@ export default function CursoDetallePage() {
 				horaFormateada,
 				descripcion: "",
 				asistencia: [],
+				alumnoIdsSnapshot, // ← snapshot de alumnos al momento de crear la clase
 				creadoEn: serverTimestamp(),
 			});
 			router.push(`/teachers/clase/${claseId}`);

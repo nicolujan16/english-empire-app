@@ -21,10 +21,12 @@ import {
 	Printer,
 	ChevronLeft,
 	ChevronRight,
+	Settings2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import RegistrarIngresoModal from "@/components/admin/ingresos/RegistrarIngresoModal";
+import GestionarIngresosModal from "@/components/admin/ingresos/GestionarIngresosModal";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -141,6 +143,7 @@ export default function IngresosPage() {
 	const [busqueda, setBusqueda] = useState("");
 	const [filtroMes, setFiltroMes] = useState<number>(0);
 	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [isGestionarModalOpen, setIsGestionarModalOpen] = useState(false);
 
 	const [currentPage, setCurrentPage] = useState(1);
 
@@ -450,6 +453,17 @@ export default function IngresosPage() {
 						<Printer className="w-5 h-5" />
 						Imprimir
 					</Button>
+
+					{isAdmin && (
+						<Button
+							onClick={() => setIsGestionarModalOpen(true)}
+							variant="outline"
+							className="border-[#252d62] text-[#252d62] hover:bg-[#252d62]/5 font-bold py-5 px-5 rounded-xl flex items-center gap-2 cursor-pointer shadow-sm"
+						>
+							<Settings2 className="w-5 h-5" />
+							Administrar Categorías
+						</Button>
+					)}
 
 					<Button
 						onClick={() => setIsModalOpen(true)}
@@ -791,6 +805,16 @@ export default function IngresosPage() {
 					fetchIngresos();
 				}}
 			/>
+
+			{isAdmin && (
+				<GestionarIngresosModal
+					isOpen={isGestionarModalOpen}
+					onClose={() => setIsGestionarModalOpen(false)}
+					onSuccess={() => {
+						// Optional callback when categories change
+					}}
+				/>
+			)}
 		</div>
 	);
 }

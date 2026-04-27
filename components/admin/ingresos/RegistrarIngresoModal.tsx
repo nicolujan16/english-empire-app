@@ -29,24 +29,38 @@ interface RegistrarIngresoModalProps {
 	onSuccess: () => void;
 }
 
-const CATEGORIAS_PREDEFINIDAS = [
-	"Venta de uniforme",
-	"Venta de útiles escolares",
-	"Alquiler de espacio",
-	"Donación",
-	"Otro (Escribir manualmente...)",
-];
-
 export default function RegistrarIngresoModal({
 	isOpen,
 	onClose,
 	onSuccess,
 }: RegistrarIngresoModalProps) {
+
 	const { adminData } = useAdminAuth();
 
 	const [descripcion, setDescripcion] = useState("");
-
-	const [modoEscritura, setModoEscritura] = useState(false);
+	const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([
+		"Venta de uniforme",
+		"Venta de útiles escolares",
+		"Alquiler de espacio",
+		"Donación"
+	]);
+	
+	useEffect(() => {
+		if (isOpen) {
+			const fetchCats = async () => {
+				try {
+					const docRef = await import("firebase/firestore").then(mod => mod.doc(db, "Configuraciones", "CategoriasIngreso"));
+					const docSnap = await import("firebase/firestore").then(mod => mod.getDoc(docRef));
+					if (docSnap.exists() && docSnap.data().nombres) {
+						setCategoriasDisponibles(docSnap.data().nombres);
+					}
+				} catch (err) {
+					console.error("Error al cargar categorías", err);
+				}
+			};
+			fetchCats();
+		}
+	}, [isOpen]);
 
 	const [monto, setMonto] = useState("");
 	const [metodoPago, setMetodoPago] = useState("");
@@ -113,7 +127,6 @@ export default function RegistrarIngresoModal({
 	const handleClose = () => {
 		if (isLoading) return;
 		setDescripcion("");
-		setModoEscritura(false);
 		setMonto("");
 		setMetodoPago("");
 		setIsSplitPayment(false);
@@ -127,11 +140,8 @@ export default function RegistrarIngresoModal({
 	const handleSubmit = async () => {
 		setError(null);
 
-		if (
-			!descripcion.trim() ||
-			descripcion === "Otro (Escribir manualmente...)"
-		) {
-			setError("Debes seleccionar o escribir una descripción válida.");
+		if (!descripcion.trim()) {
+			setError("Debes seleccionar una categoría válida.");
 			return;
 		}
 		if (!monto || isNaN(montoNum) || montoNum <= 0) {
@@ -220,59 +230,21 @@ export default function RegistrarIngresoModal({
 							</span>
 						</label>
 
-						{!modoEscritura ? (
-							<select
-								value={descripcion}
-								onChange={(e) => {
-									const val = e.target.value;
-									if (val === "Otro (Escribir manualmente...)") {
-										setModoEscritura(true);
-										setDescripcion(""); // Limpiamos para que escriba libre
-									} else {
-										setDescripcion(val);
-									}
-								}}
-								disabled={isLoading || exito}
-								className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all bg-white font-medium"
-							>
-								<option value="" disabled>
-									Selecciona una categoría...
+						<select
+							value={descripcion}
+							onChange={(e) => setDescripcion(e.target.value)}
+							disabled={isLoading || exito}
+							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all bg-white font-medium"
+						>
+							<option value="" disabled>
+								Selecciona una categoría...
+							</option>
+							{categoriasDisponibles.map((cat) => (
+								<option key={cat} value={cat}>
+									{cat}
 								</option>
-								{CATEGORIAS_PREDEFINIDAS.map((cat) => (
-									<option key={cat} value={cat}>
-										{cat}
-									</option>
-								))}
-							</select>
-						) : (
-							<div className="space-y-2">
-								<input
-									type="text"
-									value={descripcion}
-									onChange={(e) => setDescripcion(e.target.value)}
-									placeholder="Ej: Compra de libro de actividades"
-									maxLength={120}
-									disabled={isLoading || exito}
-									autoFocus
-									className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all"
-								/>
-								<div className="flex justify-between items-center">
-									<button
-										type="button"
-										onClick={() => {
-											setModoEscritura(false);
-											setDescripcion("");
-										}}
-										className="text-[11px] font-bold text-[#EE1120] hover:text-[#b30000] transition-colors"
-									>
-										« Volver a la lista
-									</button>
-									<p className="text-[10px] text-gray-400">
-										{descripcion.length}/120
-									</p>
-								</div>
-							</div>
-						)}
+							))}
+						</select>
 					</div>
 
 					<div className="grid grid-cols-2 gap-4">

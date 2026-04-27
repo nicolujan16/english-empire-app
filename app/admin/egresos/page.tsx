@@ -150,18 +150,27 @@ export default function EgresosPage() {
 				query(collection(db, "Egresos"), orderBy("fecha", "desc")),
 			);
 
-			const items: EgresoItem[] = snap.docs.map((d) => {
-				const data = d.data();
-				const fechaRaw = data.fecha as Timestamp;
-				return {
-					id: d.id,
-					descripcion: data.descripcion ?? "-",
-					monto: data.monto ?? 0,
-					fecha: fechaRaw?.toDate?.() ?? new Date(),
-					registradoPor: data.registradoPor ?? "-",
-					metodoPago: data.metodoPago ?? "-",
-				};
-			});
+			const items: EgresoItem[] = snap.docs
+				.filter((d) => {
+					if (isAdmin) return true;
+					const data = d.data();
+					const isOwnerById = data.registradoPorId === adminData?.uid;
+					const isOwnerByName = data.registradoPor === adminData?.nombre;
+					const isOwnerByEmail = data.registradoPor === adminData?.email;
+					return isOwnerById || (!data.registradoPorId && (isOwnerByName || isOwnerByEmail));
+				})
+				.map((d) => {
+					const data = d.data();
+					const fechaRaw = data.fecha as Timestamp;
+					return {
+						id: d.id,
+						descripcion: data.descripcion ?? "-",
+						monto: data.monto ?? 0,
+						fecha: fechaRaw?.toDate?.() ?? new Date(),
+						registradoPor: data.registradoPor ?? "-",
+						metodoPago: data.metodoPago ?? "-",
+					};
+				});
 
 			setEgresos(items);
 		} catch (error) {
