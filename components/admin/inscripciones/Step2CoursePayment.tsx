@@ -1,4 +1,4 @@
-import React, { SyntheticEvent, useState, useEffect } from "react";
+import React, { SyntheticEvent, useState, useEffect, useMemo } from "react";
 import {
 	User,
 	Tag as TagIcon,
@@ -13,6 +13,10 @@ import {
 	Plus,
 	Trash2,
 	SplitSquareHorizontal,
+	Clock,
+	Calendar,
+	Info,
+	Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
@@ -46,6 +50,14 @@ interface Step2Props {
 	onSubmit: (e: SyntheticEvent) => void;
 	getTomorrow: () => string;
 	calcularMontoPrimerMes: (fecha: Date, cuota1a10: number) => number;
+	// Inscripción de fecha pasada
+	isPastInscription: boolean;
+	setIsPastInscription: (val: boolean) => void;
+	pastDate: string;
+	setPastDate: (val: string) => void;
+	applyGroupDiscountToPast: boolean;
+	setApplyGroupDiscountToPast: (val: boolean) => void;
+	hasGrupoFamiliar: boolean;
 }
 
 export default function Step2CoursePayment({
@@ -70,6 +82,13 @@ export default function Step2CoursePayment({
 	onBack,
 	onSubmit,
 	getTomorrow,
+	isPastInscription,
+	setIsPastInscription,
+	pastDate,
+	setPastDate,
+	applyGroupDiscountToPast,
+	setApplyGroupDiscountToPast,
+	hasGrupoFamiliar,
 }: Step2Props) {
 	const selectedCourse = courses.find((c) => c.id === selectedCourseId);
 	const isAgeWarning =
@@ -97,6 +116,43 @@ export default function Step2CoursePayment({
 		0,
 	);
 	const saldoRestante = montoFinalInscripcion - totalIngresado;
+
+	// ─── Lógica de preview para inscripción de fecha pasada ───────────────
+	const MESES_NOMBRES = [
+		"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+		"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+	];
+
+	const pastDatePreview = useMemo(() => {
+		if (!isPastInscription || !pastDate) return null;
+
+		const fechaIns = new Date(pastDate + "T12:00:00");
+		const hoy = new Date();
+		const meses: string[] = [];
+
+		const cursor = new Date(fechaIns.getFullYear(), fechaIns.getMonth(), 1);
+		const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+
+		while (cursor <= mesActualDate) {
+			meses.push(`${MESES_NOMBRES[cursor.getMonth()]} ${cursor.getFullYear()}`);
+			cursor.setMonth(cursor.getMonth() + 1);
+		}
+
+		if (hoy.getDate() >= 20) {
+			const sig = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+			meses.push(`${MESES_NOMBRES[sig.getMonth()]} ${sig.getFullYear()}`);
+		}
+
+		return { meses, total: meses.length };
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isPastInscription, pastDate]);
+
+	// Fecha máxima para inscripción pasada: último día del mes anterior
+	const maxPastDate = useMemo(() => {
+		const hoy = new Date();
+		const ultimoDiaMesPrev = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+		return ultimoDiaMesPrev.toISOString().split("T")[0];
+	}, []);
 
 	// Efecto "Concatenador": Arma el String para Firebase si está todo cuadrado
 	useEffect(() => {
@@ -318,6 +374,102 @@ export default function Step2CoursePayment({
 					)}
 				</AnimatePresence>
 
+				{/* ─── Inscripción de Fecha Pasada ─── */}
+				<div className="mt-6 border border-amber-200 bg-amber-50/50 rounded-xl p-4 space-y-3">
+					<label className="flex items-center gap-2.5 cursor-pointer select-none">
+						<input
+							type="checkbox"
+							checked={isPastInscription}
+							onChange={(e) => {
+								setIsPastInscription(e.target.checked);
+								if (!e.target.checked) {
+									setPastDate("");
+									setApplyGroupDiscountToPast(false);
+								}
+							}}
+							disabled={isSubmitting}
+							className="w-4 h-4 text-amber-600 rounded cursor-pointer border-amber-300"
+						/>
+						<div className="flex items-center gap-1.5">
+							<Clock className="w-4 h-4 text-amber-600" />
+							<span className="text-sm font-bold text-amber-800">
+								Inscripción de fecha pasada
+							</span>
+						</div>
+					</label>
+
+					<AnimatePresence>
+						{isPastInscription && (
+							<motion.div
+								initial={{ opacity: 0, height: 0 }}
+								animate={{ opacity: 1, height: "auto" }}
+								exit={{ opacity: 0, height: 0 }}
+								className="space-y-3 overflow-hidden"
+							>
+								{/* Input de fecha */}
+								<div className="relative">
+									<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+										<Calendar className="h-4 w-4 text-amber-500" />
+									</div>
+									<input
+										type="date"
+										value={pastDate}
+										min="2026-01-01"
+										max={maxPastDate}
+										onChange={(e) => setPastDate(e.target.value)}
+										disabled={isSubmitting}
+										className="block w-full pl-10 pr-3 py-2.5 border border-amber-200 rounded-lg text-sm bg-white focus:ring-amber-500 focus:border-amber-500"
+									/>
+								</div>
+
+								{/* Checkbox grupo familiar (solo si aplica) */}
+								{hasGrupoFamiliar && (
+									<label className="flex items-center gap-2.5 cursor-pointer select-none bg-white p-2.5 rounded-lg border border-amber-100">
+										<input
+											type="checkbox"
+											checked={applyGroupDiscountToPast}
+											onChange={(e) => setApplyGroupDiscountToPast(e.target.checked)}
+											disabled={isSubmitting}
+											className="w-4 h-4 text-emerald-600 rounded cursor-pointer border-emerald-300"
+										/>
+										<div className="flex items-center gap-1.5">
+											<Users className="w-3.5 h-3.5 text-emerald-600" />
+											<span className="text-xs font-semibold text-emerald-800">
+												Aplicar descuento de grupo familiar a cuotas pasadas
+											</span>
+										</div>
+									</label>
+								)}
+
+								{/* Preview informativo */}
+								{pastDatePreview && (
+									<div className="bg-white border border-amber-100 rounded-lg p-3 space-y-2">
+										<div className="flex items-center gap-1.5">
+											<Info className="w-3.5 h-3.5 text-amber-600" />
+											<span className="text-xs font-bold text-amber-800">
+												Se generarán {pastDatePreview.total} cuota{pastDatePreview.total !== 1 ? "s" : ""}:
+											</span>
+										</div>
+										<div className="flex flex-wrap gap-1.5">
+											{pastDatePreview.meses.map((mes, i) => (
+												<span
+													key={i}
+													className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-semibold rounded"
+												>
+													{mes}
+												</span>
+											))}
+										</div>
+										<p className="text-[10px] text-amber-600 mt-1">
+											Todas las cuotas se crean en estado <strong>Pendiente</strong>. Deberás gestionarlas desde el panel de cuotas.
+										</p>
+									</div>
+								)}
+							</motion.div>
+						)}
+					</AnimatePresence>
+				</div>
+
 				<label className="block text-sm font-bold text-[#252d62] mt-6">
 					3. Estado del Pago
 				</label>
@@ -529,7 +681,7 @@ export default function Step2CoursePayment({
 						(paymentStatus === "Confirmado" && !metodoPago) || // Fíjate que el 'metodoPago' estará vacío si la matemática del Split no da 0.
 						(paymentStatus === "Pendiente" && !promiseDate) ||
 						(isAgeWarning && !overrideAgeWarning) ||
-						false
+						(isPastInscription && !pastDate)
 					}
 					className="bg-[#EE1120] hover:bg-[#c4000e] text-white"
 				>

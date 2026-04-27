@@ -44,35 +44,12 @@ export const calcularMontoPrimerMes = (
 	return fecha.getDate() >= 15 ? cuota1a10 * 0.5 : cuota1a10;
 };
 
-// ─── 1. Crear Primera Cuota (y mes siguiente si aplica) ───────────────
+// ─── Helper: Resolver descuentos por etiquetas (reutilizable) ─────────
 
-export const crearPrimeraCuota = async (
-	inscripcionId: string,
+const resolverDescuentosEtiquetas = async (
 	alumno: AlumnoParaCuota,
-	curso: CursoParaCuota,
 	descuentosBase: Descuento[],
-) => {
-	const cuotasRef = collection(db, "Cuotas");
-
-	// Evitar duplicados
-	const qExistente = query(
-		cuotasRef,
-		where("inscripcionId", "==", inscripcionId),
-		where("esPrimerMes", "==", true),
-	);
-	const snap = await getDocs(qExistente);
-	if (!snap.empty) return;
-
-	const hoy = new Date();
-	const montoPrimerMes = calcularMontoPrimerMes(hoy, curso.cuota1a10);
-
-	const alumnoTipoNormalizado =
-		alumno.tipo.toLowerCase() === "titular" ||
-		alumno.tipo.toLowerCase() === "adulto"
-			? "adulto"
-			: "menor";
-
-	// 🚀 LÓGICA DE ETIQUETAS: Buscar descuento para CUOTAS
+): Promise<Descuento[]> => {
 	const descuentosFinales = [...descuentosBase];
 
 	if (alumno.etiquetas && alumno.etiquetas.length > 0) {
@@ -103,7 +80,6 @@ export const crearPrimeraCuota = async (
 				}
 			});
 
-			// Si encontramos un descuento en cuota mayor a 0, lo pusheamos al array con toda su info
 			if (maxDescCuota > 0) {
 				descuentosFinales.push({
 					porcentaje: maxDescCuota,
@@ -114,6 +90,40 @@ export const crearPrimeraCuota = async (
 			console.error("Error al procesar etiquetas en cuotasService:", error);
 		}
 	}
+
+	return descuentosFinales;
+};
+
+// ─── 1. Crear Primera Cuota (y mes siguiente si aplica) ───────────────
+
+export const crearPrimeraCuota = async (
+	inscripcionId: string,
+	alumno: AlumnoParaCuota,
+	curso: CursoParaCuota,
+	descuentosBase: Descuento[],
+) => {
+	const cuotasRef = collection(db, "Cuotas");
+
+	// Evitar duplicados
+	const qExistente = query(
+		cuotasRef,
+		where("inscripcionId", "==", inscripcionId),
+		where("esPrimerMes", "==", true),
+	);
+	const snap = await getDocs(qExistente);
+	if (!snap.empty) return;
+
+	const hoy = new Date();
+	const montoPrimerMes = calcularMontoPrimerMes(hoy, curso.cuota1a10);
+
+	const alumnoTipoNormalizado =
+		alumno.tipo.toLowerCase() === "titular" ||
+		alumno.tipo.toLowerCase() === "adulto"
+			? "adulto"
+			: "menor";
+
+	// 🚀 LÓGICA DE ETIQUETAS: Buscar descuento para CUOTAS (usa helper reutilizable)
+	const descuentosFinales = await resolverDescuentosEtiquetas(alumno, descuentosBase);
 
 	const datosComunesAlumno = {
 		inscripcionId,
@@ -168,6 +178,115 @@ export const crearPrimeraCuota = async (
 				creadoEn: serverTimestamp(),
 				actualizadoEn: serverTimestamp(),
 			});
+		}
+	}
+};
+
+// ─── 1b. Crear Cuotas Retroactivas (inscripción de fecha pasada) ──────
+
+export const crearCuotasRetroactivas = async (
+	inscripcionId: string,
+	alumno: AlumnoParaCuota,
+	curso: CursoParaCuota,
+	descuentosBase: Descuento[],
+	fechaInscripcion: Date,
+) => {
+	const cuotasRef = collection(db, "Cuotas");
+	const hoy = new Date();
+
+	const alumnoTipoNormalizado =
+		alumno.tipo.toLowerCase() === "titular" ||
+		alumno.tipo.toLowerCase() === "adulto"
+			? "adulto"
+			: "menor";
+
+	// Resolver descuentos por etiquetas
+	const descuentosFinales = await resolverDescuentosEtiquetas(alumno, descuentosBase);
+
+	const datosComunesAlumno = {
+		inscripcionId,
+		alumnoId: alumno.id,
+		alumnoTipo: alumnoTipoNormalizado,
+		alumnoNombre: `${alumno.nombre} ${alumno.apellido}`.trim(),
+		alumnoDni: alumno.dni,
+		cursoId: curso.id,
+		cursoNombre: curso.nombre,
+		cuota1a10: curso.cuota1a10,
+		cuota11enAdelante: curso.cuota11enAdelante,
+		estado: "Pendiente",
+		fechaPago: null,
+		montoPagado: null,
+		metodoPago: null,
+		descuentos: descuentosFinales,
+	};
+
+	// Iterar desde el mes de inscripción hasta el mes actual (inclusive)
+	const cursor = new Date(fechaInscripcion.getFullYear(), fechaInscripcion.getMonth(), 1);
+	const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+	let esElPrimerMes = true;
+
+	while (cursor <= mesActualDate) {
+		const mes = cursor.getMonth() + 1;
+		const anio = cursor.getFullYear();
+
+		// Respetar el fin de ciclo lectivo del curso
+		if (mes > curso.finMes && anio >= hoy.getFullYear()) break;
+
+		// Verificar duplicados para este mes
+		const qExistente = query(
+			cuotasRef,
+			where("inscripcionId", "==", inscripcionId),
+			where("mes", "==", mes),
+			where("anio", "==", anio),
+		);
+		const snap = await getDocs(qExistente);
+
+		if (snap.empty) {
+			const montoPrimerMes = esElPrimerMes
+				? calcularMontoPrimerMes(fechaInscripcion, curso.cuota1a10)
+				: null;
+
+			await addDoc(cuotasRef, {
+				...datosComunesAlumno,
+				mes,
+				anio,
+				esPrimerMes: esElPrimerMes,
+				montoPrimerMes,
+				creadoEn: serverTimestamp(),
+				actualizadoEn: serverTimestamp(),
+			});
+		}
+
+		esElPrimerMes = false;
+		cursor.setMonth(cursor.getMonth() + 1);
+	}
+
+	// Cuota del mes siguiente si hoy es día >= 20
+	if (hoy.getDate() >= 20) {
+		const fechaSiguiente = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+		const mesSiguiente = fechaSiguiente.getMonth() + 1;
+		const anioSiguiente = fechaSiguiente.getFullYear();
+
+		if (mesSiguiente <= curso.finMes || anioSiguiente > hoy.getFullYear()) {
+			const qSiguiente = query(
+				cuotasRef,
+				where("inscripcionId", "==", inscripcionId),
+				where("mes", "==", mesSiguiente),
+				where("anio", "==", anioSiguiente),
+			);
+			const snapSiguiente = await getDocs(qSiguiente);
+
+			if (snapSiguiente.empty) {
+				await addDoc(cuotasRef, {
+					...datosComunesAlumno,
+					mes: mesSiguiente,
+					anio: anioSiguiente,
+					esPrimerMes: false,
+					montoPrimerMes: null,
+					creadoEn: serverTimestamp(),
+					actualizadoEn: serverTimestamp(),
+				});
+			}
 		}
 	}
 };

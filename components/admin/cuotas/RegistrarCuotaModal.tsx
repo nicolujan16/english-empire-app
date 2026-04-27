@@ -255,6 +255,10 @@ export default function RegistrarCuotaModal({
 	};
 	// ─────────────────────────────────────────────────────────────────────────
 
+	const [paymentDate, setPaymentDate] = useState<string>(() => {
+		return new Date().toISOString().split("T")[0];
+	});
+
 	const [allowException, setAllowException] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -285,6 +289,7 @@ export default function RegistrarCuotaModal({
 		setPaymentMethod("");
 		setIsSplitPayment(false);
 		setPartialPayments([{ method: "", amount: 0 }]);
+		setPaymentDate(new Date().toISOString().split("T")[0]);
 		setAllowException(false);
 		setErrorMsg(null);
 		setEditandoMonto(false);
@@ -306,6 +311,7 @@ export default function RegistrarCuotaModal({
 		setPaymentMethod("");
 		setIsSplitPayment(false);
 		setPartialPayments([{ method: "", amount: 0 }]);
+		setPaymentDate(new Date().toISOString().split("T")[0]);
 	}, [cuotaACobrar?.id]);
 
 	const searchByDni = async (dni: string) => {
@@ -399,6 +405,10 @@ export default function RegistrarCuotaModal({
 			);
 			return;
 		}
+		if (!paymentDate) {
+			setErrorMsg("Por favor, seleccioná una fecha de pago.");
+			return;
+		}
 		if (!cuotaACobrar) return;
 		if (ajusteAplicado && !motivoAjuste.trim()) {
 			setErrorMsg("Falta la aclaración del ajuste de monto.");
@@ -409,10 +419,12 @@ export default function RegistrarCuotaModal({
 		setErrorMsg(null);
 
 		try {
-			const hoy = new Date();
+			const [year, month, day] = paymentDate.split("-");
+			const formattedFechaPago = `${day}/${month}/${year}`;
+
 			await updateDoc(doc(db, "Cuotas", cuotaACobrar.id), {
 				estado: "Pagado",
-				fechaPago: hoy.toLocaleDateString("es-AR"),
+				fechaPago: formattedFechaPago,
 				metodoPago: paymentMethod, // Pasamos el string concatenado
 				montoPagado: montoMostrar,
 				...(ajusteAplicado && {
@@ -1036,6 +1048,20 @@ export default function RegistrarCuotaModal({
 												)}
 											</motion.div>
 										)}
+									</div>
+
+									{/* 🚀 Fecha de Pago */}
+									<div className="space-y-3 mt-4">
+										<label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+											<CalendarDays className="w-4 h-4" /> Fecha de Pago
+										</label>
+										<input
+											type="date"
+											value={paymentDate}
+											max={new Date().toISOString().split("T")[0]}
+											onChange={(e) => setPaymentDate(e.target.value)}
+											className="w-full px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 font-medium bg-white"
+										/>
 									</div>
 								</>
 							)}

@@ -31,6 +31,7 @@ import { type Descuento } from "@/lib/cuotas";
 // ─── IMPORTAMOS EL SERVICIO DE CUOTAS ─────────────────────────────────────────
 import {
 	crearPrimeraCuota,
+	crearCuotasRetroactivas,
 	aplicarDescuentoAlGrupo,
 	calcularMontoPrimerMes,
 } from "@/lib/services/cuotasServices";
@@ -154,6 +155,12 @@ export default function ManualInscriptionModal({
 	const [bestTag, setBestTag] = useState<TagDiscount | null>(null);
 	const [applyTagDiscount, setApplyTagDiscount] = useState(true);
 
+	// ─── Estados para inscripción de fecha pasada ────────────────────────
+	const [isPastInscription, setIsPastInscription] = useState(false);
+	const [pastDate, setPastDate] = useState("");
+	const [applyGroupDiscountToPast, setApplyGroupDiscountToPast] =
+		useState(false);
+
 	useEffect(() => {
 		if (step !== 2) return;
 		const fetchCourses = async () => {
@@ -209,6 +216,9 @@ export default function ManualInscriptionModal({
 		setOverrideAgeWarning(false);
 		setBestTag(null);
 		setApplyTagDiscount(true);
+		setIsPastInscription(false);
+		setPastDate("");
+		setApplyGroupDiscountToPast(false);
 		onClose();
 	};
 
@@ -431,6 +441,8 @@ export default function ManualInscriptionModal({
 				);
 			}
 
+			const esRetroactiva = isPastInscription && pastDate;
+
 			const inscriptionData: any = {
 				alumnoId: foundStudent!.id,
 				alumnoNombre: `${foundStudent!.nombre} ${foundStudent!.apellido}`,
@@ -444,7 +456,10 @@ export default function ManualInscriptionModal({
 				cursoInscripcion: montoInscripcionFinal,
 				metodoPago,
 				status: paymentStatus,
-				fecha: serverTimestamp(),
+				fecha: esRetroactiva
+					? new Date(pastDate + "T12:00:00")
+					: serverTimestamp(),
+				esInscripcionRetroactiva: !!esRetroactiva,
 				excepcionEdad: overrideAgeWarning,
 			};
 
@@ -493,26 +508,44 @@ export default function ManualInscriptionModal({
 					finMes: cursoSeleccionado.finMes,
 				};
 
-				// 1. Crear la primera cuota (y el mes siguiente si es post-20)
-				await crearPrimeraCuota(
-					inscripcionRef.id,
-					alumnoParaCuota,
-					cursoParaCuota,
-					descuentos,
-				);
-
-				// 2. Aplicar descuento al grupo si corresponde
-				if (grupoFamiliar.aplica) {
-					await aplicarDescuentoAlGrupo(
-						foundStudent!.id,
-						foundStudent!.tipo,
-						grupoFamiliar.tutorId,
-						aplicarDescuentoMesActual,
+				// 1. Crear cuotas (retroactivas o normal)
+				if (esRetroactiva) {
+					await crearCuotasRetroactivas(
+						inscripcionRef.id,
+						alumnoParaCuota,
+						cursoParaCuota,
+						descuentos,
+						new Date(pastDate + "T12:00:00"),
+					);
+				} else {
+					await crearPrimeraCuota(
+						inscripcionRef.id,
+						alumnoParaCuota,
+						cursoParaCuota,
+						descuentos,
 					);
 				}
 
-				// 3. Enviamos corre de confirmación de inscripción.
-				if (foundStudent!.email !== "") {
+				// 2. Aplicar descuento al grupo si corresponde
+				if (grupoFamiliar.aplica) {
+					// Para retroactivas: solo aplicar descuento a cuotas pasadas del grupo
+					// si el admin lo habilitó explícitamente con el checkbox
+					const debeAplicarAlGrupo = esRetroactiva
+						? applyGroupDiscountToPast
+						: true;
+
+					if (debeAplicarAlGrupo) {
+						await aplicarDescuentoAlGrupo(
+							foundStudent!.id,
+							foundStudent!.tipo,
+							grupoFamiliar.tutorId,
+							aplicarDescuentoMesActual,
+						);
+					}
+				}
+
+				// 3. Enviamos correo de confirmación (NO para retroactivas)
+				if (!esRetroactiva && foundStudent!.email !== "") {
 					try {
 						await fetch("/api/correos/inscripcion", {
 							method: "POST",
@@ -664,6 +697,13 @@ export default function ManualInscriptionModal({
 											onSubmit={handleSubmitInscription}
 											getTomorrow={getTomorrow}
 											calcularMontoPrimerMes={calcularMontoPrimerMes}
+											isPastInscription={isPastInscription}
+											setIsPastInscription={setIsPastInscription}
+											pastDate={pastDate}
+											setPastDate={setPastDate}
+											applyGroupDiscountToPast={applyGroupDiscountToPast}
+											setApplyGroupDiscountToPast={setApplyGroupDiscountToPast}
+											hasGrupoFamiliar={grupoFamiliar.aplica}
 										/>
 									)}
 								</div>

@@ -182,6 +182,18 @@ export default function IngresosPage() {
 			const cuotas: IngresoItem[] = cuotasSnap.docs.map((d) => {
 				const data = d.data();
 				const fechaRaw = data.actualizadoEn as Timestamp;
+				
+				let fechaDePago = fechaRaw?.toDate?.() ?? new Date();
+				if (data.fechaPago && typeof data.fechaPago === "string") {
+					const partes = data.fechaPago.split("/");
+					if (partes.length === 3) {
+						const [dia, mes, anio] = partes;
+						const diaPad = dia.padStart(2, "0");
+						const mesPad = mes.padStart(2, "0");
+						fechaDePago = new Date(`${anio}-${mesPad}-${diaPad}T12:00:00`);
+					}
+				}
+
 				return {
 					id: d.id,
 					tipo: "cuota",
@@ -189,7 +201,7 @@ export default function IngresosPage() {
 					alumnoDni: data.alumnoDni,
 					cursoNombre: data.cursoNombre,
 					monto: data.montoPagado ?? 0,
-					fecha: fechaRaw?.toDate?.() ?? new Date(),
+					fecha: fechaDePago,
 					metodoPago: data.metodoPago ?? "-",
 					mes: data.mes,
 					anio: data.anio,
@@ -265,9 +277,7 @@ export default function IngresosPage() {
 
 			const matchMes =
 				filtroMes === 0 ||
-				(item.tipo === "cuota" && item.mes === filtroMes) ||
-				((item.tipo === "inscripcion" || item.tipo === "especial") &&
-					item.fecha.getMonth() + 1 === filtroMes);
+				(item.fecha.getMonth() + 1 === filtroMes);
 
 			const matchMetodo = matchMetodoPago(item.metodoPago, filtroMetodo);
 

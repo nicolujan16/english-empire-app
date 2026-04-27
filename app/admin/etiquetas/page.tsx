@@ -17,6 +17,7 @@ import {
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { Button } from "@/components/ui/button";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 
 import EtiquetaModal, {
 	type EtiquetaDescuento as EtiquetaType,
@@ -63,9 +64,11 @@ const COLORES_DOT: Record<string, string> = {
 function EtiquetaCard({
 	etiqueta,
 	onEdit,
+	isAdmin,
 }: {
 	etiqueta: EtiquetaDescuento;
 	onEdit: (e: EtiquetaDescuento) => void;
+	isAdmin: boolean;
 }) {
 	const badgeClass = COLORES_BADGE[etiqueta.color] ?? COLORES_BADGE.gray;
 	const dotClass = COLORES_DOT[etiqueta.color] ?? COLORES_DOT.gray;
@@ -183,12 +186,14 @@ function EtiquetaCard({
 				)}
 			</div>
 			{/* Botón editar */}
-			<button
-				onClick={() => onEdit(etiqueta)}
-				className="w-full text-center text-xs font-bold text-[#252d62] border border-[#252d62]/20 hover:bg-[#252d62] hover:text-white rounded-xl py-2 transition-all"
-			>
-				Editar etiqueta
-			</button>
+			{isAdmin && (
+				<button
+					onClick={() => onEdit(etiqueta)}
+					className="w-full text-center text-xs font-bold text-[#252d62] border border-[#252d62]/20 hover:bg-[#252d62] hover:text-white rounded-xl py-2 transition-all"
+				>
+					Editar etiqueta
+				</button>
+			)}
 		</div>
 	);
 }
@@ -196,6 +201,9 @@ function EtiquetaCard({
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function EtiquetasPage() {
+	const { adminData } = useAdminAuth();
+	const isAdmin = adminData?.rol === "admin";
+
 	const [etiquetas, setEtiquetas] = useState<EtiquetaDescuento[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isModalOpen, setIsModalOpen] = useState(false);
@@ -284,13 +292,15 @@ export default function EtiquetasPage() {
 						</p>
 					</div>
 
-					<Button
-						className="bg-[#252d62] hover:bg-[#1a2046] text-white font-bold flex items-center gap-2 self-start sm:self-auto"
-						onClick={handleOpenCreate}
-					>
-						<Plus className="w-4 h-4" />
-						Nueva Etiqueta
-					</Button>
+					{isAdmin && (
+						<Button
+							className="bg-[#252d62] hover:bg-[#1a2046] text-white font-bold flex items-center gap-2 self-start sm:self-auto"
+							onClick={handleOpenCreate}
+						>
+							<Plus className="w-4 h-4" />
+							Nueva Etiqueta
+						</Button>
+					)}
 				</div>
 
 				{/* Stats rápidas */}
@@ -354,13 +364,15 @@ export default function EtiquetasPage() {
 								alumnos y aplicar beneficios de forma automática.
 							</p>
 						</div>
-						<Button
-							className="bg-[#252d62] hover:bg-[#1a2046] text-white font-bold flex items-center gap-2 mt-2"
-							onClick={handleOpenCreate}
-						>
-							<Plus className="w-4 h-4" />
-							Crear primera etiqueta
-						</Button>
+						{isAdmin && (
+							<Button
+								className="bg-[#252d62] hover:bg-[#1a2046] text-white font-bold flex items-center gap-2 mt-2"
+								onClick={handleOpenCreate}
+							>
+								<Plus className="w-4 h-4" />
+								Crear primera etiqueta
+							</Button>
+						)}
 					</div>
 				) : (
 					<div className="space-y-6">
@@ -377,6 +389,7 @@ export default function EtiquetasPage() {
 											key={e.id}
 											etiqueta={e}
 											onEdit={handleOpenEdit}
+											isAdmin={isAdmin}
 										/>
 									))}
 								</div>
@@ -396,6 +409,7 @@ export default function EtiquetasPage() {
 											key={e.id}
 											etiqueta={e}
 											onEdit={handleOpenEdit}
+											isAdmin={isAdmin}
 										/>
 									))}
 								</div>
