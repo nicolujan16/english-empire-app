@@ -223,6 +223,9 @@ export const crearCuotasRetroactivas = async (
 	// Iterar desde el mes de inscripción hasta el mes actual (inclusive)
 	const cursor = new Date(fechaInscripcion.getFullYear(), fechaInscripcion.getMonth(), 1);
 	const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+
+	if (cursor.getFullYear() < 2026) return;
+
 	let esElPrimerMes = true;
 
 	while (cursor <= mesActualDate) {

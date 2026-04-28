@@ -127,6 +127,11 @@ export default function Step2CoursePayment({
 		if (!isPastInscription || !pastDate) return null;
 
 		const fechaIns = new Date(pastDate + "T12:00:00");
+		
+		if (fechaIns.getFullYear() < 2026) {
+			return { error: true, meses: [], total: 0 };
+		}
+
 		const hoy = new Date();
 		const meses: string[] = [];
 
@@ -143,7 +148,7 @@ export default function Step2CoursePayment({
 			meses.push(`${MESES_NOMBRES[sig.getMonth()]} ${sig.getFullYear()}`);
 		}
 
-		return { meses, total: meses.length };
+		return { error: false, meses, total: meses.length };
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isPastInscription, pastDate]);
 
@@ -341,15 +346,28 @@ export default function Step2CoursePayment({
 										Advertencia de Edad
 									</p>
 									<p className="text-sm text-orange-700 mt-1">
-										Este curso es para alumnos de{" "}
-										<span className="font-bold">
-											{selectedCourse.edadMinima}
-										</span>{" "}
-										a{" "}
-										<span className="font-bold">
-											{selectedCourse.edadMaxima}
-										</span>{" "}
-										años. El alumno tiene{" "}
+										{selectedCourse.edadMaxima === 999 ? (
+											<>
+												Este curso es para alumnos mayores de{" "}
+												<span className="font-bold">
+													{selectedCourse.edadMinima}
+												</span>{" "}
+												años.
+											</>
+										) : (
+											<>
+												Este curso es para alumnos de{" "}
+												<span className="font-bold">
+													{selectedCourse.edadMinima}
+												</span>{" "}
+												a{" "}
+												<span className="font-bold">
+													{selectedCourse.edadMaxima}
+												</span>{" "}
+												años.
+											</>
+										)}{" "}
+										El alumno tiene{" "}
 										<span className="font-bold">{foundStudent?.edad}</span>{" "}
 										años.
 									</p>
@@ -418,9 +436,18 @@ export default function Step2CoursePayment({
 										max={maxPastDate}
 										onChange={(e) => setPastDate(e.target.value)}
 										disabled={isSubmitting}
-										className="block w-full pl-10 pr-3 py-2.5 border border-amber-200 rounded-lg text-sm bg-white focus:ring-amber-500 focus:border-amber-500"
+										className={`block w-full pl-10 pr-3 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 ${
+											pastDatePreview?.error
+												? "border-red-300 focus:border-red-500 focus:ring-red-500"
+												: "border-amber-200 focus:ring-amber-500 focus:border-amber-500"
+										}`}
 									/>
 								</div>
+								{pastDatePreview?.error && (
+									<p className="text-xs text-red-500 font-semibold mt-1">
+										Solo se permiten fechas del ciclo lectivo 2026
+									</p>
+								)}
 
 								{/* Checkbox grupo familiar (solo si aplica) */}
 								{hasGrupoFamiliar && (
@@ -442,7 +469,7 @@ export default function Step2CoursePayment({
 								)}
 
 								{/* Preview informativo */}
-								{pastDatePreview && (
+								{pastDatePreview && !pastDatePreview.error && (
 									<div className="bg-white border border-amber-100 rounded-lg p-3 space-y-2">
 										<div className="flex items-center gap-1.5">
 											<Info className="w-3.5 h-3.5 text-amber-600" />
@@ -681,7 +708,7 @@ export default function Step2CoursePayment({
 						(paymentStatus === "Confirmado" && !metodoPago) || // Fíjate que el 'metodoPago' estará vacío si la matemática del Split no da 0.
 						(paymentStatus === "Pendiente" && !promiseDate) ||
 						(isAgeWarning && !overrideAgeWarning) ||
-						(isPastInscription && !pastDate)
+						(isPastInscription && (!pastDate || pastDatePreview?.error))
 					}
 					className="bg-[#EE1120] hover:bg-[#c4000e] text-white"
 				>
