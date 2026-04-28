@@ -1,4 +1,4 @@
-import React, { SyntheticEvent, useState, useEffect, useMemo } from "react";
+import React, { SyntheticEvent, useState, useEffect, useMemo, useRef } from "react";
 import {
 	User,
 	Tag as TagIcon,
@@ -17,6 +17,11 @@ import {
 	Calendar,
 	Info,
 	Users,
+	DollarSign,
+	Pencil,
+	RotateCcw,
+	MessageSquare,
+	X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
@@ -58,6 +63,7 @@ interface Step2Props {
 	applyGroupDiscountToPast: boolean;
 	setApplyGroupDiscountToPast: (val: boolean) => void;
 	hasGrupoFamiliar: boolean;
+	onAjusteChange: (monto: number | null, motivo: string) => void;
 }
 
 export default function Step2CoursePayment({
@@ -89,6 +95,7 @@ export default function Step2CoursePayment({
 	applyGroupDiscountToPast,
 	setApplyGroupDiscountToPast,
 	hasGrupoFamiliar,
+	onAjusteChange,
 }: Step2Props) {
 	const selectedCourse = courses.find((c) => c.id === selectedCourseId);
 	const isAgeWarning =
@@ -111,11 +118,69 @@ export default function Step2CoursePayment({
 		{ method: string; amount: number }[]
 	>([{ method: "", amount: 0 }]);
 
+	// ─── Estado del ajuste manual ──────────────────────────────────────────────
+	const [editandoMonto, setEditandoMonto] = useState(false);
+	const [montoEditado, setMontoEditado] = useState<string>("");
+	const [motivoAjuste, setMotivoAjuste] = useState<string>("");
+	const inputMontoRef = useRef<HTMLInputElement>(null);
+
+	const montoEditadoNum = parseFloat(montoEditado);
+	const ajusteAplicado =
+		montoEditado !== "" &&
+		!isNaN(montoEditadoNum) &&
+		montoEditadoNum > 0 &&
+		montoEditadoNum !== montoFinalInscripcion;
+
+	const diferenciaAjuste = ajusteAplicado ? montoEditadoNum - montoFinalInscripcion : 0;
+
+	// Monto final a cobrar (sea el del sistema o el ajustado manual)
+	const montoMostrar = ajusteAplicado ? montoEditadoNum : montoFinalInscripcion;
+
+	useEffect(() => {
+		if (editandoMonto && inputMontoRef.current) {
+			inputMontoRef.current.focus();
+			inputMontoRef.current.select();
+		}
+	}, [editandoMonto]);
+
+	const handleAplicarMonto = () => {
+		const valor = parseFloat(montoEditado);
+		if (isNaN(valor) || valor <= 0) {
+			alert("Ingresá un monto válido mayor a cero.");
+			return;
+		}
+		if (!motivoAjuste.trim()) {
+			alert("Debés ingresar una aclaración para el ajuste de monto.");
+			return;
+		}
+		setEditandoMonto(false);
+		
+		// Notificamos al padre
+		onAjusteChange(valor, motivoAjuste.trim());
+
+		// Si aplican un ajuste manual y estaban en medio de un Split Payment, re-calculamos
+		if (isSplitPayment) {
+			setPartialPayments([{ method: "", amount: valor }]);
+			setMetodoPago("");
+		}
+	};
+
+	const handleCancelarEdicion = () => {
+		setMontoEditado("");
+		setMotivoAjuste("");
+		setEditandoMonto(false);
+		onAjusteChange(null, "");
+		if (isSplitPayment) {
+			setPartialPayments([{ method: "", amount: montoFinalInscripcion }]);
+			setMetodoPago("");
+		}
+	};
+
 	const totalIngresado = partialPayments.reduce(
 		(acc, curr) => acc + (curr.amount || 0),
 		0,
 	);
-	const saldoRestante = montoFinalInscripcion - totalIngresado;
+	const saldoRestante = montoMostrar - totalIngresado;
 
 	// ─── Lógica de preview para inscripción de fecha pasada ───────────────
 	const MESES_NOMBRES = [
@@ -167,7 +232,7 @@ export default function Step2CoursePayment({
 
 			// Solo le pasamos el string al padre (y habilitamos el botón) si la matemática da exacto
 			if (
-				totalIngresado === montoFinalInscripcion &&
+				totalIngresado === montoMostrar &&
 				allMethodsSelected &&
 				partialPayments.length > 0
 			) {
@@ -183,7 +248,7 @@ export default function Step2CoursePayment({
 		partialPayments,
 		isSplitPayment,
 		paymentStatus,
-		montoFinalInscripcion,
+		montoMostrar,
 		setMetodoPago,
 		totalIngresado,
 	]);
@@ -312,21 +377,158 @@ export default function Step2CoursePayment({
 					)}
 				</AnimatePresence>
 
-				{/* Muestra del monto a cobrar dinámico */}
+				{/* ── Monto a cobrar ──────────────────────────────────────── */}
 				{selectedCourse && (
-					<div className="flex items-center justify-between p-3 bg-[#252d62]/5 border border-[#252d62]/10 rounded-lg">
-						<span className="text-sm font-semibold text-[#252d62]">
-							Total Inscripción a cobrar:
-						</span>
-						<div className="flex items-center gap-2">
-							{bestTag && applyTagDiscount && (
-								<span className="text-xs text-gray-400 line-through">
-									${montoBaseInscripcion.toLocaleString("es-AR")}
-								</span>
+					<div className="space-y-2">
+						<div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+							{/* Fila principal: monto + botón ajustar */}
+							<div className="flex items-center justify-between">
+								<div className="flex items-center gap-2">
+									<div className="p-2 bg-green-100 rounded-lg shrink-0">
+										<DollarSign className="w-5 h-5 text-green-700" />
+									</div>
+									<div>
+										<p className="text-sm font-medium text-gray-500">
+											Monto Inscripción a Cobrar
+										</p>
+										<div className="flex items-center gap-2">
+											<p
+												className={`text-lg font-bold ${ajusteAplicado ? "text-amber-600" : "text-[#252d62]"}`}
+											>
+												${montoMostrar.toLocaleString("es-AR")}
+											</p>
+											{(ajusteAplicado || (bestTag && applyTagDiscount)) && (
+												<span className="text-xs text-gray-400 line-through">
+													${(ajusteAplicado ? montoFinalInscripcion : montoBaseInscripcion).toLocaleString("es-AR")}
+												</span>
+											)}
+										</div>
+									</div>
+								</div>
+
+								{!editandoMonto ? (
+									<button
+										type="button"
+										onClick={() => {
+											setMontoEditado(
+												ajusteAplicado
+													? montoEditado
+													: String(montoFinalInscripcion),
+											);
+											setEditandoMonto(true);
+										}}
+										className="flex items-center gap-1.5 text-xs font-semibold text-[#252d62] hover:text-[#EE1120] border border-gray-200 hover:border-[#EE1120] px-2.5 py-1.5 rounded-lg transition-colors"
+									>
+										<Pencil className="w-3 h-3" />
+										{ajusteAplicado
+											? "Editar ajuste"
+											: "Modificar monto"}
+									</button>
+								) : (
+									<button
+										type="button"
+										onClick={handleCancelarEdicion}
+										className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-600 border border-gray-200 px-2.5 py-1.5 rounded-lg transition-colors"
+									>
+										<RotateCcw className="w-3 h-3" />
+										Cancelar
+									</button>
+								)}
+							</div>
+
+							{/* Form de ajuste: nuevo monto + motivo */}
+							{editandoMonto && (
+								<div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+									<div className="space-y-1">
+										<p className="text-xs text-gray-500">
+											Monto del sistema:{" "}
+											<span className="font-semibold">
+												${montoFinalInscripcion.toLocaleString("es-AR")}
+											</span>
+											. Ingresá el nuevo monto:
+										</p>
+										<div className="relative">
+											<span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-sm">
+												$
+											</span>
+											<input
+												ref={inputMontoRef}
+												type="number"
+												min={1}
+												value={montoEditado}
+												onChange={(e) =>
+													setMontoEditado(e.target.value)
+												}
+												onKeyDown={(e) =>
+													e.key === "Enter" &&
+													(e.preventDefault(), inputMontoRef.current?.blur())
+												}
+												className="w-full pl-7 pr-3 py-2 border border-[#252d62] rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#252d62]/20"
+												placeholder={String(montoFinalInscripcion)}
+											/>
+										</div>
+									</div>
+
+									<div className="space-y-1">
+										<label className="flex items-center gap-1.5 text-xs font-bold text-gray-600">
+											<MessageSquare className="w-3.5 h-3.5" />
+											Motivo del ajuste{" "}
+											<span className="text-red-500">*</span>
+										</label>
+										<textarea
+											value={motivoAjuste}
+											onChange={(e) => setMotivoAjuste(e.target.value)}
+											placeholder="Ej: Acuerdo de pago en cuotas, cortesía..."
+											rows={2}
+											className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 resize-none"
+										/>
+									</div>
+
+									<Button
+										type="button"
+										onClick={handleAplicarMonto}
+										className="w-full bg-[#252d62] hover:bg-[#1a2046] text-white rounded-lg text-sm"
+									>
+										Aplicar ajuste
+									</Button>
+								</div>
 							)}
-							<span className="text-lg font-black text-[#252d62]">
-								${montoFinalInscripcion.toLocaleString("es-AR")}
-							</span>
+
+							{/* Badge de ajuste aplicado */}
+							{ajusteAplicado && !editandoMonto && (
+								<div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+									<AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+									<div className="flex-1 min-w-0">
+										<p className="text-xs text-amber-700 font-bold">
+											Monto ajustado{" "}
+											{diferenciaAjuste > 0
+												? `+$${diferenciaAjuste.toLocaleString("es-AR")}`
+												: `-$${Math.abs(diferenciaAjuste).toLocaleString("es-AR")}`}
+										</p>
+										<p className="text-[11px] text-amber-600 mt-0.5 truncate">
+											{motivoAjuste}
+										</p>
+									</div>
+									<button
+										type="button"
+										onClick={() => {
+											setMontoEditado("");
+											setMotivoAjuste("");
+											setEditandoMonto(false);
+											onAjusteChange(null, "");
+											if (isSplitPayment) {
+												setPartialPayments([
+													{ method: "", amount: montoFinalInscripcion },
+												]);
+												setMetodoPago("");
+											}
+										}}
+										className="text-amber-500 hover:text-amber-700 transition-colors p-1"
+									>
+										<X className="w-4 h-4" />
+									</button>
+								</div>
+							)}
 						</div>
 					</div>
 				)}
@@ -546,7 +748,7 @@ export default function Step2CoursePayment({
 										setIsSplitPayment(true);
 										setMetodoPago(""); // Reseteamos hasta que cuadre la matemática
 										setPartialPayments([
-											{ method: "", amount: montoFinalInscripcion },
+											{ method: "", amount: montoMostrar },
 										]);
 									} else {
 										setIsSplitPayment(false);
@@ -709,7 +911,8 @@ export default function Step2CoursePayment({
 						(paymentStatus === "Confirmado" && !metodoPago) || // Fíjate que el 'metodoPago' estará vacío si la matemática del Split no da 0.
 						(paymentStatus === "Pendiente" && !promiseDate) ||
 						(isAgeWarning && !overrideAgeWarning) ||
-						(isPastInscription && (!pastDate || pastDatePreview?.error))
+						(isPastInscription && (!pastDate || pastDatePreview?.error)) ||
+						editandoMonto
 					}
 					className="bg-[#EE1120] hover:bg-[#c4000e] text-white"
 				>

@@ -156,6 +156,10 @@ export default function ManualInscriptionModal({
 	const [bestTag, setBestTag] = useState<TagDiscount | null>(null);
 	const [applyTagDiscount, setApplyTagDiscount] = useState(true);
 
+	// ─── Estados para ajuste manual de monto ────────────────────────
+	const [montoAjusteInscripcion, setMontoAjusteInscripcion] = useState<number | null>(null);
+	const [motivoAjusteInscripcion, setMotivoAjusteInscripcion] = useState("");
+
 	// ─── Estados para inscripción de fecha pasada ────────────────────────
 	const [isPastInscription, setIsPastInscription] = useState(false);
 	const [pastDate, setPastDate] = useState("");
@@ -218,6 +222,8 @@ export default function ManualInscriptionModal({
 		setOverrideAgeWarning(false);
 		setBestTag(null);
 		setApplyTagDiscount(true);
+		setMontoAjusteInscripcion(null);
+		setMotivoAjusteInscripcion("");
 		setIsPastInscription(false);
 		setPastDate("");
 		setApplyGroupDiscountToPast(false);
@@ -443,6 +449,8 @@ export default function ManualInscriptionModal({
 				);
 			}
 
+			const montoACobrar = montoAjusteInscripcion ?? montoInscripcionFinal;
+
 			const esRetroactiva = isPastInscription && pastDate;
 
 			const inscriptionData: any = {
@@ -455,7 +463,7 @@ export default function ManualInscriptionModal({
 				cuota11enAdelante: cursoSeleccionado.cuota11enAdelante || 0,
 				cursoId: selectedCourseId,
 				cursoNombre: cursoSeleccionado.nombre || "Desconocido",
-				cursoInscripcion: montoInscripcionFinal,
+				cursoInscripcion: montoACobrar,
 				metodoPago,
 				status: paymentStatus,
 				fecha: esRetroactiva
@@ -463,6 +471,10 @@ export default function ManualInscriptionModal({
 					: serverTimestamp(),
 				esInscripcionRetroactiva: !!esRetroactiva,
 				excepcionEdad: overrideAgeWarning,
+				...(montoAjusteInscripcion !== null && {
+					montoAjustado: montoAjusteInscripcion,
+					motivoAjuste: motivoAjusteInscripcion,
+				}),
 			};
 
 			if (bestTag && applyTagDiscount) {
@@ -557,7 +569,7 @@ export default function ManualInscriptionModal({
 								emailDestino: foundStudent!.email,
 								nombreAlumno: `${foundStudent!.nombre} ${foundStudent!.apellido}`,
 								cursoNombre: cursoSeleccionado.nombre,
-								montoAbonado: montoInscripcionFinal,
+								montoAbonado: montoACobrar,
 								metodoPago: metodoPago,
 								nroComprobante: `TXN-${inscripcionRef.id.slice(-8).toUpperCase()}`,
 							}),
@@ -707,6 +719,10 @@ export default function ManualInscriptionModal({
 											applyGroupDiscountToPast={applyGroupDiscountToPast}
 											setApplyGroupDiscountToPast={setApplyGroupDiscountToPast}
 											hasGrupoFamiliar={grupoFamiliar.aplica}
+											onAjusteChange={(monto, motivo) => {
+												setMontoAjusteInscripcion(monto);
+												setMotivoAjusteInscripcion(motivo);
+											}}
 										/>
 									)}
 								</div>

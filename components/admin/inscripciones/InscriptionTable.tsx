@@ -20,6 +20,8 @@ import {
 	Lock,
 	Tag,
 	Printer,
+	AlertCircle,
+	AlertTriangle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -47,6 +49,8 @@ interface InscriptionRow extends Inscription {
 	fechaPromesaPago?: string;
 	descuentoPorEtiqueta?: string | null;
 	descuentoPorcentaje?: number;
+	montoAjustado?: number | null;
+	motivoAjuste?: string | null;
 }
 
 interface InscriptionsTableProps {
@@ -137,6 +141,81 @@ function EtiquetaBadge({
 	);
 }
 
+// ─── COMPONENTE MONTO CELDA (Con Tooltip de Ajuste) ───────────────────────────
+
+function MontoCeldaInscripcion({ inscription }: { inscription: InscriptionRow }) {
+	const badgeRef = useRef<HTMLSpanElement>(null);
+	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(
+		null,
+	);
+
+	const showTooltip = useCallback(() => {
+		if (!badgeRef.current) return;
+		const rect = badgeRef.current.getBoundingClientRect();
+
+		let x = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
+		let y = rect.top - TOOLTIP_HEIGHT - 10;
+
+		if (x + TOOLTIP_WIDTH > window.innerWidth - 8)
+			x = window.innerWidth - TOOLTIP_WIDTH - 8;
+		if (x < 8) x = 8;
+		if (y < 8) y = rect.bottom + 10;
+
+		setTooltipPos({ x, y });
+	}, []);
+
+	const hideTooltip = useCallback(() => setTooltipPos(null), []);
+
+	return (
+		<div className="flex flex-col gap-1 items-start">
+			<div className="flex items-center gap-2">
+				<span className="font-bold text-gray-900">
+					${inscription.cursoInscripcion.toLocaleString("es-AR")}
+				</span>
+
+				{inscription.motivoAjuste && inscription.motivoAjuste.trim() !== "" && (
+					<>
+						<span
+							ref={badgeRef}
+							onMouseEnter={showTooltip}
+							onMouseLeave={hideTooltip}
+							className="text-amber-500 cursor-help"
+						>
+							<AlertCircle className="w-4 h-4" />
+						</span>
+
+						{tooltipPos && (
+							<div
+								className="fixed z-[9999] pointer-events-none"
+								style={{
+									left: tooltipPos.x,
+									top: tooltipPos.y,
+									width: TOOLTIP_WIDTH,
+								}}
+							>
+								<div className="bg-[#1a2248] text-white rounded-xl shadow-xl p-3">
+									<div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/10">
+										<AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+										<p className="text-xs font-bold leading-tight">
+											Monto Ajustado Manualmente
+										</p>
+									</div>
+									<p className="text-xs text-white/80 leading-relaxed italic">
+										{inscription.motivoAjuste}
+									</p>
+								</div>
+								<div className="flex justify-center -mt-1">
+									<div className="w-2 h-2 bg-[#1a2248] rotate-45" />
+								</div>
+							</div>
+						)}
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
 // ─── TABLA PRINCIPAL ──────────────────────────────────────────────────────────
 
 const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
@@ -221,6 +300,8 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 						cuota11enAdelante: item.cuota11enAdelante || 0,
 						descuentoPorEtiqueta: item.descuentoPorEtiqueta || null,
 						descuentoPorcentaje: item.descuentoPorcentaje || 0,
+						montoAjustado: item.montoAjustado ?? null,
+						motivoAjuste: item.motivoAjuste ?? null,
 					});
 				});
 
@@ -393,6 +474,10 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 						? `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">Pago prometido: ${item.fechaPromesaPago}</div>`
 						: "";
 
+				const motivoAjusteHtml = item.motivoAjuste
+					? `<div style="font-size:10px;color:#d97706;margin-top:2px;font-style:italic;">Ajuste: ${item.motivoAjuste}</div>`
+					: "";
+
 				return `
       <tr>
         <td>${item.fecha.split(",")[0]}</td>
@@ -406,7 +491,10 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
         <td style="font-family:monospace;">${item.alumnoDni}</td>
         <td>${item.cursoNombre}</td>
         <td>${item.metodoPago}</td>
-        <td><strong>${formatMoney(item.cursoInscripcion)}</strong></td>
+        <td>
+          <strong>${formatMoney(item.cursoInscripcion)}</strong>
+          ${motivoAjusteHtml}
+        </td>
         <td>
           <span style="color:${estadoColor};font-weight:700;">${item.status}</span>
           ${promesaHtml}
@@ -726,9 +814,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 												<span className="text-xs text-gray-400 flex items-center gap-1">
 													<CreditCardIcon className="w-3 h-3" /> Monto
 												</span>
-												<span className="font-bold text-gray-900">
-													${item.cursoInscripcion.toLocaleString("es-AR")}
-												</span>
+												<MontoCeldaInscripcion inscription={item} />
 											</div>
 											<div className="flex flex-col">
 												<span className="text-xs text-gray-400 flex items-center gap-1">
@@ -827,8 +913,8 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 												<td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
 													{item.metodoPago}
 												</td>
-												<td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
-													${item.cursoInscripcion.toLocaleString("es-AR")}
+												<td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+													<MontoCeldaInscripcion inscription={item} />
 												</td>
 												<td className="px-4 lg:px-6 py-4 whitespace-nowrap">
 													<div className="flex flex-col items-start gap-1">
