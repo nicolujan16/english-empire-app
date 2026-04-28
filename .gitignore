@@ -50,6 +50,7 @@ functions/.env
 #md files
 Manual.md
 db.md
+description.md
 
 #firebase rules
 firebaserules.txt

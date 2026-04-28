@@ -18,6 +18,7 @@ export interface CursoParaCuota {
 	nombre: string;
 	cuota1a10: number;
 	cuota11enAdelante: number;
+	inicioMes: number;
 	finMes: number;
 }
 
@@ -221,7 +222,9 @@ export const crearCuotasRetroactivas = async (
 	};
 
 	// Iterar desde el mes de inscripción hasta el mes actual (inclusive)
-	const cursor = new Date(fechaInscripcion.getFullYear(), fechaInscripcion.getMonth(), 1);
+	// Respetando el mes de inicio del curso
+	const mesInicio = Math.max(fechaInscripcion.getMonth() + 1, curso.inicioMes || 1);
+	const cursor = new Date(fechaInscripcion.getFullYear(), mesInicio - 1, 1);
 	const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
 
 	if (cursor.getFullYear() < 2026) return;

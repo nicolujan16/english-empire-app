@@ -135,7 +135,8 @@ export default function Step2CoursePayment({
 		const hoy = new Date();
 		const meses: string[] = [];
 
-		const cursor = new Date(fechaIns.getFullYear(), fechaIns.getMonth(), 1);
+		const mesInicio = Math.max(fechaIns.getMonth() + 1, selectedCourse?.inicioMes || 1);
+		const cursor = new Date(fechaIns.getFullYear(), mesInicio - 1, 1);
 		const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
 
 		while (cursor <= mesActualDate) {
@@ -150,7 +151,7 @@ export default function Step2CoursePayment({
 
 		return { error: false, meses, total: meses.length };
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isPastInscription, pastDate]);
+	}, [isPastInscription, pastDate, selectedCourse?.inicioMes]);
 
 	// Fecha máxima para inscripción pasada: último día del mes anterior
 	const maxPastDate = useMemo(() => {

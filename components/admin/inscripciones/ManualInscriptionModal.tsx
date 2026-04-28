@@ -64,6 +64,7 @@ export interface CourseData {
 	cuota: number;
 	cuota1a10: number;
 	cuota11enAdelante: number;
+	inicioMes: number;
 	finMes: number;
 	edadMinima: number;
 	edadMaxima: number;
@@ -179,6 +180,7 @@ export default function ManualInscriptionModal({
 							cuota: data.cuota || 0,
 							cuota1a10: data.cuota1a10 || 0,
 							cuota11enAdelante: data.cuota11enAdelante || 0,
+							inicioMes: data.inicioMes ?? 1,
 							finMes: data.finMes ?? 12,
 							edadMinima: data.edades?.[0] ?? 0,
 							edadMaxima: data.edades?.[1] ?? 99,
@@ -505,6 +507,7 @@ export default function ManualInscriptionModal({
 					nombre: cursoSeleccionado.nombre,
 					cuota1a10: cursoSeleccionado.cuota1a10,
 					cuota11enAdelante: cursoSeleccionado.cuota11enAdelante,
+					inicioMes: cursoSeleccionado.inicioMes,
 					finMes: cursoSeleccionado.finMes,
 				};
 
