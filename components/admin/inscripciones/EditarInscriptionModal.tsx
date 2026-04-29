@@ -205,7 +205,7 @@ export default function EditInscriptionModal({
 		useState(true);
 
 	// Variable de estado para guardar la información del curso desde Firebase (necesaria para `finMes`)
-	const [cursoDetails, setCursoDetails] = useState<{ finMes: number } | null>(
+	const [cursoDetails, setCursoDetails] = useState<{ finMes: number; inicioMes: number } | null>(
 		null,
 	);
 
@@ -227,8 +227,13 @@ export default function EditInscriptionModal({
 					const snap = await getDoc(
 						doc(db, "Cursos", inscriptionToEdit.cursoId),
 					);
-					if (snap.exists())
-						setCursoDetails({ finMes: snap.data().finMes ?? 12 });
+					if (snap.exists()) {
+						const data = snap.data();
+						setCursoDetails({ 
+							finMes: data.finMes ?? 12,
+							inicioMes: data.inicioMes ?? 3
+						});
+					}
 				} catch (e) {
 					console.error("Error fetching curso:", e);
 				}
@@ -386,6 +391,7 @@ export default function EditInscriptionModal({
 					cuota1a10: inscriptionToEdit.cuota1a10,
 					cuota11enAdelante: inscriptionToEdit.cuota11enAdelante,
 					finMes: cursoDetails?.finMes || 12, // Usamos el finMes recuperado
+					inicioMes: cursoDetails?.inicioMes || 3, // Añadido para el tipo CursoParaCuota
 				};
 
 				// 1. Creamos la cuota
