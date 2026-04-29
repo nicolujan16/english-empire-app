@@ -17,12 +17,15 @@ import {
 	Calendar,
 	CreditCard as CreditCardIcon,
 	Book,
-	Lock,
 	Tag,
 	Printer,
 	AlertCircle,
 	AlertTriangle,
+	Trash2,
+	Lock,
+	CheckCircle2,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 
 import {
@@ -33,8 +36,13 @@ import {
 	updateDoc,
 	deleteDoc,
 	arrayRemove,
+	addDoc,
+	serverTimestamp,
+	getDocs,
+	where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 
 import EditInscriptionModal, {
 	Inscription,
@@ -233,6 +241,18 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 	const [inscriptionToEdit, setInscriptionToEdit] =
 		useState<Inscription | null>(null);
 
+	const { adminData } = useAdminAuth();
+	const [inscriptionToDelete, setInscriptionToDelete] =
+		useState<InscriptionRow | null>(null);
+	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
+	const [alertModal, setAlertModal] = useState<{
+		isOpen: boolean;
+		title: string;
+		message: string;
+		type: "success" | "error" | "warning";
+	}>({ isOpen: false, title: "", message: "", type: "success" });
+
 	const PAGE_SIZE = 15;
 
 	useEffect(() => {
@@ -398,6 +418,81 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 	const handleEditClick = (inscription: InscriptionRow) => {
 		setInscriptionToEdit(inscription);
 		setIsEditModalOpen(true);
+	};
+
+	const handleDeleteClick = (inscription: InscriptionRow) => {
+		setInscriptionToDelete(inscription);
+		setIsDeleteDialogOpen(true);
+	};
+
+	const confirmDelete = async () => {
+		if (!inscriptionToDelete || !adminData) return;
+		setIsDeleting(true);
+
+		try {
+			if (adminData.rol === "admin") {
+				await deleteDoc(doc(db, "Inscripciones", inscriptionToDelete.id));
+
+				if (inscriptionToDelete.alumnoId && inscriptionToDelete.cursoId) {
+					const collectionName =
+						inscriptionToDelete.alumnoTipo === "adulto" ? "Users" : "Hijos";
+					await updateDoc(
+						doc(db, collectionName, inscriptionToDelete.alumnoId),
+						{
+							cursos: arrayRemove(inscriptionToDelete.cursoId),
+						},
+					);
+				}
+			} else if (adminData.rol === "secretario") {
+				const q = query(
+					collection(db, "eliminacionesPendientes"),
+					where("idReferencia", "==", inscriptionToDelete.id),
+				);
+				const snapshot = await getDocs(q);
+				if (!snapshot.empty) {
+					setAlertModal({
+						isOpen: true,
+						title: "Solicitud existente",
+						message:
+							"Ya existe una solicitud de eliminación pendiente para esta inscripción.",
+						type: "warning",
+					});
+					return;
+				}
+
+				await addDoc(collection(db, "eliminacionesPendientes"), {
+					tipo: "inscripcion",
+					idReferencia: inscriptionToDelete.id,
+					alumnoNombre: inscriptionToDelete.alumnoNombre,
+					alumnoId: inscriptionToDelete.alumnoId,
+					alumnoTipo: inscriptionToDelete.alumnoTipo, // <-- Añadido
+					cursoNombre: inscriptionToDelete.cursoNombre,
+					cursoId: inscriptionToDelete.cursoId,
+					fechaSolicitud: serverTimestamp(),
+					solicitadoPor: adminData.uid,
+					emailSolicitante: adminData.email,
+				});
+				setAlertModal({
+					isOpen: true,
+					title: "Solicitud enviada",
+					message:
+						"La solicitud de eliminación fue enviada al administrador exitosamente.",
+					type: "success",
+				});
+			}
+		} catch (error) {
+			console.error("Error al eliminar/solicitar eliminación:", error);
+			setAlertModal({
+				isOpen: true,
+				title: "Error",
+				message: "Ocurrió un error. Intenta nuevamente.",
+				type: "error",
+			});
+		} finally {
+			setIsDeleting(false);
+			setIsDeleteDialogOpen(false);
+			setInscriptionToDelete(null);
+		}
 	};
 
 	const handleSaveInscription = async (
@@ -760,7 +855,7 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 										transition={{ duration: 0.2, delay: index * 0.05 }}
 										className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 relative"
 									>
-										<div className="absolute top-4 right-4">
+										<div className="absolute top-4 right-4 flex items-center gap-1">
 											{canEdit(item.status as InscriptionStatus) ? (
 												<button
 													onClick={() => handleEditClick(item)}
@@ -773,6 +868,12 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 													<Lock className="w-4 h-4" />
 												</span>
 											)}
+											<button
+												onClick={() => handleDeleteClick(item)}
+												className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+											>
+												<Trash2 className="w-4 h-4" />
+											</button>
 										</div>
 
 										<div className="flex items-center gap-3 mb-3 border-b border-gray-100 pb-3 pr-12">
@@ -932,18 +1033,26 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 													</div>
 												</td>
 												<td className="px-4 lg:px-6 py-4 whitespace-nowrap text-right">
-													{canEdit(item.status as InscriptionStatus) ? (
+													<div className="flex items-center justify-end gap-2">
+														{canEdit(item.status as InscriptionStatus) ? (
+															<button
+																onClick={() => handleEditClick(item)}
+																className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+															>
+																<Pencil className="w-4 h-4" />
+															</button>
+														) : (
+															<span className="p-1.5 text-gray-200 rounded-lg cursor-not-allowed inline-flex">
+																<Lock className="w-4 h-4" />
+															</span>
+														)}
 														<button
-															onClick={() => handleEditClick(item)}
-															className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+															onClick={() => handleDeleteClick(item)}
+															className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 														>
-															<Pencil className="w-4 h-4" />
+															<Trash2 className="w-4 h-4" />
 														</button>
-													) : (
-														<span className="p-1.5 text-gray-200 rounded-lg cursor-not-allowed inline-flex">
-															<Lock className="w-4 h-4" />
-														</span>
-													)}
+													</div>
 												</td>
 											</motion.tr>
 										))}
@@ -1061,6 +1170,104 @@ const InscriptionsTable = ({ showTitle = true }: InscriptionsTableProps) => {
 				inscriptionToEdit={inscriptionToEdit}
 				onSave={handleSaveInscription}
 			/>
+
+			{/* Delete Confirmation Modal */}
+			{isDeleteDialogOpen && inscriptionToDelete && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+					<div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+						<div className="p-6">
+							<div className="flex items-center gap-3 text-red-600 mb-4">
+								<div className="bg-red-100 p-2 rounded-full">
+									<AlertTriangle className="w-6 h-6" />
+								</div>
+								<h3 className="text-lg font-bold">Confirmar Eliminación</h3>
+							</div>
+							<p className="text-gray-600 text-sm mb-4">
+								¿Estás seguro de que deseas eliminar la inscripción de{" "}
+								<span className="font-semibold text-gray-900">
+									{inscriptionToDelete.alumnoNombre}
+								</span>{" "}
+								al curso {inscriptionToDelete.cursoNombre}?
+							</p>
+							{adminData?.rol === "admin" && (
+								<p className="text-gray-600 text-sm mb-4">
+									<strong className="text-red-600">Atención:</strong> También se
+									quitará al alumno de la lista del curso automáticamente.
+								</p>
+							)}
+							{adminData?.rol === "secretario" && (
+								<div className="bg-amber-50 text-amber-800 text-xs p-3 rounded-lg border border-amber-200 mb-4">
+									Al ser secretario, esta acción creará una solicitud que deberá
+									ser aprobada por un administrador.
+								</div>
+							)}
+						</div>
+						<div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+							<Button
+								variant="ghost"
+								onClick={() => setIsDeleteDialogOpen(false)}
+								disabled={isDeleting}
+								className="text-gray-600 hover:text-gray-900"
+							>
+								Cancelar
+							</Button>
+							<Button
+								onClick={confirmDelete}
+								disabled={isDeleting}
+								className="bg-red-600 hover:bg-red-700 text-white shadow-sm"
+							>
+								{isDeleting ? (
+									<Loader2 className="w-4 h-4 animate-spin mr-2" />
+								) : (
+									<Trash2 className="w-4 h-4 mr-2" />
+								)}
+								{adminData?.rol === "secretario"
+									? "Solicitar eliminación"
+									: "Eliminar inscripción"}
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Alert Feedback Modal */}
+			{alertModal.isOpen && (
+				<div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+					<div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+						<div className="p-6 text-center">
+							<div className="flex justify-center mb-4">
+								{alertModal.type === "success" && (
+									<div className="bg-green-100 p-3 rounded-full text-green-600">
+										<CheckCircle2 className="w-8 h-8" />
+									</div>
+								)}
+								{alertModal.type === "warning" && (
+									<div className="bg-amber-100 p-3 rounded-full text-amber-600">
+										<AlertTriangle className="w-8 h-8" />
+									</div>
+								)}
+								{alertModal.type === "error" && (
+									<div className="bg-red-100 p-3 rounded-full text-red-600">
+										<AlertCircle className="w-8 h-8" />
+									</div>
+								)}
+							</div>
+							<h3 className="text-lg font-bold text-gray-900 mb-2">
+								{alertModal.title}
+							</h3>
+							<p className="text-gray-600 text-sm">{alertModal.message}</p>
+						</div>
+						<div className="bg-gray-50 px-6 py-4 flex justify-center border-t border-gray-100">
+							<Button
+								onClick={() => setAlertModal((prev) => ({ ...prev, isOpen: false }))}
+								className="w-full bg-[#252d62] hover:bg-[#1a2046] text-white"
+							>
+								Entendido
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
 		</>
 	);
 };

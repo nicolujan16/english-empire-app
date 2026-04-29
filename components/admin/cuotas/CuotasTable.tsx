@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { addDoc, deleteDoc, doc, collection, getDocs, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 import {
 	Loader2,
 	CheckCircle2,
@@ -20,6 +21,7 @@ import {
 	Pencil,
 	ChevronLeft,
 	ChevronRight,
+	Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -440,6 +442,17 @@ export default function CuotasTable({
 	const [cuotaAEditar, setCuotaAEditar] = useState<CuotaDoc | null>(null);
 	const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+	const { adminData } = useAdminAuth();
+	const [cuotaToDelete, setCuotaToDelete] = useState<CuotaDoc | null>(null);
+	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
+	const [alertModal, setAlertModal] = useState<{
+		isOpen: boolean;
+		title: string;
+		message: string;
+		type: "success" | "error" | "warning";
+	}>({ isOpen: false, title: "", message: "", type: "success" });
+
 	const [currentPage, setCurrentPage] = useState(1);
 	const PAGE_SIZE = 15;
 
@@ -454,6 +467,72 @@ export default function CuotasTable({
 	useEffect(() => {
 		setCurrentPage(1);
 	}, [searchTerm, selectedMonth, statusFilter, courseFilter, tagFilter]);
+
+	const handleDeleteClick = (cuota: CuotaDoc) => {
+		setCuotaToDelete(cuota);
+		setIsDeleteDialogOpen(true);
+	};
+
+	const confirmDelete = async () => {
+		if (!cuotaToDelete || !adminData) return;
+		setIsDeleting(true);
+
+		try {
+			if (adminData.rol === "admin") {
+				await deleteDoc(doc(db, "Cuotas", cuotaToDelete.id));
+				// Removed locally from state
+				setCuotas((prev) => prev.filter((c) => c.id !== cuotaToDelete.id));
+			} else if (adminData.rol === "secretario") {
+				const q = query(
+					collection(db, "eliminacionesPendientes"),
+					where("idReferencia", "==", cuotaToDelete.id),
+				);
+				const snapshot = await getDocs(q);
+				if (!snapshot.empty) {
+					setAlertModal({
+						isOpen: true,
+						title: "Solicitud existente",
+						message:
+							"Ya existe una solicitud de eliminación pendiente para esta cuota.",
+						type: "warning",
+					});
+					return;
+				}
+
+				await addDoc(collection(db, "eliminacionesPendientes"), {
+					tipo: "cuota",
+					idReferencia: cuotaToDelete.id,
+					alumnoNombre: cuotaToDelete.alumnoNombre,
+					alumnoId: cuotaToDelete.alumnoId,
+					cursoNombre: cuotaToDelete.cursoNombre,
+					mes: cuotaToDelete.mes,
+					anio: cuotaToDelete.anio,
+					fechaSolicitud: serverTimestamp(),
+					solicitadoPor: adminData.uid,
+					emailSolicitante: adminData.email,
+				});
+				setAlertModal({
+					isOpen: true,
+					title: "Solicitud enviada",
+					message:
+						"La solicitud de eliminación fue enviada al administrador exitosamente.",
+					type: "success",
+				});
+			}
+		} catch (error) {
+			console.error("Error al eliminar/solicitar eliminación:", error);
+			setAlertModal({
+				isOpen: true,
+				title: "Error",
+				message: "Ocurrió un error. Intenta nuevamente.",
+				type: "error",
+			});
+		} finally {
+			setIsDeleting(false);
+			setIsDeleteDialogOpen(false);
+			setCuotaToDelete(null);
+		}
+	};
 
 	useEffect(() => {
 		const fetchCuotas = async () => {
@@ -830,6 +909,14 @@ export default function CuotasTable({
 											Sin acciones
 										</span>
 									)}
+									<Button
+										size="sm"
+										variant="ghost"
+										className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2"
+										onClick={() => handleDeleteClick(cuota)}
+									>
+										<Trash2 className="w-4 h-4" />
+									</Button>
 								</div>
 							</td>
 						</motion.tr>
@@ -891,6 +978,98 @@ export default function CuotasTable({
 					onCuotasGeneradas();
 				}}
 			/>
+
+			{/* Delete Confirmation Modal */}
+			{isDeleteDialogOpen && cuotaToDelete && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+					<div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+						<div className="p-6">
+							<div className="flex items-center gap-3 text-red-600 mb-4">
+								<div className="bg-red-100 p-2 rounded-full">
+									<AlertTriangle className="w-6 h-6" />
+								</div>
+								<h3 className="text-lg font-bold">Confirmar Eliminación</h3>
+							</div>
+							<p className="text-gray-600 text-sm mb-4">
+								¿Estás seguro de que deseas eliminar la cuota de{" "}
+								<span className="font-semibold text-gray-900">
+									{cuotaToDelete.alumnoNombre}
+								</span>{" "}
+								({cuotaToDelete.cursoNombre} - Mes {cuotaToDelete.mes})?
+							</p>
+							{adminData?.rol === "secretario" && (
+								<div className="bg-amber-50 text-amber-800 text-xs p-3 rounded-lg border border-amber-200 mb-4">
+									Al ser secretario, esta acción creará una solicitud que deberá
+									ser aprobada por un administrador.
+								</div>
+							)}
+						</div>
+						<div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+							<Button
+								variant="ghost"
+								onClick={() => setIsDeleteDialogOpen(false)}
+								disabled={isDeleting}
+								className="text-gray-600 hover:text-gray-900"
+							>
+								Cancelar
+							</Button>
+							<Button
+								onClick={confirmDelete}
+								disabled={isDeleting}
+								className="bg-red-600 hover:bg-red-700 text-white shadow-sm"
+							>
+								{isDeleting ? (
+									<Loader2 className="w-4 h-4 animate-spin mr-2" />
+								) : (
+									<Trash2 className="w-4 h-4 mr-2" />
+								)}
+								{adminData?.rol === "secretario"
+									? "Solicitar eliminación"
+									: "Eliminar cuota"}
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Alert Feedback Modal */}
+			{alertModal.isOpen && (
+				<div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+					<div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+						<div className="p-6 text-center">
+							<div className="flex justify-center mb-4">
+								{alertModal.type === "success" && (
+									<div className="bg-green-100 p-3 rounded-full text-green-600">
+										<CheckCircle2 className="w-8 h-8" />
+									</div>
+								)}
+								{alertModal.type === "warning" && (
+									<div className="bg-amber-100 p-3 rounded-full text-amber-600">
+										<AlertTriangle className="w-8 h-8" />
+									</div>
+								)}
+								{alertModal.type === "error" && (
+									<div className="bg-red-100 p-3 rounded-full text-red-600">
+										<AlertCircle className="w-8 h-8" />
+									</div>
+								)}
+							</div>
+							<h3 className="text-lg font-bold text-gray-900 mb-2">
+								{alertModal.title}
+							</h3>
+							<p className="text-gray-600 text-sm">{alertModal.message}</p>
+						</div>
+						<div className="bg-gray-50 px-6 py-4 flex justify-center border-t border-gray-100">
+							<Button
+								onClick={() => setAlertModal((prev) => ({ ...prev, isOpen: false }))}
+								className="w-full bg-[#252d62] hover:bg-[#1a2046] text-white"
+							>
+								Entendido
+							</Button>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

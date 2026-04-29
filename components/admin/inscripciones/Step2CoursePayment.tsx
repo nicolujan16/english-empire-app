@@ -606,6 +606,8 @@ export default function Step2CoursePayment({
 								if (!e.target.checked) {
 									setPastDate("");
 									setApplyGroupDiscountToPast(false);
+								} else {
+									setPaymentStatus("Confirmado");
 								}
 							}}
 							disabled={isSubmitting}
@@ -711,12 +713,12 @@ export default function Step2CoursePayment({
 					</div>
 					<select
 						required
-						disabled={isSubmitting}
+						disabled={isSubmitting || isPastInscription}
 						value={paymentStatus}
 						onChange={(e) =>
 							setPaymentStatus(e.target.value as "Confirmado" | "Pendiente")
 						}
-						className={`block w-full pl-10 pr-3 py-2.5 border rounded-lg text-sm font-medium ${paymentStatus === "Confirmado" ? "bg-green-50 border-green-200 text-green-800" : "bg-yellow-50 border-yellow-200 text-yellow-800"}`}
+						className={`block w-full pl-10 pr-3 py-2.5 border rounded-lg text-sm font-medium ${paymentStatus === "Confirmado" ? "bg-green-50 border-green-200 text-green-800" : "bg-yellow-50 border-yellow-200 text-yellow-800"} ${isPastInscription ? "opacity-70 cursor-not-allowed" : ""}`}
 					>
 						<option value="Confirmado">
 							El tutor abona en este momento (Confirmado)

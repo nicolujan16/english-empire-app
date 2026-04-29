@@ -21,6 +21,7 @@ import AddNewAdmin from "@/components/admin/configuracion/AddNewAdmin";
 import AdminListModal from "@/components/admin/configuracion/AdminListModal";
 import AddNewTeacherModal from "@/components/admin/configuracion/AddNewTeacherModal";
 import TeacherListModal from "@/components/admin/configuracion/TeacherListModal";
+import PendingDeletionsModal from "@/components/admin/configuracion/PendingDeletionsModal";
 
 // --- FIREBASE ---
 import {
@@ -47,6 +48,9 @@ export default function ConfiguracionPage() {
 	// Modales de profesores (listos para conectar)
 	const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
 	const [isTeacherListOpen, setIsTeacherListOpen] = useState(false);
+
+	// Modales de aprobaciones
+	const [isPendingDeletionsOpen, setIsPendingDeletionsOpen] = useState(false);
 
 	// Toggle visibilidad contraseñas
 	const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -230,6 +234,39 @@ export default function ConfiguracionPage() {
 						>
 							<Users className="w-4 h-4" />
 							Gestionar profesores
+						</Button>
+					</div>
+				</motion.div>
+			)}
+
+			{/* ── Sección: Aprobaciones pendientes ── */}
+			{adminData?.rol === "admin" && (
+				<motion.div
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: 0.2 }}
+					className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+				>
+					<div className="flex items-center gap-3">
+						<div className="p-2 bg-amber-50 rounded-lg">
+							<AlertCircle className="w-5 h-5 text-amber-600" />
+						</div>
+						<div>
+							<h3 className="font-bold text-[#252d62]">
+								Aprobaciones pendientes
+							</h3>
+							<p className="text-xs text-gray-500 mt-0.5">
+								Revisá y decidí sobre las solicitudes de eliminación de secretarios
+							</p>
+						</div>
+					</div>
+					<div className="flex flex-row gap-2">
+						<Button
+							onClick={() => setIsPendingDeletionsOpen(true)}
+							className="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-xl flex items-center gap-2 w-full sm:w-auto transition-colors"
+						>
+							<AlertCircle className="w-4 h-4" />
+							Gestionar solicitudes
 						</Button>
 					</div>
 				</motion.div>
@@ -438,6 +475,12 @@ export default function ConfiguracionPage() {
 			<TeacherListModal
 				isOpen={isTeacherListOpen}
 				onClose={() => setIsTeacherListOpen(false)}
+			/>
+
+			{/* Modales de aprobaciones */}
+			<PendingDeletionsModal
+				isOpen={isPendingDeletionsOpen}
+				onClose={() => setIsPendingDeletionsOpen(false)}
 			/>
 		</div>
 	);
