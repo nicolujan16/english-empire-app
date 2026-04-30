@@ -63,6 +63,8 @@ interface Step2Props {
 	applyGroupDiscountToPast: boolean;
 	setApplyGroupDiscountToPast: (val: boolean) => void;
 	hasGrupoFamiliar: boolean;
+	incluirPrimerMes: boolean;
+	setIncluirPrimerMes: (val: boolean) => void;
 	onAjusteChange: (monto: number | null, motivo: string) => void;
 }
 
@@ -95,6 +97,8 @@ export default function Step2CoursePayment({
 	applyGroupDiscountToPast,
 	setApplyGroupDiscountToPast,
 	hasGrupoFamiliar,
+	incluirPrimerMes,
+	setIncluirPrimerMes,
 	onAjusteChange,
 }: Step2Props) {
 	const selectedCourse = courses.find((c) => c.id === selectedCourseId);
@@ -204,8 +208,16 @@ export default function Step2CoursePayment({
 		const cursor = new Date(fechaIns.getFullYear(), mesInicio - 1, 1);
 		const mesActualDate = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
 
+		let esPrimerIteracion = true;
 		while (cursor <= mesActualDate) {
+			// Si el admin optó por no generar el primer mes, lo salteamos en el preview
+			if (esPrimerIteracion && !incluirPrimerMes) {
+				esPrimerIteracion = false;
+				cursor.setMonth(cursor.getMonth() + 1);
+				continue;
+			}
 			meses.push(`${MESES_NOMBRES[cursor.getMonth()]} ${cursor.getFullYear()}`);
+			esPrimerIteracion = false;
 			cursor.setMonth(cursor.getMonth() + 1);
 		}
 
@@ -216,13 +228,13 @@ export default function Step2CoursePayment({
 
 		return { error: false, meses, total: meses.length };
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isPastInscription, pastDate, selectedCourse?.inicioMes]);
+	}, [isPastInscription, pastDate, selectedCourse?.inicioMes, incluirPrimerMes]);
 
-	// Fecha máxima para inscripción pasada: último día del mes anterior
+	// Fecha máxima para inscripción pasada: ayer (cualquier día anterior al de hoy)
 	const maxPastDate = useMemo(() => {
 		const hoy = new Date();
-		const ultimoDiaMesPrev = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
-		return ultimoDiaMesPrev.toISOString().split("T")[0];
+		const ayer = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1);
+		return ayer.toISOString().split("T")[0];
 	}, []);
 
 	// Efecto "Concatenador": Arma el String para Firebase si está todo cuadrado
@@ -700,6 +712,32 @@ export default function Step2CoursePayment({
 							</motion.div>
 						)}
 					</AnimatePresence>
+				</div>
+
+				{/* ─── Generar cuota del primer mes ─── */}
+				<div className="border border-blue-200 bg-blue-50/50 rounded-xl p-4">
+					<label className="flex items-start gap-2.5 cursor-pointer select-none">
+						<input
+							type="checkbox"
+							checked={incluirPrimerMes}
+							onChange={(e) => setIncluirPrimerMes(e.target.checked)}
+							disabled={isSubmitting}
+							className="w-4 h-4 mt-0.5 text-blue-600 rounded cursor-pointer border-blue-300"
+						/>
+						<div>
+							<div className="flex items-center gap-1.5">
+								<CalendarClock className="w-4 h-4 text-blue-600" />
+								<span className="text-sm font-bold text-blue-800">
+									Generar cuota del primer mes (mes de inscripción)
+								</span>
+							</div>
+							<p className="text-xs text-blue-600 mt-0.5">
+								{incluirPrimerMes
+									? "Se generará la cuota del mes de inscripción."
+									: "No se generará la cuota del mes de inscripción."}
+							</p>
+						</div>
+					</label>
 				</div>
 
 				<label className="block text-sm font-bold text-[#252d62] mt-6">

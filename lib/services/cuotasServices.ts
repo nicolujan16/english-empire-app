@@ -102,6 +102,7 @@ export const crearPrimeraCuota = async (
 	alumno: AlumnoParaCuota,
 	curso: CursoParaCuota,
 	descuentosBase: Descuento[],
+	incluirPrimerMes: boolean = true,
 ) => {
 	const cuotasRef = collection(db, "Cuotas");
 
@@ -143,16 +144,18 @@ export const crearPrimeraCuota = async (
 		descuentos: descuentosFinales,
 	};
 
-	// Cuota Mes Actual
-	await addDoc(cuotasRef, {
-		...datosComunesAlumno,
-		mes: hoy.getMonth() + 1,
-		anio: hoy.getFullYear(),
-		esPrimerMes: true,
-		montoPrimerMes,
-		creadoEn: serverTimestamp(),
-		actualizadoEn: serverTimestamp(),
-	});
+	// Cuota Mes Actual (solo si el admin eligió generarla)
+	if (incluirPrimerMes) {
+		await addDoc(cuotasRef, {
+			...datosComunesAlumno,
+			mes: hoy.getMonth() + 1,
+			anio: hoy.getFullYear(),
+			esPrimerMes: true,
+			montoPrimerMes,
+			creadoEn: serverTimestamp(),
+			actualizadoEn: serverTimestamp(),
+		});
+	}
 
 	// Cuota Mes Siguiente (Si pasó el día 20)
 	if (hoy.getDate() >= 20) {
@@ -191,6 +194,7 @@ export const crearCuotasRetroactivas = async (
 	curso: CursoParaCuota,
 	descuentosBase: Descuento[],
 	fechaInscripcion: Date,
+	incluirPrimerMes: boolean = true,
 ) => {
 	const cuotasRef = collection(db, "Cuotas");
 	const hoy = new Date();
@@ -237,6 +241,13 @@ export const crearCuotasRetroactivas = async (
 
 		// Respetar el fin de ciclo lectivo del curso
 		if (mes > curso.finMes && anio >= hoy.getFullYear()) break;
+
+		// Si el admin optó por NO generar la cuota del primer mes, la saltamos
+		if (esElPrimerMes && !incluirPrimerMes) {
+			esElPrimerMes = false;
+			cursor.setMonth(cursor.getMonth() + 1);
+			continue;
+		}
 
 		// Verificar duplicados para este mes
 		const qExistente = query(

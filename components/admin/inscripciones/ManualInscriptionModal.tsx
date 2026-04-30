@@ -165,6 +165,7 @@ export default function ManualInscriptionModal({
 	const [pastDate, setPastDate] = useState("");
 	const [applyGroupDiscountToPast, setApplyGroupDiscountToPast] =
 		useState(false);
+	const [incluirPrimerMes, setIncluirPrimerMes] = useState(true);
 
 	useEffect(() => {
 		if (step !== 2) return;
@@ -227,6 +228,7 @@ export default function ManualInscriptionModal({
 		setIsPastInscription(false);
 		setPastDate("");
 		setApplyGroupDiscountToPast(false);
+		setIncluirPrimerMes(true);
 		onClose();
 	};
 
@@ -531,6 +533,7 @@ export default function ManualInscriptionModal({
 						cursoParaCuota,
 						descuentos,
 						new Date(pastDate + "T12:00:00"),
+						incluirPrimerMes,
 					);
 				} else {
 					await crearPrimeraCuota(
@@ -538,6 +541,7 @@ export default function ManualInscriptionModal({
 						alumnoParaCuota,
 						cursoParaCuota,
 						descuentos,
+						incluirPrimerMes,
 					);
 				}
 
@@ -719,6 +723,8 @@ export default function ManualInscriptionModal({
 											applyGroupDiscountToPast={applyGroupDiscountToPast}
 											setApplyGroupDiscountToPast={setApplyGroupDiscountToPast}
 											hasGrupoFamiliar={grupoFamiliar.aplica}
+											incluirPrimerMes={incluirPrimerMes}
+											setIncluirPrimerMes={setIncluirPrimerMes}
 											onAjusteChange={(monto, motivo) => {
 												setMontoAjusteInscripcion(monto);
 												setMotivoAjusteInscripcion(motivo);
