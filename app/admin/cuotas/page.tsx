@@ -215,6 +215,7 @@ export default function CuotasPage() {
 						<Printer className="w-5 h-5" /> Imprimir
 					</Button>
 
+					{/* OCULTO TEMPORALMENTE PARA PRUEBAS
 					<Button
 						onClick={openGenerarModal}
 						variant="outline"
@@ -222,6 +223,7 @@ export default function CuotasPage() {
 					>
 						<RefreshCw className="w-4 h-4" /> Generar Cuotas Faltantes
 					</Button>
+					*/}
 
 					<Button
 						onClick={() => setIsModalOpen(true)}
