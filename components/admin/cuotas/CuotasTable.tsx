@@ -446,6 +446,7 @@ export default function CuotasTable({
 	const [cuotaToDelete, setCuotaToDelete] = useState<CuotaDoc | null>(null);
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
+
 	const [alertModal, setAlertModal] = useState<{
 		isOpen: boolean;
 		title: string;

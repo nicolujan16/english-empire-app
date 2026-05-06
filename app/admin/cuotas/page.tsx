@@ -9,6 +9,12 @@ import {
 	BookOpen,
 	Tag,
 	Printer,
+	RefreshCw,
+	Loader2,
+	CheckCircle2,
+	AlertCircle,
+	AlertTriangle,
+	X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CuotasTable from "@/components/admin/cuotas/CuotasTable";
@@ -61,6 +67,52 @@ export default function CuotasPage() {
 	const mesMaximo = calcularMesMaximo(today);
 
 	const [printTrigger, setPrintTrigger] = useState(0);
+
+	// ── Generar Cuotas Faltantes ─────────────────────────────────────────
+	const [isGenerarModalOpen, setIsGenerarModalOpen] = useState(false);
+	const [generarStep, setGenerarStep] = useState<"selection" | "loading" | "result">("selection");
+	const [generarMes, setGenerarMes] = useState(today.getMonth() + 1);
+	const [generarAnio, setGenerarAnio] = useState(2026);
+	const [generarResult, setGenerarResult] = useState<{
+		ok: boolean;
+		mes: number;
+		anio: number;
+		creadas: number;
+		omitidas: number;
+		errores: number;
+		error?: string;
+	} | null>(null);
+
+	const openGenerarModal = () => {
+		setGenerarStep("selection");
+		setGenerarMes(today.getMonth() + 1);
+		setGenerarAnio(2026);
+		setGenerarResult(null);
+		setIsGenerarModalOpen(true);
+	};
+
+	const handleConfirmGenerar = async () => {
+		setGenerarStep("loading");
+		try {
+			const res = await fetch(`https://testcrearcuotas-sls2yii7ua-rj.a.run.app/?mes=${generarMes}&anio=${generarAnio}`);
+			const data = await res.json();
+			setGenerarResult(data);
+		} catch (error) {
+			setGenerarResult({
+				ok: false,
+				mes: generarMes,
+				anio: generarAnio,
+				creadas: 0,
+				omitidas: 0,
+				errores: 0,
+				error: String(error),
+			});
+		} finally {
+			setGenerarStep("result");
+			// Refrescar tabla para mostrar cuotas nuevas
+			setRefreshTrigger((prev) => prev + 1);
+		}
+	};
 
 	const [searchTerm, setSearchTerm] = useState("");
 	const [statusFilter, setStatusFilter] = useState("todos");
@@ -161,6 +213,14 @@ export default function CuotasPage() {
 						className="border-gray-200 text-gray-600 hover:border-[#252d62] hover:text-[#252d62] font-semibold py-5 px-5 rounded-xl flex items-center gap-2 transition-all"
 					>
 						<Printer className="w-5 h-5" /> Imprimir
+					</Button>
+
+					<Button
+						onClick={openGenerarModal}
+						variant="outline"
+						className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 font-semibold py-5 px-5 rounded-xl flex items-center gap-2 transition-all"
+					>
+						<RefreshCw className="w-4 h-4" /> Generar Cuotas Faltantes
 					</Button>
 
 					<Button
@@ -282,6 +342,155 @@ export default function CuotasPage() {
 				preloadedDni={preloadedDni}
 				onSuccess={handlePaymentSuccess}
 			/>
+			{/* MODAL: Generar cuotas faltantes */}
+			{isGenerarModalOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+					<div
+						className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+						onClick={() => generarStep !== "loading" && setIsGenerarModalOpen(false)}
+					/>
+					<div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-5">
+						{generarStep !== "loading" && (
+							<button
+								onClick={() => setIsGenerarModalOpen(false)}
+								className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+							>
+								<X className="w-5 h-5" />
+							</button>
+						)}
+
+						{generarStep === "selection" && (
+							<>
+								<div className="flex flex-col items-center text-center gap-3">
+									<div className="bg-amber-100 p-4 rounded-full">
+										<RefreshCw className="w-8 h-8 text-amber-500" />
+									</div>
+									<h2 className="text-xl font-bold text-[#252d62]">Generar Cuotas Faltantes</h2>
+								</div>
+								<p className="text-sm text-gray-600 text-center leading-relaxed">
+									Seleccioná el mes y año para el cual querés generar las cuotas faltantes.
+								</p>
+								
+								<div className="flex gap-4">
+									<div className="flex-1 space-y-2 text-left">
+										<label className="text-sm font-semibold text-gray-700">Mes</label>
+										<select 
+											value={generarMes} 
+											onChange={(e) => setGenerarMes(Number(e.target.value))}
+											className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20"
+										>
+											{MESES_NOMBRES.map((nombre, i) => (
+												<option key={i + 1} value={i + 1}>{nombre}</option>
+											))}
+										</select>
+									</div>
+									<div className="flex-1 space-y-2 text-left">
+										<label className="text-sm font-semibold text-gray-700">Año</label>
+										<select 
+											value={generarAnio} 
+											onChange={(e) => setGenerarAnio(Number(e.target.value))}
+											className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20"
+										>
+											<option value={2024}>2024</option>
+											<option value={2025}>2025</option>
+											<option value={2026}>2026</option>
+											<option value={2027}>2027</option>
+										</select>
+									</div>
+								</div>
+
+								<div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+									<AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+									<p className="text-xs text-amber-800 leading-relaxed text-left">
+										<span className="font-bold">Nota:</span> Esta operación puede demorar. Solo se crearán las cuotas que aún no existan para el período seleccionado.
+									</p>
+								</div>
+
+								<div className="flex gap-3 pt-1">
+									<Button
+										variant="outline"
+										onClick={() => setIsGenerarModalOpen(false)}
+										className="flex-1 py-5 rounded-xl font-semibold border-gray-200 text-gray-600 hover:border-gray-300"
+									>
+										Cancelar
+									</Button>
+									<Button
+										onClick={handleConfirmGenerar}
+										className="flex-1 py-5 rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white flex items-center justify-center gap-2 shadow-sm transition-all"
+									>
+										<RefreshCw className="w-4 h-4" /> Generar
+									</Button>
+								</div>
+							</>
+						)}
+
+						{generarStep === "loading" && (
+							<div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
+								<Loader2 className="w-12 h-12 text-[#252d62] animate-spin" />
+								<h3 className="text-lg font-bold text-[#252d62]">Generando cuotas...</h3>
+								<p className="text-sm text-gray-500">
+									Esto puede tardar unos segundos dependiendo de la cantidad de alumnos. Por favor, no cierres esta ventana.
+								</p>
+							</div>
+						)}
+
+						{generarStep === "result" && generarResult && (
+							<div className="flex flex-col items-center text-center gap-4">
+								{generarResult.ok ? (
+									<div className="bg-green-100 p-4 rounded-full mb-2">
+										<CheckCircle2 className="w-10 h-10 text-green-600" />
+									</div>
+								) : (
+									<div className="bg-red-100 p-4 rounded-full mb-2">
+										<AlertCircle className="w-10 h-10 text-red-600" />
+									</div>
+								)}
+								
+								<h2 className="text-xl font-bold text-[#252d62]">
+									{generarResult.ok ? "¡Proceso Completado!" : "Error en el Proceso"}
+								</h2>
+
+								{generarResult.ok ? (
+									<div className="w-full bg-gray-50 rounded-xl p-4 border border-gray-100 text-sm">
+										<div className="flex justify-between py-2 border-b border-gray-200">
+											<span className="text-gray-600">Período:</span>
+											<span className="font-bold text-[#252d62]">
+												{MESES_NOMBRES[generarResult.mes - 1]} {generarResult.anio}
+											</span>
+										</div>
+										<div className="flex justify-between py-2 border-b border-gray-200">
+											<span className="text-gray-600">Cuotas creadas:</span>
+											<span className="font-bold text-green-600">+{generarResult.creadas}</span>
+										</div>
+										<div className="flex justify-between py-2 border-b border-gray-200">
+											<span className="text-gray-600">Ya existían (omitidas):</span>
+											<span className="font-bold text-gray-500">{generarResult.omitidas}</span>
+										</div>
+										<div className="flex justify-between py-2">
+											<span className="text-gray-600">Errores al crear:</span>
+											<span className={`font-bold ${generarResult.errores > 0 ? "text-red-500" : "text-gray-500"}`}>
+												{generarResult.errores}
+											</span>
+										</div>
+									</div>
+								) : (
+									<div className="text-sm text-red-600 bg-red-50 p-4 rounded-xl border border-red-100 w-full text-left">
+										<p className="font-bold mb-1">Hubo un problema al contactar el servidor:</p>
+										<p className="text-xs break-words">{generarResult.error || "Error desconocido"}</p>
+									</div>
+								)}
+
+								<Button
+									onClick={() => setIsGenerarModalOpen(false)}
+									className="w-full py-5 rounded-xl font-bold bg-[#252d62] hover:bg-[#1a2044] text-white mt-2"
+								>
+									Cerrar
+								</Button>
+							</div>
+						)}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
