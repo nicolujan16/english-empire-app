@@ -29,13 +29,7 @@ interface RegistrarEgresoModalProps {
 	onSuccess: () => void;
 }
 
-const CATEGORIAS_PREDEFINIDAS = [
-	"Compra de materiales",
-	"Pago de servicios",
-	"Compra de uniformes",
-	"Mantenimiento",
-	"Otro (Escribir manualmente...)",
-];
+
 
 export default function RegistrarEgresoModal({
 	isOpen,
@@ -45,7 +39,30 @@ export default function RegistrarEgresoModal({
 	const { adminData } = useAdminAuth();
 
 	const [descripcion, setDescripcion] = useState("");
-	const [modoEscritura, setModoEscritura] = useState(false);
+	const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([
+		"Compra de materiales",
+		"Pago de servicios",
+		"Compra de uniformes",
+		"Mantenimiento",
+	]);
+
+	useEffect(() => {
+		if (isOpen) {
+			const fetchCats = async () => {
+				try {
+					const { doc: firestoreDoc, getDoc } = await import("firebase/firestore");
+					const docRef = firestoreDoc(db, "Configuraciones", "CategoriasEgreso");
+					const docSnap = await getDoc(docRef);
+					if (docSnap.exists() && docSnap.data().nombres) {
+						setCategoriasDisponibles(docSnap.data().nombres);
+					}
+				} catch (err) {
+					console.error("Error al cargar categorías de egresos", err);
+				}
+			};
+			fetchCats();
+		}
+	}, [isOpen]);
 
 	const [monto, setMonto] = useState("");
 	const [metodoPago, setMetodoPago] = useState("");
@@ -112,7 +129,6 @@ export default function RegistrarEgresoModal({
 	const handleClose = () => {
 		if (isLoading) return;
 		setDescripcion("");
-		setModoEscritura(false);
 		setMonto("");
 		setMetodoPago("");
 		setIsSplitPayment(false);
@@ -126,11 +142,8 @@ export default function RegistrarEgresoModal({
 	const handleSubmit = async () => {
 		setError(null);
 
-		if (
-			!descripcion.trim() ||
-			descripcion === "Otro (Escribir manualmente...)"
-		) {
-			setError("Debes seleccionar o escribir una descripción válida.");
+		if (!descripcion.trim()) {
+			setError("Debes seleccionar una categoría válida.");
 			return;
 		}
 		if (!monto || isNaN(montoNum) || montoNum <= 0) {
@@ -211,7 +224,7 @@ export default function RegistrarEgresoModal({
 						</div>
 					)}
 
-					{/* 🚀 NUEVA SECCIÓN DE CATEGORÍA / DESCRIPCIÓN */}
+					{/* Categoría del egreso */}
 					<div>
 						<label className="block text-sm font-semibold text-gray-700 mb-1.5">
 							<span className="flex items-center gap-1.5">
@@ -220,59 +233,21 @@ export default function RegistrarEgresoModal({
 							</span>
 						</label>
 
-						{!modoEscritura ? (
-							<select
-								value={descripcion}
-								onChange={(e) => {
-									const val = e.target.value;
-									if (val === "Otro (Escribir manualmente...)") {
-										setModoEscritura(true);
-										setDescripcion("");
-									} else {
-										setDescripcion(val);
-									}
-								}}
-								disabled={isLoading || exito}
-								className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#EE1120]/20 focus:border-[#EE1120] transition-all bg-white font-medium"
-							>
-								<option value="" disabled>
-									Selecciona una categoría...
+						<select
+							value={descripcion}
+							onChange={(e) => setDescripcion(e.target.value)}
+							disabled={isLoading || exito}
+							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#EE1120]/20 focus:border-[#EE1120] transition-all bg-white font-medium"
+						>
+							<option value="" disabled>
+								Seleccioná una categoría...
+							</option>
+							{categoriasDisponibles.map((cat) => (
+								<option key={cat} value={cat}>
+									{cat}
 								</option>
-								{CATEGORIAS_PREDEFINIDAS.map((cat) => (
-									<option key={cat} value={cat}>
-										{cat}
-									</option>
-								))}
-							</select>
-						) : (
-							<div className="space-y-2">
-								<input
-									type="text"
-									value={descripcion}
-									onChange={(e) => setDescripcion(e.target.value)}
-									placeholder="Ej: Pago de internet"
-									maxLength={120}
-									disabled={isLoading || exito}
-									autoFocus
-									className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#EE1120]/20 focus:border-[#EE1120] transition-all"
-								/>
-								<div className="flex justify-between items-center">
-									<button
-										type="button"
-										onClick={() => {
-											setModoEscritura(false);
-											setDescripcion("");
-										}}
-										className="text-[11px] font-bold text-[#EE1120] hover:text-[#b30000] transition-colors"
-									>
-										« Volver a la lista
-									</button>
-									<p className="text-[10px] text-gray-400">
-										{descripcion.length}/120
-									</p>
-								</div>
-							</div>
-						)}
+							))}
+						</select>
 					</div>
 
 					{/* Monto y fecha */}

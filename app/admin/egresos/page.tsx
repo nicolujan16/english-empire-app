@@ -19,10 +19,12 @@ import {
 	Printer,
 	ChevronLeft,
 	ChevronRight,
+	Settings2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import RegistrarEgresoModal from "@/components/admin/egresos/RegistrarEgresoModal";
+import GestionarEgresosModal from "@/components/admin/egresos/GestionarEgresosModal";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -136,6 +138,7 @@ export default function EgresosPage() {
 	const [filtroMetodo, setFiltroMetodo] = useState<FiltroMetodo>("Todos");
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [isGestionarModalOpen, setIsGestionarModalOpen] = useState(false);
 
 	const [currentPage, setCurrentPage] = useState(1);
 
@@ -354,6 +357,17 @@ export default function EgresosPage() {
 						<Printer className="w-5 h-5" />
 						Imprimir
 					</Button>
+
+					{isAdmin && (
+						<Button
+							onClick={() => setIsGestionarModalOpen(true)}
+							variant="outline"
+							className="border-[#252d62] text-[#252d62] hover:bg-[#252d62]/5 font-bold py-5 px-5 rounded-xl flex items-center gap-2 cursor-pointer shadow-sm"
+						>
+							<Settings2 className="w-5 h-5" />
+							Administrar Categorías
+						</Button>
+					)}
 
 					<Button
 						onClick={() => setIsModalOpen(true)}
@@ -625,7 +639,6 @@ export default function EgresosPage() {
 				)}
 			</motion.div>
 
-			{/* Modal — conectar cuando esté listo */}
 			<RegistrarEgresoModal
 				isOpen={isModalOpen}
 				onClose={() => setIsModalOpen(false)}
@@ -633,6 +646,12 @@ export default function EgresosPage() {
 					setIsModalOpen(false);
 					fetchEgresos();
 				}}
+			/>
+
+			<GestionarEgresosModal
+				isOpen={isGestionarModalOpen}
+				onClose={() => setIsGestionarModalOpen(false)}
+				onSuccess={() => setIsGestionarModalOpen(false)}
 			/>
 		</div>
 	);
