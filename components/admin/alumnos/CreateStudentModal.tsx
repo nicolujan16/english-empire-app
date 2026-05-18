@@ -42,7 +42,6 @@ import {
 import {
 	getAuth,
 	createUserWithEmailAndPassword,
-	sendPasswordResetEmail,
 } from "firebase/auth";
 import { initializeApp } from "firebase/app";
 import { app, db } from "@/lib/firebaseConfig";
@@ -214,9 +213,6 @@ export default function CreateStudentModal({
 					);
 					await secondaryAuth.signOut();
 					newUserId = userCredential.user.uid;
-
-					const primaryAuth = getAuth(app);
-					await sendPasswordResetEmail(primaryAuth, formData.email);
 				} else {
 					newUserId = doc(collection(db, "Users")).id;
 				}
@@ -252,9 +248,23 @@ export default function CreateStudentModal({
 				}
 
 				if (!sinEmail) {
+					// Enviar correo de bienvenida con link de creación de contraseña
+					try {
+						await fetch("/api/correos/bienvenida-con-link", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								emailDestino: formData.email,
+								nombreUsuario: formData.nombre,
+							}),
+						});
+					} catch (emailErr) {
+						console.error("Error enviando correo de bienvenida:", emailErr);
+					}
+
 					showAlert(
 						"¡Alumno Creado!",
-						`El alumno titular se ha registrado exitosamente.\nSe ha enviado un correo a ${formData.email} para que establezca su contraseña.`,
+						`El alumno titular se ha registrado exitosamente.\nSe envió un correo a ${formData.email} con el enlace para crear su contraseña.`,
 						"success",
 					);
 				} else {
@@ -640,11 +650,11 @@ export default function CreateStudentModal({
 												<div className="bg-blue-50 text-blue-800 p-3 rounded-lg flex items-start gap-3 mt-4 border border-blue-100">
 													<Mail className="w-5 h-5 shrink-0 mt-0.5" />
 													<p className="text-xs font-medium">
-														Al guardar, el sistema le enviará automáticamente un
-														correo a{" "}
+														Al guardar, se enviará automáticamente un correo de
+														bienvenida a{" "}
 														<strong>{formData.email || "este email"}</strong>{" "}
-														con un enlace para que el alumno genere su
-														contraseña personal.
+														con un enlace para que el alumno cree su contraseña
+														personal.
 													</p>
 												</div>
 											) : (

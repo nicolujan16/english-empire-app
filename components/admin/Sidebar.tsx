@@ -19,6 +19,7 @@ import {
 	TrendingDown,
 	Tags,
 	ClipboardCheck,
+	Mail,
 } from "lucide-react";
 
 import {
@@ -102,6 +103,12 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 			label: "Egresos",
 			path: "/admin/egresos",
 			adminOnly: false,
+		},
+		{
+			icon: Mail,
+			label: "Emails",
+			path: "/admin/emails",
+			adminOnly: true,
 		},
 	];
 

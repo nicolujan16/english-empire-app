@@ -562,7 +562,7 @@ export default function EditUserInfoModal({
 					!student.email && titularForm.email.trim() !== "";
 				let finalEmail = student.email || ""; // Mantenemos el original si no se asignó nada
 
-				if (isAssigningNewEmail) {
+					if (isAssigningNewEmail) {
 					try {
 						const res = await fetch("/api/asociar-email", {
 							method: "POST",
@@ -582,6 +582,20 @@ export default function EditUserInfoModal({
 							return;
 						}
 						finalEmail = titularForm.email.trim();
+
+						// Enviar correo de bienvenida con link de creación de contraseña
+						try {
+							await fetch("/api/correos/bienvenida-con-link", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									emailDestino: finalEmail,
+									nombreUsuario: titularForm.nombre.trim(),
+								}),
+							});
+						} catch (emailErr) {
+							console.error("Error enviando correo de bienvenida con link:", emailErr);
+						}
 					} catch (apiErr) {
 						console.error("Error en la llamada a la API:", apiErr);
 						setErrorMsg("Error de conexión al intentar asociar el correo.");
@@ -589,6 +603,7 @@ export default function EditUserInfoModal({
 						return;
 					}
 				}
+
 
 				await updateDoc(doc(db, "Users", student.id), {
 					nombre: titularForm.nombre.trim(),

@@ -111,8 +111,9 @@ export default function Bienvenida({
 							style={{ margin: "8px 0 0", fontSize: "10px", color: "#ccc" }}
 						>
 							© {new Date().getFullYear()} English Empire Institute — Todos los
-							derechos reservados
+							derechos reservados.
 						</Text>
+						
 					</Section>
 				</Container>
 			</Body>

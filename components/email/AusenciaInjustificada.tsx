@@ -154,7 +154,7 @@ export default function AusenciaInjustificada({
 							<br />
 							<strong>El equipo de English Empire Institute</strong>
 						</Text>
-
+{/* 
 						<Text
 							style={{
 								margin: "0",
@@ -164,7 +164,7 @@ export default function AusenciaInjustificada({
 							}}
 						>
 							Si tenés alguna duda o necesitás ayuda, no dudes en contactarnos.
-						</Text>
+						</Text> */}
 
 						<Text
 							style={{ margin: "8px 0 0", fontSize: "10px", color: "#ccc" }}
