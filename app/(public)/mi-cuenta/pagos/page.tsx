@@ -42,6 +42,7 @@ interface Inscripcion {
 	cursoId: string;
 	cursoNombre: string;
 	cursoInscripcion: number;
+	descuentoPorcentaje?: number;
 	fecha: Timestamp;
 	metodoPago: string;
 	paymentId: string;
@@ -299,9 +300,10 @@ function InscripcionCard({
 	onVerComprobante: (i: Inscripcion) => void;
 }) {
 	const isConfirmada = inscripcion.status === "Confirmado";
+	const sinCosto = (inscripcion.cursoInscripcion ?? 0) < 1;
+	const esDescuento100 = sinCosto && (inscripcion.descuentoPorcentaje ?? 0) >= 100;
 
 	return (
-		// 🚀 AGREGADO: h-full flex flex-col justify-between para igualar alturas
 		<div
 			className={`h-full flex flex-col justify-between bg-white rounded-xl border p-5 transition-all hover:shadow-md ${isConfirmada ? "border-gray-100" : "border-yellow-200 bg-yellow-50/20"}`}
 		>
@@ -336,29 +338,40 @@ function InscripcionCard({
 							nombre={inscripcion.alumnoNombre}
 						/>
 					</div>
-					<div>
-						<p className="text-gray-500 text-xs mb-0.5">Monto pagado</p>
-						<p className="font-bold text-gray-900">
-							${inscripcion.cursoInscripcion?.toLocaleString("es-AR") ?? "-"}
-						</p>
-					</div>
-					<div>
-						<p className="text-gray-500 text-xs mb-0.5">Fecha</p>
-						<p className="font-medium text-gray-700 text-xs">
-							{formatearFecha(inscripcion.fecha)}
-						</p>
-					</div>
-					<div>
-						<p className="text-gray-500 text-xs mb-0.5">Método</p>
-						<p className="font-medium text-gray-700 text-xs">
-							{inscripcion.metodoPago}
-						</p>
-					</div>
+					{!sinCosto && (
+						<>
+							<div>
+								<p className="text-gray-500 text-xs mb-0.5">Monto pagado</p>
+								<p className="font-bold text-gray-900">
+									${inscripcion.cursoInscripcion?.toLocaleString("es-AR") ?? "-"}
+								</p>
+							</div>
+							<div>
+								<p className="text-gray-500 text-xs mb-0.5">Fecha</p>
+								<p className="font-medium text-gray-700 text-xs">
+									{formatearFecha(inscripcion.fecha)}
+								</p>
+							</div>
+							<div>
+								<p className="text-gray-500 text-xs mb-0.5">Método</p>
+								<p className="font-medium text-gray-700 text-xs">
+									{inscripcion.metodoPago}
+								</p>
+							</div>
+						</>
+					)}
+					{esDescuento100 && (
+						<div className="col-span-2 mt-1">
+							<span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-200">
+								✓ Aplicado descuento del 100%
+							</span>
+						</div>
+					)}
 				</div>
 			</div>
 
 			<div className="mt-auto pt-3 border-t border-gray-100">
-				{isConfirmada ? (
+				{isConfirmada && !sinCosto ? (
 					<Button
 						size="sm"
 						variant="outline"
