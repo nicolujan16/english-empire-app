@@ -212,6 +212,21 @@ export async function POST(request: Request) {
 					const metadata = paymentInfo.metadata;
 
 					if (metadata) {
+						const inscripcionId = `MP_${paymentId}`;
+
+						// ── 0. Idempotencia: Si la inscripción ya existe, ignorar el webhook duplicado ──
+						const inscripcionExistente = await adminDb
+							.collection("Inscripciones")
+							.doc(inscripcionId)
+							.get();
+
+						if (inscripcionExistente.exists) {
+							console.log(
+								`⚠️ WEBHOOK DUPLICADO IGNORADO: La inscripción ${inscripcionId} ya existe. Saltando procesamiento.`,
+							);
+							return NextResponse.json({ success: true, skipped: true }, { status: 200 });
+						}
+
 						// ── 1. Guardar la inscripción ─────────────────────────────────
 						const nuevaInscripcion = {
 							alumnoDni: metadata.alumno_dni,
@@ -229,7 +244,6 @@ export async function POST(request: Request) {
 							descuentoPorcentaje: metadata.descuento_porcentaje || null,
 						};
 
-						const inscripcionId = `MP_${paymentId}`;
 						await adminDb
 							.collection("Inscripciones")
 							.doc(inscripcionId)
@@ -339,8 +353,9 @@ export async function POST(request: Request) {
 									descuentos,
 								};
 
-								// ── 4a. Cuota del mes actual
-								await adminDb.collection("Cuotas").add({
+								// ── 4a. Cuota del mes actual (ID determinista para evitar duplicados)
+								const cuotaMes1Id = `CUOTA_${inscripcionId}_MES1`;
+								await adminDb.collection("Cuotas").doc(cuotaMes1Id).set({
 									...datosComunesAlumno,
 									mes: hoy.getMonth() + 1,
 									anio: hoy.getFullYear(),
@@ -353,7 +368,7 @@ export async function POST(request: Request) {
 									`✅ PRIMERA CUOTA CREADA — ${metadata.alumno_nombre} | ${metadata.curso_nombre} | Monto: $${montoPrimerMes}${grupoFamiliarAplica ? " (con 10% Grupo Familiar)" : ""}`,
 								);
 
-								// ── 4b. Mes siguiente si dia >= 20
+								// ── 4b. Mes siguiente si dia >= 20 (ID determinista para evitar duplicados)
 								if (dia >= 20) {
 									const fechaSiguiente = new Date(
 										hoy.getFullYear(),
@@ -364,7 +379,8 @@ export async function POST(request: Request) {
 									const anioSiguiente = fechaSiguiente.getFullYear();
 
 									if (mesSiguiente <= finMes) {
-										await adminDb.collection("Cuotas").add({
+										const cuotaMes2Id = `CUOTA_${inscripcionId}_MES2`;
+										await adminDb.collection("Cuotas").doc(cuotaMes2Id).set({
 											...datosComunesAlumno,
 											mes: mesSiguiente,
 											anio: anioSiguiente,

@@ -23,7 +23,7 @@ export default function AusenciaInjustificada({
 	cursoNombre = "Curso",
 	fecha = new Date().toLocaleDateString("es-AR"),
 }: AusenciaInjustificadaProps) {
-	const baseUrl = "https://englishempire.com.ar";
+	const baseUrl = "https://www.englishempire.com.ar";
 
 	const wppNumber = "5493804259004";
 	const wppLink = `https://wa.me/${wppNumber}`;
@@ -49,7 +49,7 @@ export default function AusenciaInjustificada({
 					<Section style={{ textAlign: "center", marginBottom: "24px" }}>
 						<Link href={baseUrl}>
 							<Img
-								src={`${baseUrl}/logo.png`}
+								src="https://res.cloudinary.com/dapiwwxv7/image/upload/v1779226666/logo_1_cxxpjg.png"
 								width="180"
 								height="auto"
 								alt="English Empire Institute"
@@ -154,7 +154,7 @@ export default function AusenciaInjustificada({
 							<br />
 							<strong>El equipo de English Empire Institute</strong>
 						</Text>
-{/* 
+						{/* 
 						<Text
 							style={{
 								margin: "0",

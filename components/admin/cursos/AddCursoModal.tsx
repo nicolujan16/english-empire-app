@@ -55,6 +55,16 @@ export interface AdminCourse {
 	fin?: string;
 }
 
+export interface PendingQuotaUpdate {
+	id: string;
+	ref: any;
+	data: any;
+	alumnoNombre: string;
+	mes: number;
+	anio: number;
+	selected: boolean;
+}
+
 interface AddCursoModalProps {
 	isOpen: boolean;
 	onClose: () => void;
@@ -105,6 +115,16 @@ export default function AddCursoModal({
 	const [horariosList, setHorariosList] = useState<HorarioItem[]>([
 		{ dia: "Lunes", horaInicio: "18:00", horaFin: "19:30" },
 	]);
+
+	const [showQuotaModal, setShowQuotaModal] = useState(false);
+	const [pendingQuotas, setPendingQuotas] = useState<PendingQuotaUpdate[]>([]);
+	const [courseUpdateData, setCourseUpdateData] = useState<{
+		courseData: any;
+		finalImageUrl?: string;
+		newCuota1a10: number;
+		newCuota11: number;
+	} | null>(null);
+	const [isUpdatingQuotas, setIsUpdatingQuotas] = useState(false);
 
 	const [formData, setFormData] = useState({
 		nombre: "",
@@ -332,10 +352,6 @@ export default function AddCursoModal({
 			};
 
 			if (courseToEdit) {
-				if (finalImageUrl) courseData.imgURL = finalImageUrl;
-				const courseRef = doc(db, "Cursos", courseToEdit.id);
-				await updateDoc(courseRef, courseData);
-
 				const newCuota1a10 = parseFloat(formData.cuota1a10) || 0;
 				const newCuota11 = parseFloat(formData.cuota11enAdelante) || 0;
 				const oldCuota1a10 = courseToEdit.cuota1a10 || 0;
@@ -350,29 +366,37 @@ export default function AddCursoModal({
 					const snapshot = await getDocs(q);
 
 					if (!snapshot.empty) {
-						const batch = writeBatch(db);
+						const quotasToUpdate: PendingQuotaUpdate[] = [];
 						snapshot.forEach((cuotaDoc) => {
 							const data = cuotaDoc.data();
-							const updates: Record<string, any> = {
-								cuota1a10: newCuota1a10,
-								cuota11enAdelante: newCuota11,
-								actualizadoEn: new Date(),
-							};
-
-							if (
-								data.esPrimerMes &&
-								data.montoPrimerMes !== null &&
-								oldCuota1a10 > 0
-							) {
-								const ratio = data.montoPrimerMes / oldCuota1a10;
-								updates.montoPrimerMes = Math.round(newCuota1a10 * ratio);
-							}
-
-							batch.update(cuotaDoc.ref, updates);
+							quotasToUpdate.push({
+								id: cuotaDoc.id,
+								ref: cuotaDoc.ref,
+								data: data,
+								alumnoNombre: data.alumnoNombre || "Alumno Desconocido",
+								mes: data.mes,
+								anio: data.anio,
+								selected: true,
+							});
 						});
-						await batch.commit();
+
+						setPendingQuotas(quotasToUpdate);
+						setCourseUpdateData({
+							courseData,
+							finalImageUrl,
+							newCuota1a10,
+							newCuota11,
+						});
+						setShowQuotaModal(true);
+						setIsSubmitting(false);
+						setUploadProgress(0);
+						return; // Pausamos la actualización del curso para mostrar el modal
 					}
 				}
+
+				if (finalImageUrl) courseData.imgURL = finalImageUrl;
+				const courseRef = doc(db, "Cursos", courseToEdit.id);
+				await updateDoc(courseRef, courseData);
 			} else {
 				courseData.imgURL = finalImageUrl || cursoDefaultIMG.src;
 				const customId = formData.nombre
@@ -395,6 +419,66 @@ export default function AddCursoModal({
 			setIsSubmitting(false);
 			setUploadProgress(0);
 		}
+	};
+
+	const confirmCourseAndQuotasUpdate = async () => {
+		if (!courseUpdateData || !courseToEdit) return;
+		setIsUpdatingQuotas(true);
+
+		try {
+			const { courseData, finalImageUrl, newCuota1a10, newCuota11 } =
+				courseUpdateData;
+			const oldCuota1a10 = courseToEdit.cuota1a10 || 0;
+
+			if (finalImageUrl) courseData.imgURL = finalImageUrl;
+			const courseRef = doc(db, "Cursos", courseToEdit.id);
+			await updateDoc(courseRef, courseData);
+
+			const selectedQuotas = pendingQuotas.filter((q) => q.selected);
+			if (selectedQuotas.length > 0) {
+				const batch = writeBatch(db);
+				selectedQuotas.forEach((quota) => {
+					const data = quota.data;
+					const updates: Record<string, any> = {
+						cuota1a10: newCuota1a10,
+						cuota11enAdelante: newCuota11,
+						actualizadoEn: new Date(),
+					};
+
+					if (
+						data.esPrimerMes &&
+						data.montoPrimerMes !== null &&
+						oldCuota1a10 > 0
+					) {
+						const ratio = data.montoPrimerMes / oldCuota1a10;
+						updates.montoPrimerMes = Math.round(newCuota1a10 * ratio);
+					}
+
+					batch.update(quota.ref, updates);
+				});
+				await batch.commit();
+			}
+
+			setShowQuotaModal(false);
+			onClose();
+		} catch (error) {
+			console.error(error);
+			alert("Hubo un error al guardar los datos.");
+		} finally {
+			setIsUpdatingQuotas(false);
+		}
+	};
+
+	const handleCloseQuotaModal = () => {
+		setShowQuotaModal(false);
+		setPendingQuotas([]);
+		setCourseUpdateData(null);
+	};
+
+	const toggleQuotaSelection = (id: string) => {
+		setPendingQuotas((prev) =>
+			prev.map((q) => (q.id === id ? { ...q, selected: !q.selected } : q)),
+		);
 	};
 
 	return (
@@ -856,6 +940,97 @@ export default function AddCursoModal({
 											<Save className="w-4 h-4 mr-2" />{" "}
 											{courseToEdit ? "Actualizar" : "Guardar"}
 										</>
+									)}
+								</Button>
+							</div>
+						</motion.div>
+					</div>
+				</>
+			)}
+
+			{showQuotaModal && (
+				<>
+					<motion.div
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						className="fixed inset-0 bg-[#252d62]/80 backdrop-blur-sm z-[60] transition-opacity"
+					/>
+
+					<div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+						<motion.div
+							initial={{ opacity: 0, scale: 0.95, y: 20 }}
+							animate={{ opacity: 1, scale: 1, y: 0 }}
+							exit={{ opacity: 0, scale: 0.95, y: 20 }}
+							className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[85vh]"
+						>
+							<div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-emerald-50/50">
+								<h2 className="text-lg font-bold text-emerald-800 flex items-center gap-2">
+									<CircleDollarSign className="w-5 h-5" /> Confirmar Precios
+								</h2>
+								<button
+									onClick={!isUpdatingQuotas ? handleCloseQuotaModal : undefined}
+									disabled={isUpdatingQuotas}
+									className="text-emerald-700 hover:text-emerald-900 p-1 rounded-full hover:bg-emerald-200/50 transition-colors disabled:opacity-50"
+								>
+									<X className="w-5 h-5" />
+								</button>
+							</div>
+
+							<div className="p-6 overflow-y-auto">
+								<p className="text-sm text-gray-600 mb-4">
+									Se actualizará el precio de las siguientes cuotas pendientes. 
+									Puedes desmarcar aquellas que no deseas actualizar.
+								</p>
+								
+								<div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+									{pendingQuotas.map((quota) => (
+										<div
+											key={quota.id}
+											className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors"
+										>
+											<input
+												type="checkbox"
+												id={quota.id}
+												checked={quota.selected}
+												onChange={() => toggleQuotaSelection(quota.id)}
+												disabled={isUpdatingQuotas}
+												className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+											/>
+											<label
+												htmlFor={quota.id}
+												className="flex-1 text-sm font-medium text-gray-700 cursor-pointer flex justify-between items-center"
+											>
+												<span>{quota.alumnoNombre}</span>
+												<span className="text-xs text-gray-500 font-normal">
+													{MESES[quota.mes - 1]?.nombre || quota.mes}/{quota.anio}
+												</span>
+											</label>
+										</div>
+									))}
+								</div>
+							</div>
+
+							<div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+								<Button
+									type="button"
+									variant="outline"
+									onClick={handleCloseQuotaModal}
+									disabled={isUpdatingQuotas}
+									className="border-gray-300 text-gray-700 hover:bg-gray-100"
+								>
+									Cancelar
+								</Button>
+								<Button
+									type="button"
+									onClick={confirmCourseAndQuotasUpdate}
+									disabled={isUpdatingQuotas}
+									className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+								>
+									{isUpdatingQuotas ? (
+										<Loader2 className="w-4 h-4 animate-spin" />
+									) : (
+										"Actualizar cuotas"
 									)}
 								</Button>
 							</div>

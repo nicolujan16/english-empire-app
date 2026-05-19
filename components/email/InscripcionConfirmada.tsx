@@ -50,9 +50,9 @@ export default function InscripcionConfirmada({
 				>
 					{/* SECCIÓN DEL LOGO CLICKEABLE */}
 					<Section style={{ textAlign: "center", marginBottom: "30px" }}>
-						<Link href="https://englishempire.com.ar">
+						<Link href="https://www.englishempire.com.ar">
 							<Img
-								src="https://englishempire.com.ar/logo.png"
+								src="https://res.cloudinary.com/dapiwwxv7/image/upload/v1779226666/logo_1_cxxpjg.png"
 								width="180"
 								height="auto"
 								alt="English Empire Institute"
@@ -68,7 +68,7 @@ export default function InscripcionConfirmada({
 							margin: "0 0 20px",
 						}}
 					>
-						¡Welcome to English Empire! 🇬🇧
+						¡Welcome to English Empire!
 					</Heading>
 
 					<Text style={{ color: "#333", fontSize: "16px", lineHeight: "24px" }}>

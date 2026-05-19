@@ -21,7 +21,7 @@ export default function BienvenidaConLink({
 	nombreUsuario = "Alumno",
 	resetLink,
 }: BienvenidaConLinkProps) {
-	const baseUrl = "https://englishempire.com.ar";
+	const baseUrl = "https://www.englishempire.com.ar";
 
 	return (
 		<Html>
@@ -44,7 +44,7 @@ export default function BienvenidaConLink({
 					<Section style={{ textAlign: "center", marginBottom: "24px" }}>
 						<Link href={baseUrl}>
 							<Img
-								src={`${baseUrl}/logo.png`}
+								src="https://res.cloudinary.com/dapiwwxv7/image/upload/v1779226666/logo_1_cxxpjg.png"
 								width="180"
 								height="auto"
 								alt="English Empire Institute"
