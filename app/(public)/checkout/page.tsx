@@ -155,46 +155,42 @@ function CheckoutContent() {
 					return;
 				}
 
-				const hijoSnapshot = await getDocs(
-					query(collection(db, "Hijos"), where("dni", "==", alumnoDni)),
-				);
-				if (!hijoSnapshot.empty) {
-					const hijoData = hijoSnapshot.docs[0].data();
-					if (hijoData.tutorId !== user.uid) {
-						setErrorState({
-							show: true,
-							message:
-								"Acceso denegado: El alumno seleccionado no está asociado a tu cuenta.",
-						});
-						setStudentInfo((prev) => ({ ...prev, isLoading: false }));
-						return;
-					}
+				const idToken = await user.getIdToken();
+				const res = await fetch("/api/verificar-hijo", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${idToken}`,
+					},
+					body: JSON.stringify({ alumnoDni }),
+				});
+
+				if (res.ok) {
+					const hijoData = await res.json();
 					setStudentInfo({
 						name: `${hijoData.nombre} ${hijoData.apellido}`,
 						dni: hijoData.dni,
-						alumnoId: hijoSnapshot.docs[0].id,
+						alumnoId: hijoData.id,
 						isLoading: false,
 					});
 					setEtiquetaIds(hijoData.etiquetas ?? []);
 					return;
-				}
-
-				const userSnapshot = await getDocs(
-					query(collection(db, "Users"), where("dni", "==", alumnoDni)),
-				);
-				if (!userSnapshot.empty) {
+				} else if (res.status === 403) {
 					setErrorState({
 						show: true,
 						message:
-							"El alumno ingresado es un titular. Debe iniciar sesión con su propia cuenta para abonar.",
+							"Acceso denegado: El alumno seleccionado no está asociado a tu cuenta.",
 					});
 					setStudentInfo((prev) => ({ ...prev, isLoading: false }));
 					return;
 				}
+				// Si devuelve 404 (no encontrado en Hijos), dejamos que continúe
+				// para verificar si es un Titular u otro error.
 
 				setErrorState({
 					show: true,
-					message: "No se encontró ningún alumno registrado con ese DNI.",
+					message:
+						"No se encontró ningún alumno a tu cargo con ese DNI o el DNI ingresado es incorrecto. Si el DNI pertenece a otro titular, este debe iniciar sesión con su cuenta.",
 				});
 				setStudentInfo((prev) => ({ ...prev, isLoading: false }));
 			} catch {
@@ -231,11 +227,15 @@ function CheckoutContent() {
 		setIsProcessing(true);
 		setModalMessage("Validando inscripción y preparando pago...");
 		try {
+			// Obtenemos el token JWT del usuario para identificarlo de forma segura en el servidor
+			const idToken = await user.getIdToken();
 			const response = await fetch("/api/checkout", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					"Authorization": `Bearer ${idToken}`,
+				},
 				body: JSON.stringify({
-					userId: user.uid,
 					alumnoDni,
 					cursoId,
 					alumnoId: studentInfo.alumnoId,

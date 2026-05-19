@@ -51,7 +51,7 @@ export default function ConfirmInscription({
 	setIsModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
 	handleConfirmEnrollment: (estudianteSeleccionado: string) => void;
 }) {
-	const { userData } = useAuth();
+	const { userData, user } = useAuth(); // <- Extraemos `user`
 
 	const [selectedStudentDNI, setSelectedStudentId] = useState<string>("");
 	const [descuento, setDescuento] = useState<{
@@ -62,7 +62,7 @@ export default function ConfirmInscription({
 
 	// ── Detectar descuento cuando cambia el alumno seleccionado ──────────────
 	useEffect(() => {
-		if (!selectedStudentDNI || !userData) {
+		if (!selectedStudentDNI || !userData || !user) {
 			setDescuento(null);
 			return;
 		}
@@ -76,21 +76,31 @@ export default function ConfirmInscription({
 					// Titular: etiquetas del propio userData
 					etiquetaIds = userData.etiquetas ?? [];
 				} else {
-					// Hijo: buscar en Hijos por DNI
-					const snap = await getDocs(
-						query(
-							collection(db, "Hijos"),
-							where("dni", "==", selectedStudentDNI),
-						),
-					);
-					if (!snap.empty) {
-						etiquetaIds = snap.docs[0].data().etiquetas ?? [];
+					// Hijo: consultar a través del nuevo endpoint seguro
+					const idToken = await user.getIdToken();
+					const res = await fetch("/api/verificar-hijo", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${idToken}`,
+						},
+						body: JSON.stringify({ alumnoDni: selectedStudentDNI }),
+					});
+
+					if (res.ok) {
+						const data = await res.json();
+						etiquetaIds = data.etiquetas ?? [];
+					} else {
+						console.error("Error al verificar hijo:", await res.json());
+						// Si hay error, asumimos que no hay etiquetas
+						etiquetaIds = [];
 					}
 				}
 
 				const resultado = await getMaxDescuentoInscripcion(etiquetaIds);
 				setDescuento(resultado);
-			} catch {
+			} catch (error) {
+				console.error("Error en fetchDescuento:", error);
 				setDescuento(null);
 			} finally {
 				setIsFetchingDescuento(false);
@@ -98,7 +108,7 @@ export default function ConfirmInscription({
 		};
 
 		fetchDescuento();
-	}, [selectedStudentDNI, userData]);
+	}, [selectedStudentDNI, userData, user]);
 
 	const precioOriginal = curso.inscripcion;
 	const precioFinal = descuento

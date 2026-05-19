@@ -84,31 +84,23 @@ export default function AddStudentModal({
 		setIsSubmitting(true);
 
 		try {
-			const usersRef = collection(db, "Users");
+			const checkRes = await fetch(`/api/verificar-dni?dni=${formData.dni}`);
+			if (checkRes.ok) {
+				const { existe } = await checkRes.json();
+				if (existe) {
+					setErrorMsg(
+						`El DNI ${formData.dni} ya se encuentra registrado en el sistema.`,
+					);
+					setIsSubmitting(false);
+					return;
+				}
+			} else {
+				setErrorMsg("Error al verificar la disponibilidad del DNI.");
+				setIsSubmitting(false);
+				return;
+			}
+
 			const hijosRef = collection(db, "Hijos");
-
-			const userDniQuery = query(usersRef, where("dni", "==", formData.dni));
-			const userDniSnapshot = await getDocs(userDniQuery);
-
-			if (!userDniSnapshot.empty) {
-				setErrorMsg(
-					`El DNI ${formData.dni} ya pertenece a un usuario titular registrado.`,
-				);
-				setIsSubmitting(false);
-				return;
-			}
-
-			const hijoDniQuery = query(hijosRef, where("dni", "==", formData.dni));
-			const hijoDniSnapshot = await getDocs(hijoDniQuery);
-
-			if (!hijoDniSnapshot.empty) {
-				setErrorMsg(
-					`El DNI ${formData.dni} ya se encuentra registrado como alumno a cargo en el instituto.`,
-				);
-				setIsSubmitting(false);
-				return;
-			}
-
 			const nuevoHijoRef = await addDoc(hijosRef, {
 				tutorId: user.uid,
 				nombre: formData.nombre,

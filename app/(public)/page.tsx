@@ -5,6 +5,16 @@ import React, { useState, useEffect } from "react";
 import "../globals.css";
 // Componentes
 import Slider from "@/components/website/common/Slider";
+import { Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 // Assets Desktop
 import sliderimg1Deskt from "@/assets/sliders/desk-slide-img-1.png";
@@ -23,6 +33,48 @@ import joinusBannerMobile from "@/assets/sliders/banner-joinus-mobile.png";
 // Icons
 import utnIcon from "@/assets/icons/icon-utn.png";
 import Image from "next/image";
+
+function PaymentResultModal() {
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pago = searchParams.get("pago");
+	const [isOpen, setIsOpen] = useState(false);
+
+	useEffect(() => {
+		if (pago === "exitoso") {
+			setIsOpen(true);
+		}
+	}, [pago]);
+
+	const handleClose = () => {
+		setIsOpen(false);
+		// Limpiamos la URL para que no vuelva a saltar si el usuario recarga la página
+		router.replace("/");
+	};
+
+	if (pago !== "exitoso") return null;
+
+	return (
+		<Dialog open={isOpen} onOpenChange={handleClose}>
+			<DialogContent className="sm:max-w-[425px]">
+				<DialogHeader>
+					<DialogTitle className="text-2xl font-bold text-[#1d2355]">
+						¡Inscripción Exitosa! 🎉
+					</DialogTitle>
+				</DialogHeader>
+				<div className="py-4 text-gray-700 space-y-3">
+					<p>El pago se ha procesado correctamente y la inscripción ha sido confirmada en nuestro sistema.</p>
+					<p className="font-semibold text-sm">Ya puedes acceder al panel de tu cuenta para ver todos los detalles.</p>
+				</div>
+				<DialogFooter>
+					<Button onClick={handleClose} className="bg-[#EE1120] hover:bg-[#c4000e] text-white">
+						Entendido
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
 
 export default function HomePage() {
 	const imagesDesktop = [sliderimg1Deskt, sliderimg2Deskt, sliderimg3Deskt];
@@ -125,6 +177,11 @@ export default function HomePage() {
 				interval={false}
 				imgAlt="Únete a nuestro equipo, ¡postúlate!"
 			/>
+
+			{/* Modal de Pago Exitoso */}
+			<Suspense fallback={null}>
+				<PaymentResultModal />
+			</Suspense>
 		</div>
 	);
 }

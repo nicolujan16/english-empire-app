@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { MercadoPagoConfig, Preference } from "mercadopago";
 
 const client = new MercadoPagoConfig({
@@ -8,10 +8,30 @@ const client = new MercadoPagoConfig({
 
 export async function POST(request: Request) {
 	try {
-		const body = await request.json();
-		const { userId, alumnoDni, cursoId, alumnoId } = body;
+		// ── Verificación de identidad: extraemos el UID del token JWT, nunca del body ──
+		const authHeader = request.headers.get("Authorization");
+		if (!authHeader?.startsWith("Bearer ")) {
+			return NextResponse.json(
+				{ error: "No autorizado. Token faltante." },
+				{ status: 401 },
+			);
+		}
+		const idToken = authHeader.split("Bearer ")[1];
+		let userId: string;
+		try {
+			const decodedToken = await adminAuth.verifyIdToken(idToken);
+			userId = decodedToken.uid;
+		} catch {
+			return NextResponse.json(
+				{ error: "No autorizado. Token inválido o expirado." },
+				{ status: 401 },
+			);
+		}
 
-		if (!userId || !alumnoDni || !cursoId) {
+		const body = await request.json();
+		const { alumnoDni, cursoId, alumnoId } = body;
+
+		if (!alumnoDni || !cursoId) {
 			return NextResponse.json(
 				{ error: "Faltan datos requeridos." },
 				{ status: 400 },
