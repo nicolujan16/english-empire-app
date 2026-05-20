@@ -10,8 +10,7 @@ import {
 	CheckCircle2,
 	AlertCircle,
 } from "lucide-react";
-import { collection, query, where, getDocs } from "firebase/firestore"; // Importamos Firestore
-import { db } from "@/lib/firebaseConfig";
+
 
 export default function RecoverPasswordPage() {
 	const { resetPassword } = useAuth();
@@ -29,26 +28,8 @@ export default function RecoverPasswordPage() {
 		setFeedback(null);
 
 		try {
-			// 1. CHEQUEO MANUAL EN FIRESTORE (Porque Firebase Auth ya no tira error si no existe)
-			const usersRef = collection(db, "Users");
-			const q = query(
-				usersRef,
-				where("email", "==", email.trim().toLowerCase()),
-			);
-			const querySnapshot = await getDocs(q);
-
-			if (querySnapshot.empty) {
-				// Si no lo encontramos en la BD, tiramos un error intencionalmente
-				setFeedback({
-					type: "error",
-					message:
-						"No encontramos ninguna cuenta asociada a este correo electrónico.",
-				});
-				setIsSubmitting(false);
-				return; // Cortamos la ejecución acá
-			}
-
-			// 2. SI EXISTE, ENVIAMOS EL MAIL VÍA AUTH
+			// Enviamos el mail de recuperación vía Firebase Auth.
+			// Firebase no lanza error si el email no existe (comportamiento seguro por defecto).
 			await resetPassword(email);
 
 			setFeedback({
