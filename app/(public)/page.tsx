@@ -17,18 +17,18 @@ import {
 import { Button } from "@/components/ui/button";
 
 // Assets Desktop
-import sliderimg1Deskt from "@/assets/sliders/desk-slide-img-1.png";
-import sliderimg2Deskt from "@/assets/sliders/desk-slide-img-2.png";
-import sliderimg3Deskt from "@/assets/sliders/desk-slide-img-3.png";
-import cursosBannerDesk from "@/assets/sliders/banner-cursos-desk.png";
-import joinusBannerDesk from "@/assets/sliders/banner-joinus-desk.png";
+import sliderimg1Deskt from "@/assets/sliders/desk-slide-img-1.webp";
+import sliderimg2Deskt from "@/assets/sliders/desk-slide-img-2.webp";
+import sliderimg3Deskt from "@/assets/sliders/desk-slide-img-3.webp";
+import cursosBannerDesk from "@/assets/sliders/banner-cursos-desk.webp";
+import joinusBannerDesk from "@/assets/sliders/banner-joinus-desk.webp";
 
 // Assets Mobile
-import sliderimg1Mobile from "@/assets/sliders/mobile-slide-img-1.png";
-import sliderimg2Mobile from "@/assets/sliders/mobile-slide-img-2.png";
-import sliderimg3Mobile from "@/assets/sliders/mobile-slide-img-3.png";
-import cursosBannerMobile from "@/assets/sliders/banner-cursos-mobile.png";
-import joinusBannerMobile from "@/assets/sliders/banner-joinus-mobile.png";
+import sliderimg1Mobile from "@/assets/sliders/mobile-slide-img-1.webp";
+import sliderimg2Mobile from "@/assets/sliders/mobile-slide-img-2.webp";
+import sliderimg3Mobile from "@/assets/sliders/mobile-slide-img-3.webp";
+import cursosBannerMobile from "@/assets/sliders/banner-cursos-mobile.webp";
+import joinusBannerMobile from "@/assets/sliders/banner-joinus-mobile.webp";
 
 // Icons
 import utnIcon from "@/assets/icons/icon-utn.png";
