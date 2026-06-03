@@ -108,7 +108,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 			icon: Mail,
 			label: "Emails",
 			path: "/admin/emails",
-			adminOnly: true,
+			adminOnly: false,
 		},
 	];
 
