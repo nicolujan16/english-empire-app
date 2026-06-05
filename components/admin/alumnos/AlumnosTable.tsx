@@ -16,6 +16,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	X,
+	Check,
 	Mail,
 	Phone,
 	GraduationCap,
@@ -229,7 +230,7 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 	const [typeFilter, setTypeFilter] = useState("Todos");
 	const [etiquetaFilter, setEtiquetaFilter] = useState("Todas");
 
-	const [pendingEmailFilter, setPendingEmailFilter] = useState(false);
+	const [pendingEmailFilter, setPendingEmailFilter] = useState<null | boolean>(null);
 	const [bajaFilter, setBajaFilter] = useState(false);
 
 	const [currentPage, setCurrentPage] = useState(1);
@@ -432,11 +433,16 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 							? !s.etiquetas?.length
 							: (s.etiquetas ?? []).includes(etiquetaFilter);
 
-				const matchesPendingEmail = pendingEmailFilter
-					? s.tipo === "Titular"
-						? !s.email
-						: !s.emailTutor
-					: true;
+				const matchesPendingEmail =
+					pendingEmailFilter === null
+						? true
+						: pendingEmailFilter === true
+							? s.tipo === "Titular"
+								? !!s.email
+								: !!s.emailTutor
+							: s.tipo === "Titular"
+								? !s.email
+								: !s.emailTutor;
 
 				const matchesBaja = bajaFilter ? !!bajasHistorial[s.id] : true;
 
@@ -696,18 +702,54 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 						</div>
 
 						<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 px-1">
-							<label className="flex items-center gap-2 cursor-pointer group">
-								<input
-									type="checkbox"
-									checked={pendingEmailFilter}
-									onChange={(e) => setPendingEmailFilter(e.target.checked)}
-									className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-600 cursor-pointer"
-								/>
-								<span className="text-sm font-semibold text-gray-600 group-hover:text-gray-900 transition-colors flex items-center gap-1.5">
-									<AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-									Ver únicamente usuarios con mail pendiente (Sin acceso web)
+							<button
+								type="button"
+								onClick={() =>
+									setPendingEmailFilter((prev) =>
+										prev === null ? true : prev === true ? false : null,
+									)
+								}
+								className="flex items-center gap-2 cursor-pointer group"
+							>
+								<span
+									className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+										pendingEmailFilter === true
+											? "bg-emerald-500 border-emerald-600 text-white"
+											: pendingEmailFilter === false
+												? "bg-red-500 border-red-600 text-white"
+												: "border-gray-300 bg-white"
+									}`}
+								>
+									{pendingEmailFilter === true && (
+										<Check className="w-3 h-3" />
+									)}
+									{pendingEmailFilter === false && (
+										<X className="w-3 h-3" />
+									)}
 								</span>
-							</label>
+								<span className={`text-sm font-semibold transition-colors flex items-center gap-1.5 ${
+									pendingEmailFilter === true
+										? "text-emerald-700"
+										: pendingEmailFilter === false
+											? "text-red-700"
+											: "text-gray-600 group-hover:text-gray-900"
+								}`}>
+									<Mail className={`w-3.5 h-3.5 ${
+										pendingEmailFilter === true
+											? "text-emerald-500"
+											: pendingEmailFilter === false
+												? "text-red-500"
+												: "text-gray-400"
+									}`} />
+									Usuarios con mail asociado
+									{pendingEmailFilter === true && (
+										<span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">SÍ</span>
+									)}
+									{pendingEmailFilter === false && (
+										<span className="text-xs font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">NO</span>
+									)}
+								</span>
+							</button>
 
 							<label className="flex items-center gap-2 cursor-pointer group">
 								<input

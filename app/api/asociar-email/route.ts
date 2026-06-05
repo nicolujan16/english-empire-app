@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { getAuth, sendPasswordResetEmail } from "firebase/auth";
-import { app } from "@/lib/firebaseConfig";
 
 export async function POST(request: Request) {
 	const { alumnoId, email } = await request.json();
@@ -40,12 +38,9 @@ export async function POST(request: Request) {
 			}
 		}
 
-		const clientAuth = getAuth(app);
-		await sendPasswordResetEmail(clientAuth, email);
-
 		return NextResponse.json({
 			success: true,
-			message: "Email asociado y correo de recuperación enviado correctamente",
+			message: "Email asociado correctamente",
 		});
 	} catch (error: any) {
 		console.error("Error en asociar-email:", error);

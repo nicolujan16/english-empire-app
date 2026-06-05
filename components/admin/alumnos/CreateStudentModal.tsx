@@ -250,7 +250,7 @@ export default function CreateStudentModal({
 				if (!sinEmail) {
 					// Enviar correo de bienvenida con link de creación de contraseña
 					try {
-						await fetch("/api/correos/bienvenida-con-link", {
+						const emailRes = await fetch("/api/correos/bienvenida-con-link", {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({
@@ -258,8 +258,13 @@ export default function CreateStudentModal({
 								nombreUsuario: formData.nombre,
 							}),
 						});
+
+						if (!emailRes.ok) {
+							const emailData = await emailRes.json().catch(() => ({}));
+							console.error("Error enviando correo de bienvenida:", emailData.error || emailRes.statusText);
+						}
 					} catch (emailErr) {
-						console.error("Error enviando correo de bienvenida:", emailErr);
+						console.error("Error de red enviando correo de bienvenida:", emailErr);
 					}
 
 					showAlert(
@@ -359,6 +364,7 @@ export default function CreateStudentModal({
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		if (isSubmitting) return;
 
 		if (tipoAlumno === "Titular") {
 			if (calcularEdad(formData.fechaNacimiento) < 18) {
@@ -392,7 +398,7 @@ export default function CreateStudentModal({
 				}
 			}
 
-			processCreation();
+			await processCreation();
 		} else {
 			if (!foundTutor) {
 				showAlert(
@@ -443,7 +449,7 @@ export default function CreateStudentModal({
 				return;
 			}
 
-			processCreation();
+			await processCreation();
 		}
 	};
 

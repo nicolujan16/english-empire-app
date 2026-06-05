@@ -584,24 +584,29 @@ export default function EditUserInfoModal({
 						finalEmail = titularForm.email.trim();
 
 						// Enviar correo de bienvenida con link de creación de contraseña
-						try {
-							await fetch("/api/correos/bienvenida-con-link", {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: JSON.stringify({
-									emailDestino: finalEmail,
-									nombreUsuario: titularForm.nombre.trim(),
-								}),
-							});
-						} catch (emailErr) {
-							console.error("Error enviando correo de bienvenida con link:", emailErr);
+					try {
+						const emailRes = await fetch("/api/correos/bienvenida-con-link", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								emailDestino: finalEmail,
+								nombreUsuario: titularForm.nombre.trim(),
+							}),
+						});
+
+						if (!emailRes.ok) {
+							const emailData = await emailRes.json().catch(() => ({}));
+							console.error("Error enviando correo de bienvenida con link:", emailData.error || emailRes.statusText);
 						}
-					} catch (apiErr) {
-						console.error("Error en la llamada a la API:", apiErr);
-						setErrorMsg("Error de conexión al intentar asociar el correo.");
-						setIsLoading(false);
-						return;
+					} catch (emailErr) {
+						console.error("Error de red enviando correo de bienvenida con link:", emailErr);
 					}
+				} catch (apiErr) {
+					console.error("Error en la llamada a la API:", apiErr);
+					setErrorMsg("Error de conexión al intentar asociar el correo.");
+					setIsLoading(false);
+					return;
+				}
 				}
 
 
