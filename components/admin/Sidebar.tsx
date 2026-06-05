@@ -127,7 +127,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 
 	return (
 		<div
-			className={`fixed left-0 top-0 h-screen w-64 bg-[#252d62] text-white flex flex-col shadow-xl z-50 transform transition-transform duration-300 ease-in-out
+			className={`fixed left-0 top-0 h-screen w-64 bg-[#252d62] text-white flex flex-col shadow-xl z-50 transform transition-transform duration-300 ease-in-out print:hidden
         ${isOpen ? "translate-x-0" : "-translate-x-full"} 
         lg:translate-x-0
       `}
