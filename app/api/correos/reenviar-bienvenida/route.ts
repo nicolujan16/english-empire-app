@@ -46,12 +46,8 @@ export async function POST(request: Request) {
 		}
 
 		// 3. Generar el link de Firebase (contiene oobCode y otros params)
-		const firebaseLink = await adminAuth.generatePasswordResetLink(
-			emailDestino,
-			{
-				url: `${APP_URL}/crear-contrasena`,
-			},
-		);
+		// Omitimos el actionCodeSettings con url para evitar el error "Domain not allowlisted by project"
+		const firebaseLink = await adminAuth.generatePasswordResetLink(emailDestino);
 
 		// 4. Extraer los parámetros del link de Firebase y reconstruir con nuestro dominio
 		const firebaseUrl = new URL(firebaseLink);
