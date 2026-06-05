@@ -897,7 +897,8 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 																student.cursos.map((id) => (
 																	<span
 																		key={id}
-																		className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#252d62]/10 text-[#252d62]"
+																		title={coursesMap[id] || "Curso Desconocido"}
+																		className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#252d62]/10 text-[#252d62] truncate max-w-[250px]"
 																	>
 																		{coursesMap[id] || "Curso Desconocido"}
 																	</span>
@@ -1050,7 +1051,8 @@ export default function AlumnosTable({ newStudent }: AlumnosTableProps = {}) {
 																	student.cursos.map((id) => (
 																		<span
 																			key={id}
-																			className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-[#252d62]/10 text-[#252d62] whitespace-nowrap"
+																			title={coursesMap[id] || "Curso Desconocido"}
+																			className="inline-flex items-center px-2 py-1 rounded text-[11px] font-bold bg-[#252d62]/10 text-[#252d62] truncate max-w-[200px]"
 																		>
 																			{coursesMap[id] || "Curso Desconocido"}
 																		</span>

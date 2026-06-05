@@ -11,6 +11,14 @@ import {
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogDescription,
+	DialogFooter,
+} from "@/components/ui/dialog";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +79,13 @@ export default function EmailsPage() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState("");
 
+	// Estados para reenvío
+	const [isResendModalOpen, setIsResendModalOpen] = useState(false);
+	const [resendEmail, setResendEmail] = useState("");
+	const [isResending, setIsResending] = useState(false);
+	const [resendError, setResendError] = useState("");
+	const [resendSuccess, setResendSuccess] = useState("");
+
 	const fetchData = async () => {
 		setIsLoading(true);
 		setError("");
@@ -110,6 +125,38 @@ export default function EmailsPage() {
 			: porcentajeUsado >= 70
 				? "bg-amber-500"
 				: "bg-green-500";
+
+	const handleResendBienvenida = async () => {
+		if (!resendEmail) return;
+		setIsResending(true);
+		setResendError("");
+		setResendSuccess("");
+
+		try {
+			const res = await fetch("/api/correos/reenviar-bienvenida", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ emailDestino: resendEmail.trim() }),
+			});
+			const data = await res.json();
+			if (res.ok) {
+				setResendSuccess(`Correo reenviado exitosamente a ${resendEmail}`);
+				setResendEmail("");
+				fetchData(); // Refrescar la tabla
+				setTimeout(() => {
+					setIsResendModalOpen(false);
+					setResendSuccess("");
+				}, 2000);
+			} else {
+				setResendError(data.error || "Ocurrió un error al reenviar el correo.");
+			}
+		} catch (error) {
+			console.error("Error reenviando", error);
+			setResendError("Error de red al intentar reenviar el correo.");
+		} finally {
+			setIsResending(false);
+		}
+	};
 
 	return (
 		<div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
@@ -172,6 +219,20 @@ export default function EmailsPage() {
 								</p>
 						</div>
 					</div>
+
+					<Button
+						onClick={() => {
+							setIsResendModalOpen(true);
+							setResendError("");
+							setResendSuccess("");
+							setResendEmail("");
+						}}
+						variant="default"
+						className="bg-[#252d62] text-white hover:bg-[#1a2046] font-semibold py-5 px-5 rounded-xl flex items-center gap-2 transition-all"
+					>
+						<Mail className="w-4 h-4" />
+						Reenviar Bienvenida
+					</Button>
 
 					<Button
 						onClick={fetchData}
@@ -277,6 +338,75 @@ export default function EmailsPage() {
 					</div>
 				)}
 			</div>
+
+			{/* Modal de Reenviar Bienvenida */}
+			<Dialog open={isResendModalOpen} onOpenChange={setIsResendModalOpen}>
+				<DialogContent className="sm:max-w-md">
+					<DialogHeader>
+						<DialogTitle>Reenviar Correo de Bienvenida</DialogTitle>
+						<DialogDescription>
+							Ingresa el correo electrónico del usuario para reenviarle el email de bienvenida con el enlace para crear su contraseña.
+						</DialogDescription>
+					</DialogHeader>
+					
+					<div className="flex flex-col gap-4 py-4">
+						<div className="flex flex-col gap-2">
+							<label htmlFor="email" className="text-sm font-semibold text-gray-700">
+								Correo Electrónico
+							</label>
+							<input
+								id="email"
+								type="email"
+								placeholder="usuario@ejemplo.com"
+								value={resendEmail}
+								onChange={(e) => setResendEmail(e.target.value)}
+								className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#252d62]/20 outline-none"
+								disabled={isResending}
+							/>
+						</div>
+
+						{resendError && (
+							<div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+								<AlertCircle className="w-4 h-4 shrink-0" />
+								{resendError}
+							</div>
+						)}
+
+						{resendSuccess && (
+							<div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+								<Gauge className="w-4 h-4 shrink-0" /> {/* Reutilizando Gauge de lucide-react como check */}
+								{resendSuccess}
+							</div>
+						)}
+					</div>
+
+					<DialogFooter className="sm:justify-end gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setIsResendModalOpen(false)}
+							disabled={isResending}
+						>
+							Cancelar
+						</Button>
+						<Button
+							type="button"
+							onClick={handleResendBienvenida}
+							disabled={isResending || !resendEmail}
+							className="bg-[#252d62] text-white hover:bg-[#1a2046]"
+						>
+							{isResending ? (
+								<>
+									<Loader2 className="w-4 h-4 mr-2 animate-spin" />
+									Enviando...
+								</>
+							) : (
+								"Reenviar"
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
