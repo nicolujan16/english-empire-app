@@ -38,6 +38,7 @@ export default function RegistrarIngresoModal({
 	const { adminData } = useAdminAuth();
 
 	const [descripcion, setDescripcion] = useState("");
+	const [nota, setNota] = useState("");
 	const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([
 		"Venta de uniforme",
 		"Venta de útiles escolares",
@@ -127,6 +128,7 @@ export default function RegistrarIngresoModal({
 	const handleClose = () => {
 		if (isLoading) return;
 		setDescripcion("");
+		setNota("");
 		setMonto("");
 		setMetodoPago("");
 		setIsSplitPayment(false);
@@ -165,6 +167,7 @@ export default function RegistrarIngresoModal({
 		try {
 			await addDoc(collection(db, "IngresosEspeciales"), {
 				descripcion: descripcion.trim(),
+				nota: nota.trim() || null,
 				monto: montoNum,
 				metodoPago: metodoPago,
 				fecha: new Date(fecha + "T12:00:00"),
@@ -245,6 +248,29 @@ export default function RegistrarIngresoModal({
 								</option>
 							))}
 						</select>
+					</div>
+
+					{/* Campo de descripción opcional */}
+					<div>
+						<label className="block text-sm font-semibold text-gray-700 mb-1.5">
+							<span className="flex items-center gap-1.5">
+								<FileText className="w-3.5 h-3.5 text-gray-400" />
+								Descripción{" "}
+								<span className="text-xs font-normal text-gray-400">(opcional)</span>
+							</span>
+						</label>
+						<textarea
+							value={nota}
+							onChange={(e) => setNota(e.target.value)}
+							placeholder="Ej: Pago de 3 remeras talle M para alumno Juan..."
+							maxLength={200}
+							rows={2}
+							disabled={isLoading || exito}
+							className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all resize-none font-medium"
+						/>
+						<p className="text-[11px] text-gray-400 mt-1 text-right">
+							{nota.length}/200
+						</p>
 					</div>
 
 					<div className="grid grid-cols-2 gap-4">

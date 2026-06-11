@@ -57,6 +57,7 @@ export interface EtiquetaDisponible {
 
 export type ReassignmentMap = Record<string, string>;
 export type BajaMap = Record<string, boolean>;
+export type ModificarCuotaActualMap = Record<string, boolean>;
 
 // ─── Constantes de color ──────────────────────────────────────────────────────
 
@@ -97,6 +98,20 @@ export const esCuotaFutura = (mes: number, anio: number): boolean => {
 	const mesActual = hoy.getMonth() + 1;
 	const anioActual = hoy.getFullYear();
 	return anio > anioActual || (anio === anioActual && mes > mesActual);
+};
+
+export const esCuotaMesActual = (mes: number, anio: number): boolean => {
+	const hoy = new Date();
+	return mes === hoy.getMonth() + 1 && anio === hoy.getFullYear();
+};
+
+export const getNombreMesActual = (): string => {
+	const meses = [
+		"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+		"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+	];
+	const hoy = new Date();
+	return `${meses[hoy.getMonth()]} ${hoy.getFullYear()}`;
 };
 
 // ─── Sub-componentes de UI simples ────────────────────────────────────────────

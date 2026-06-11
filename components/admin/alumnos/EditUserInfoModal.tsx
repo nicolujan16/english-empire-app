@@ -40,11 +40,14 @@ import {
 	EtiquetaDisponible,
 	ReassignmentMap,
 	BajaMap,
+	ModificarCuotaActualMap,
 	SectionDivider,
 	ReadOnlyField,
 	TipoBadge,
 	calcularEdad,
 	esCuotaFutura,
+	esCuotaMesActual,
+	getNombreMesActual,
 } from "./EditUserInfoModal.types";
 import { TitularFormFields, MenorFormFields } from "./UserFormFields";
 import CourseReassignRow from "./CourseReassignRow";
@@ -86,6 +89,8 @@ export default function EditUserInfoModal({
 	const [allCourses, setAllCourses] = useState<CourseDetails[]>([]);
 	const [reassignments, setReassignments] = useState<ReassignmentMap>({});
 	const [bajas, setBajas] = useState<BajaMap>({});
+	const [modificarCuotaActual, setModificarCuotaActual] = useState<ModificarCuotaActualMap>({});
+	const [errorCuotaModal, setErrorCuotaModal] = useState<{ titulo: string; mensaje: string } | null>(null);
 
 	// Etiquetas
 	const [etiquetasDisponibles, setEtiquetasDisponibles] = useState<
@@ -152,6 +157,8 @@ export default function EditUserInfoModal({
 			setSuccessMsg("");
 			setReassignments({});
 			setBajas({});
+			setModificarCuotaActual({});
+			setErrorCuotaModal(null);
 			setEtiquetasSeleccionadas(new Set());
 			setAplicarAHijos(false);
 			setHijosIds([]);
@@ -159,12 +166,15 @@ export default function EditUserInfoModal({
 		}
 		const initMap: ReassignmentMap = {};
 		const initBajas: BajaMap = {};
+		const initModificarCuota: ModificarCuotaActualMap = {};
 		student.cursos.forEach((id) => {
 			initMap[id] = "";
 			initBajas[id] = false;
+			initModificarCuota[id] = false;
 		});
 		setReassignments(initMap);
 		setBajas(initBajas);
+		setModificarCuotaActual(initModificarCuota);
 
 		if (student.tipo === "Titular") {
 			setTitularForm({
@@ -218,6 +228,55 @@ export default function EditUserInfoModal({
 		setTitularForm({ ...titularForm, telefono: value || "" });
 	};
 
+	const handleToggleModificarCuotaActual = async (cursoActualId: string) => {
+		if (modificarCuotaActual[cursoActualId]) {
+			setModificarCuotaActual((prev) => ({ ...prev, [cursoActualId]: false }));
+			return;
+		}
+
+		if (!student) return;
+		try {
+			const cuotasSnap = await getDocs(
+				query(
+					collection(db, "Cuotas"),
+					where("alumnoId", "==", student.id),
+					where("cursoId", "==", cursoActualId),
+				),
+			);
+
+			const hoy = new Date();
+			const mesActual = hoy.getMonth() + 1;
+			const anioActual = hoy.getFullYear();
+
+			const cuotaMesActual = cuotasSnap.docs.find((d) => {
+				const data = d.data();
+				return data.mes === mesActual && data.anio === anioActual;
+			});
+
+			if (!cuotaMesActual || cuotaMesActual.data().estado !== "Pendiente") {
+				setErrorCuotaModal({
+					titulo: "Cuota ya abonada",
+					mensaje: "La cuota del mes actual ya ha sido abonada, si hay un saldo por diferencia de precios registrarlo en Ingresos Especiales.",
+				});
+				return;
+			}
+
+			if (cuotaMesActual.data().esPrimerMes === true) {
+				setErrorCuotaModal({
+					titulo: "Cuota de primer mes",
+					mensaje: "No es posible modificar la cuota del primer mes, por favor, hágalo manualmente en la sección de cuotas al momento de cobrarla.",
+				});
+				return;
+			}
+
+			// Todo OK → activar el checkbox
+			setModificarCuotaActual((prev) => ({ ...prev, [cursoActualId]: true }));
+		} catch (err) {
+			console.error("Error verificando cuota del mes actual:", err);
+			setErrorMsg("Error al verificar la cuota del mes actual.");
+		}
+	};
+
 	const toggleEtiqueta = (id: string) => {
 		setEtiquetasSeleccionadas((prev) => {
 			const next = new Set(prev);
@@ -233,12 +292,15 @@ export default function EditUserInfoModal({
 		setSuccessMsg("");
 		const initMap: ReassignmentMap = {};
 		const initBajas: BajaMap = {};
+		const initModificarCuota: ModificarCuotaActualMap = {};
 		student.cursos.forEach((id) => {
 			initMap[id] = "";
 			initBajas[id] = false;
+			initModificarCuota[id] = false;
 		});
 		setReassignments(initMap);
 		setBajas(initBajas);
+		setModificarCuotaActual(initModificarCuota);
 		if (student.tipo === "Titular") {
 			setTitularForm({
 				nombre: student.nombre,
@@ -320,13 +382,17 @@ export default function EditUserInfoModal({
 			);
 			for (const cuotaDoc of cuotasSnap.docs) {
 				const data = cuotaDoc.data();
-				if (!esCuotaFutura(data.mes, data.anio)) continue;
-				await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
-					cursoId: nuevoCursoId,
-					cursoNombre: nuevoCurso.nombre,
-					cuota1a10: nuevoCurso.cuota1a10,
-					cuota11enAdelante: nuevoCurso.cuota11enAdelante,
-				});
+				const esFutura = esCuotaFutura(data.mes, data.anio);
+				const esMesActual = esCuotaMesActual(data.mes, data.anio);
+
+				if (esFutura || (esMesActual && modificarCuotaActual[cursoActualId])) {
+					await updateDoc(doc(db, "Cuotas", cuotaDoc.id), {
+						cursoId: nuevoCursoId,
+						cursoNombre: nuevoCurso.nombre,
+						cuota1a10: nuevoCurso.cuota1a10,
+						cuota11enAdelante: nuevoCurso.cuota11enAdelante,
+					});
+				}
 			}
 			await addDoc(collection(db, "ReasignacionesCursos"), {
 				alumnoId: student.id,
@@ -436,23 +502,19 @@ export default function EditUserInfoModal({
 		if (!student) return;
 
 		try {
-			// 1. Obtener tutorId
 			let tutorId = student.id;
 			if (student.tipo !== "Titular") {
 				const hijoSnap = await getDoc(doc(db, "Hijos", student.id));
 				if (hijoSnap.exists()) tutorId = hijoSnap.data().tutorId || student.id;
 			}
 
-			// 2. Buscar todos los miembros de la familia y ver quiénes tienen cursos ACTIVOS
 			const miembrosActivosIds: string[] = [];
 
-			// Revisamos al tutor
 			const tutorSnap = await getDoc(doc(db, "Users", tutorId));
 			if (tutorSnap.exists() && (tutorSnap.data().cursos?.length || 0) > 0) {
 				miembrosActivosIds.push(tutorId);
 			}
 
-			// Revisamos a todos los hijos
 			const hijosSnap = await getDocs(
 				query(collection(db, "Hijos"), where("tutorId", "==", tutorId)),
 			);
@@ -462,14 +524,9 @@ export default function EditUserInfoModal({
 				}
 			});
 
-			// 3. Validar si quedó 1 solo miembro activo
 			if (miembrosActivosIds.length === 1) {
 				const unicoMiembroId = miembrosActivosIds[0];
-				console.log(
-					`🧹 Grupo familiar roto. Removiendo descuento al alumno: ${unicoMiembroId}`,
-				);
-
-				// Buscar sus cuotas pendientes
+				
 				const cuotasSnap = await getDocs(
 					query(
 						collection(db, "Cuotas"),
@@ -481,17 +538,14 @@ export default function EditUserInfoModal({
 				for (const cuotaDoc of cuotasSnap.docs) {
 					const data = cuotaDoc.data();
 
-					// Solo le quitamos el descuento a las cuotas FUTURAS (para no alterar deuda vieja que ya se facturó)
 					if (esCuotaFutura(data.mes, data.anio)) {
 						const descuentosActuales = data.descuentos || [];
 
-						// Verificamos si tiene el descuento aplicado
 						const tieneGrupoFamiliar = descuentosActuales.some(
 							(d: any) => d.detalle === "Grupo Familiar",
 						);
 
 						if (tieneGrupoFamiliar) {
-							// Filtramos el array para quitar SOLO el de Grupo Familiar (mantiene otros descuentos si tuviera)
 							const nuevosDescuentos = descuentosActuales.filter(
 								(d: any) => d.detalle !== "Grupo Familiar",
 							);
@@ -560,9 +614,9 @@ export default function EditUserInfoModal({
 
 				const isAssigningNewEmail =
 					!student.email && titularForm.email.trim() !== "";
-				let finalEmail = student.email || ""; // Mantenemos el original si no se asignó nada
+				let finalEmail = student.email || ""; 
 
-					if (isAssigningNewEmail) {
+				if (isAssigningNewEmail) {
 					try {
 						const res = await fetch("/api/asociar-email", {
 							method: "POST",
@@ -583,32 +637,30 @@ export default function EditUserInfoModal({
 						}
 						finalEmail = titularForm.email.trim();
 
-						// Enviar correo de bienvenida con link de creación de contraseña
-					try {
-						const emailRes = await fetch("/api/correos/bienvenida-con-link", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({
-								emailDestino: finalEmail,
-								nombreUsuario: titularForm.nombre.trim(),
-							}),
-						});
+						try {
+							const emailRes = await fetch("/api/correos/bienvenida-con-link", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									emailDestino: finalEmail,
+									nombreUsuario: titularForm.nombre.trim(),
+								}),
+							});
 
-						if (!emailRes.ok) {
-							const emailData = await emailRes.json().catch(() => ({}));
-							console.error("Error enviando correo de bienvenida con link:", emailData.error || emailRes.statusText);
+							if (!emailRes.ok) {
+								const emailData = await emailRes.json().catch(() => ({}));
+								console.error("Error enviando correo de bienvenida con link:", emailData.error || emailRes.statusText);
+							}
+						} catch (emailErr) {
+							console.error("Error de red enviando correo de bienvenida con link:", emailErr);
 						}
-					} catch (emailErr) {
-						console.error("Error de red enviando correo de bienvenida con link:", emailErr);
+					} catch (apiErr) {
+						console.error("Error en la llamada a la API:", apiErr);
+						setErrorMsg("Error de conexión al intentar asociar el correo.");
+						setIsLoading(false);
+						return;
 					}
-				} catch (apiErr) {
-					console.error("Error en la llamada a la API:", apiErr);
-					setErrorMsg("Error de conexión al intentar asociar el correo.");
-					setIsLoading(false);
-					return;
 				}
-				}
-
 
 				await updateDoc(doc(db, "Users", student.id), {
 					nombre: titularForm.nombre.trim(),
@@ -655,7 +707,7 @@ export default function EditUserInfoModal({
 					apellido: titularForm.apellido.trim(),
 					dni: titularForm.dni.trim(),
 					fechaNacimiento: titularForm.fechaNacimiento,
-					email: finalEmail, // Actualizamos el UI local con el nuevo correo
+					email: finalEmail,
 					edad: calcularEdad(titularForm.fechaNacimiento) as number,
 					telefono: titularForm.telefono,
 					cursos: cursosActualizados,
@@ -723,6 +775,7 @@ export default function EditUserInfoModal({
 	// ─── Render ───────────────────────────────────────────────────────────────
 
 	return (
+		<>
 		<AnimatePresence>
 			{isOpen && (
 				<>
@@ -785,7 +838,6 @@ export default function EditUserInfoModal({
 											isEmailEditable={!student.email}
 										/>
 
-										{/* 🚀 SI NO TIENE EMAIL: Mostramos el bloque de asignación explícito */}
 										{!student.email && (
 											<div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
 												<label className="block text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1.5">
@@ -818,8 +870,7 @@ export default function EditUserInfoModal({
 										nombreTutor={student.nombreTutor}
 									/>
 								)}
-
-								{/* ── Cursos ── */}
+				{/* ── Cursos ── */}
 								{student.cursos.length > 0 ? (
 									<>
 										<SectionDivider label="Cursos" />
@@ -855,26 +906,53 @@ export default function EditUserInfoModal({
 										)}
 										<div className="space-y-2">
 											{student.cursos.map((cursoId) => (
-												<CourseReassignRow
-													key={cursoId}
-													cursoActualId={cursoId}
-													cursoActualNombre={coursesMap[cursoId] || cursoId}
-													nuevoCursoId={reassignments[cursoId] ?? ""}
-													esBaja={bajas[cursoId] ?? false}
-													allCourses={allCourses}
-													onChange={(newId) =>
-														setReassignments((prev) => ({
-															...prev,
-															[cursoId]: newId,
-														}))
-													}
-													onToggleBaja={() =>
-														setBajas((prev) => ({
-															...prev,
-															[cursoId]: !prev[cursoId],
-														}))
-													}
-												/>
+												<div key={cursoId}>
+													<CourseReassignRow
+														cursoActualId={cursoId}
+														cursoActualNombre={coursesMap[cursoId] || cursoId}
+														nuevoCursoId={reassignments[cursoId] ?? ""}
+														esBaja={bajas[cursoId] ?? false}
+														allCourses={allCourses}
+														onChange={(newId) => {
+															setReassignments((prev) => ({
+																...prev,
+																[cursoId]: newId,
+															}));
+															setModificarCuotaActual((prev) => ({
+																...prev,
+																[cursoId]: false,
+															}));
+														}}
+														onToggleBaja={() =>
+															setBajas((prev) => ({
+																...prev,
+																[cursoId]: !prev[cursoId],
+															}))
+														}
+													/>
+													<AnimatePresence>
+														{reassignments[cursoId] &&
+															reassignments[cursoId] !== cursoId &&
+															!bajas[cursoId] && (
+																<motion.label
+																	initial={{ opacity: 0, height: 0 }}
+																	animate={{ opacity: 1, height: "auto" }}
+																	exit={{ opacity: 0, height: 0 }}
+																	className="flex items-center gap-2.5 px-4 py-2.5 bg-amber-50/80 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/60 transition-colors -mt-1"
+																>
+																	<input
+																		type="checkbox"
+																		checked={modificarCuotaActual[cursoId] ?? false}
+																		onChange={() => handleToggleModificarCuotaActual(cursoId)}
+																		className="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/20 accent-amber-600"
+																	/>
+																	<span className="text-xs font-medium text-amber-800">
+																		Modificar también cuota del mes actual ({getNombreMesActual()})
+																	</span>
+																</motion.label>
+															)}
+													</AnimatePresence>
+												</div>
 											))}
 										</div>
 									</>
@@ -988,5 +1066,49 @@ export default function EditUserInfoModal({
 				</>
 			)}
 		</AnimatePresence>
+
+		{/* Modal de error: cuota no modificable */}
+		<AnimatePresence>
+			{errorCuotaModal && (
+				<>
+					<motion.div
+						key="cuota-error-backdrop"
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						onClick={() => setErrorCuotaModal(null)}
+						className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60]"
+					/>
+					<motion.div
+						key="cuota-error-modal"
+						initial={{ opacity: 0, scale: 0.9, y: 20 }}
+						animate={{ opacity: 1, scale: 1, y: 0 }}
+						exit={{ opacity: 0, scale: 0.9, y: 20 }}
+						transition={{ type: "spring", stiffness: 300, damping: 25 }}
+						className="fixed inset-0 z-[60] flex items-center justify-center p-4 pointer-events-none"
+					>
+						<div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 pointer-events-auto text-center">
+							<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+								<AlertCircle className="w-6 h-6 text-red-500" />
+							</div>
+							<h3 className="text-lg font-black text-gray-900 mb-2">
+								{errorCuotaModal.titulo}
+							</h3>
+							<p className="text-sm text-gray-600 mb-5 leading-relaxed">
+								{errorCuotaModal.mensaje}
+							</p>
+							<button
+								type="button"
+								onClick={() => setErrorCuotaModal(null)}
+								className="px-6 py-2.5 text-sm font-bold text-white bg-[#252d62] rounded-full hover:bg-[#1a2248] transition-colors"
+							>
+								Entendido
+							</button>
+						</div>
+					</motion.div>
+				</>
+			)}
+		</AnimatePresence>
+		</>
 	);
 }

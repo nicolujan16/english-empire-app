@@ -22,6 +22,8 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Settings2,
+	AlertCircle,
+	AlertTriangle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,7 @@ interface IngresoItem {
 	mes?: number;
 	anio?: number;
 	registradoPor?: string;
+	nota?: string | null;
 }
 
 type FiltroTipo = "todos" | "cuotas" | "inscripciones" | "especiales";
@@ -126,6 +129,70 @@ function matchMetodoPago(metodoPago: string, filtro: FiltroMetodo): boolean {
 	if (filtro === "Tarjeta") return m.includes("tarjeta");
 
 	return false;
+}
+
+// ─── Tooltip de descripción (nota) para ingresos especiales ───────────────────────
+
+function ConceptoNotaTooltip({ nota }: { nota: string }) {
+	const TOOLTIP_WIDTH = 220;
+	const TOOLTIP_HEIGHT = 80;
+	const iconRef = React.useRef<HTMLSpanElement>(null);
+	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(
+		null,
+	);
+
+	const showTooltip = React.useCallback(() => {
+		if (!iconRef.current) return;
+		const rect = iconRef.current.getBoundingClientRect();
+		let x = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
+		let y = rect.top - TOOLTIP_HEIGHT - 10;
+		if (x + TOOLTIP_WIDTH > window.innerWidth - 8)
+			x = window.innerWidth - TOOLTIP_WIDTH - 8;
+		if (x < 8) x = 8;
+		if (y < 8) y = rect.bottom + 10;
+		setTooltipPos({ x, y });
+	}, []);
+
+	const hideTooltip = React.useCallback(() => setTooltipPos(null), []);
+
+	return (
+		<>
+			<span
+				ref={iconRef}
+				onMouseEnter={showTooltip}
+				onMouseLeave={hideTooltip}
+				className="text-amber-500 cursor-help"
+			>
+				<AlertCircle className="w-4 h-4" />
+			</span>
+
+			{tooltipPos && (
+				<div
+					className="fixed z-[9999] pointer-events-none"
+					style={{
+						left: tooltipPos.x,
+						top: tooltipPos.y,
+						width: TOOLTIP_WIDTH,
+					}}
+				>
+					<div className="bg-[#1a2248] text-white rounded-xl shadow-xl p-3">
+						<div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/10">
+							<AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+							<p className="text-xs font-bold leading-tight">
+								Descripción
+							</p>
+						</div>
+						<p className="text-xs text-white/80 leading-relaxed italic">
+							{nota}
+						</p>
+					</div>
+					<div className="flex justify-center -mt-1">
+						<div className="w-2 h-2 bg-[#1a2248] rotate-45" />
+					</div>
+				</div>
+			)}
+		</>
+	);
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -238,6 +305,7 @@ export default function IngresosPage() {
 					fecha: fechaRaw?.toDate?.() ?? new Date(),
 					metodoPago: data.metodoPago ?? "-",
 					registradoPor: data.registradoPor || "Admin",
+					nota: data.nota || null,
 				};
 			});
 
@@ -740,7 +808,12 @@ export default function IngresosPage() {
 											)}
 										</td>
 										<td className="px-6 py-4 text-gray-700 font-medium">
-											{item.cursoNombre}
+											<div className="flex items-center gap-1.5">
+												{item.cursoNombre}
+												{item.nota && (
+													<ConceptoNotaTooltip nota={item.nota} />
+												)}
+											</div>
 										</td>
 										<td className="px-6 py-4 text-gray-600">
 											{item.tipo === "cuota" && item.mes && item.anio
