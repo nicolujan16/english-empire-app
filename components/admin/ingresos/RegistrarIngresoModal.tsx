@@ -18,7 +18,7 @@ import {
 	Plus,
 	Trash2,
 } from "lucide-react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,42 @@ export default function RegistrarIngresoModal({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [exito, setExito] = useState(false);
+
+	const [mostrarComprobante, setMostrarComprobante] = useState(false);
+	const [compradorDNI, setCompradorDNI] = useState("");
+	const [detalleCompra, setDetalleCompra] = useState("");
+	
+	const [compradorNombre, setCompradorNombre] = useState<string | null>(null);
+	const [buscandoDni, setBuscandoDni] = useState(false);
+	const [dniError, setDniError] = useState<string | null>(null);
+
+	const verificarUsuarioPorDNI = async () => {
+		if (!compradorDNI.trim() || compradorDNI.trim().length < 6) {
+			setCompradorNombre(null);
+			setDniError("Por favor ingresa un DNI válido.");
+			return;
+		}
+
+		setBuscandoDni(true);
+		setDniError(null);
+		setCompradorNombre(null);
+
+		try {
+			const q = query(collection(db, "Users"), where("dni", "==", compradorDNI.trim()));
+			const querySnapshot = await getDocs(q);
+			if (!querySnapshot.empty) {
+				const userData = querySnapshot.docs[0].data();
+				setCompradorNombre(`${userData.nombre} ${userData.apellido}`);
+			} else {
+				setDniError("No se encontró ningún usuario con este DNI.");
+			}
+		} catch (err) {
+			console.error("Error buscando DNI:", err);
+			setDniError("Error al buscar usuario.");
+		} finally {
+			setBuscandoDni(false);
+		}
+	};
 
 	const [isSplitPayment, setIsSplitPayment] = useState(false);
 	const [partialPayments, setPartialPayments] = useState<
@@ -136,6 +172,12 @@ export default function RegistrarIngresoModal({
 		setFecha(new Date().toISOString().split("T")[0]);
 		setError(null);
 		setExito(false);
+		setMostrarComprobante(false);
+		setCompradorDNI("");
+		setDetalleCompra("");
+		setCompradorNombre(null);
+		setDniError(null);
+		setBuscandoDni(false);
 		onClose();
 	};
 
@@ -163,6 +205,21 @@ export default function RegistrarIngresoModal({
 			return;
 		}
 
+		if (mostrarComprobante) {
+			if (!compradorDNI.trim()) {
+				setError("Debes ingresar el DNI del usuario para el comprobante.");
+				return;
+			}
+			if (!compradorNombre) {
+				setError("Debes ingresar un DNI válido y registrado para el comprobante.");
+				return;
+			}
+			if (!detalleCompra.trim()) {
+				setError("Debes ingresar el detalle de la compra.");
+				return;
+			}
+		}
+
 		setIsLoading(true);
 		try {
 			await addDoc(collection(db, "IngresosEspeciales"), {
@@ -174,6 +231,18 @@ export default function RegistrarIngresoModal({
 				registradoPor: adminData?.nombre || adminData?.email || "Admin",
 				creadoEn: serverTimestamp(),
 			});
+
+			if (mostrarComprobante) {
+				await addDoc(collection(db, "ComprasEspeciales"), {
+					compradorDNI: compradorDNI.trim(),
+					detalle: detalleCompra.trim(),
+					monto: montoNum,
+					metodoDePago: metodoPago,
+					fecha: new Date(fecha + "T12:00:00"),
+					registradoPor: adminData?.nombre || adminData?.email || "Admin",
+					creadoEn: serverTimestamp(),
+				});
+			}
 
 			setExito(true);
 			setTimeout(() => {
@@ -451,7 +520,89 @@ export default function RegistrarIngresoModal({
 						)}
 					</div>
 
-					<div className="bg-gray-50 rounded-lg px-4 py-3 flex items-center justify-between mt-2">
+					{/* 🚀 NUEVA SECCIÓN DE COMPROBANTE DE COMPRA */}
+					<div className="border-t border-gray-100 pt-5 mt-2">
+						<label className="flex items-center gap-3 cursor-pointer select-none">
+							<div className="relative">
+								<input
+									type="checkbox"
+									className="sr-only"
+									checked={mostrarComprobante}
+									onChange={(e) => setMostrarComprobante(e.target.checked)}
+									disabled={isLoading || exito}
+								/>
+								<div className={`block w-10 h-6 rounded-full transition-colors ${mostrarComprobante ? "bg-[#252d62]" : "bg-gray-300"}`}></div>
+								<div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${mostrarComprobante ? "transform translate-x-4" : ""}`}></div>
+							</div>
+							<div className="flex flex-col">
+								<span className="text-sm font-semibold text-gray-700">Mostrar comprobante de compra a usuario</span>
+								<span className="text-xs text-gray-500">Genera un comprobante de la transacción</span>
+							</div>
+						</label>
+
+						{mostrarComprobante && (
+							<div className="mt-4 p-4 border border-[#252d62]/20 bg-[#252d62]/5 rounded-xl space-y-4">
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-1.5">
+										DNI del Usuario
+									</label>
+									<div className="flex items-center gap-2">
+										<input
+											type="text"
+											value={compradorDNI}
+											onChange={(e) => {
+												setCompradorDNI(e.target.value);
+												setCompradorNombre(null);
+												setDniError(null);
+											}}
+											placeholder="Ej: 12345678"
+											disabled={isLoading || exito || buscandoDni}
+											className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all bg-white"
+										/>
+										<Button
+											type="button"
+											onClick={verificarUsuarioPorDNI}
+											disabled={isLoading || exito || buscandoDni || !compradorDNI.trim()}
+											variant="outline"
+											size="sm"
+											className="border-[#252d62] text-[#252d62] hover:bg-[#252d62]/5 font-bold h-[38px] px-3"
+										>
+											{buscandoDni ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verificar usuario"}
+										</Button>
+									</div>
+									{!buscandoDni && compradorNombre && (
+										<p className="text-xs text-green-600 mt-1 font-semibold">
+											El usuario comprador es {compradorNombre}
+										</p>
+									)}
+									{!buscandoDni && dniError && (
+										<p className="text-xs text-red-600 mt-1 font-semibold">
+											{dniError}
+										</p>
+									)}
+								</div>
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 mb-1.5">
+										Detalle de la compra
+									</label>
+									<textarea
+										value={detalleCompra}
+										onChange={(e) => setDetalleCompra(e.target.value)}
+										placeholder="Ej: 2 remeras talle M y 1 libro de inglés..."
+										rows={2}
+										disabled={isLoading || exito}
+										className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] transition-all resize-none bg-white"
+									/>
+								</div>
+								<div className="bg-white/60 p-2 rounded-lg border border-gray-100 flex justify-between items-center">
+									<span className="text-xs text-gray-500 font-semibold">Monto aplicado:</span>
+									<span className="text-sm font-bold text-[#252d62]">${montoNum.toLocaleString("es-AR")}</span>
+								</div>
+							</div>
+						)}
+					</div>
+
+					<div className="bg-gray-50 rounded-lg px-4 py-3 flex items-center justify-between mt-4">
 						<p className="text-xs text-gray-500">Registrado por</p>
 						<p className="text-xs font-semibold text-gray-700">
 							{adminData?.nombre || adminData?.email || "Admin"}
