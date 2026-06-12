@@ -140,10 +140,7 @@ export default function CompraEspecialModal({
 							<tbody>
 								<tr>
 									<td>
-										Compra Especial<br/>
-										<span style="font-size: 10px; font-weight: normal; color: #666; display: block; margin-top: 4px; line-height: 1.4;">
-											${compra.detalle.replace(/\n/g, "<br/>")}
-										</span>
+										${compra.detalle.replace(/\n/g, "<br/>")}
 									</td>
 									<td>ARS $${compra.monto?.toLocaleString("es-AR") ?? "-"}</td>
 								</tr>
@@ -288,11 +285,8 @@ export default function CompraEspecialModal({
 								</thead>
 								<tbody>
 									<tr className="border-t border-gray-100">
-										<td className="px-4 py-3 text-xs text-gray-900 font-medium">
-											Compra Especial
-											<div className="text-[10px] text-gray-500 font-normal mt-1 whitespace-pre-wrap leading-relaxed">
-												{compra.detalle}
-											</div>
+										<td className="px-4 py-3 text-xs text-gray-900 font-medium whitespace-pre-wrap leading-relaxed">
+											{compra.detalle}
 										</td>
 										<td className="px-4 py-3 text-xs font-semibold text-gray-900 text-right align-top">
 											ARS ${compra.monto?.toLocaleString("es-AR") ?? "-"}

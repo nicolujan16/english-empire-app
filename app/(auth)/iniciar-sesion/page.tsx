@@ -14,7 +14,7 @@ interface LoginForm {
 
 export default function LoginPage() {
 	const router = useRouter();
-	const { user, login } = useAuth();
+	const { user, login, isLoading: isAuthLoading } = useAuth();
 
 	useEffect(() => {
 		if (user) {
@@ -75,6 +75,21 @@ export default function LoginPage() {
 			setIsLoading(false);
 		}
 	};
+
+	if (isAuthLoading || isLoading || user) {
+		return (
+			<div className="flex flex-col items-center justify-center py-16 gap-4">
+				<div className="w-12 h-12 border-4 border-[#EE1120] border-t-transparent rounded-full animate-spin"></div>
+				<p className="text-[#252d62] font-bold text-lg text-center">
+					{isLoading
+						? "Iniciando sesión..."
+						: user
+							? "Redirigiendo..."
+							: "Verificando sesión..."}
+				</p>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-col gap-4">

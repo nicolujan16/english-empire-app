@@ -22,18 +22,9 @@ function UserDashboardPage() {
 
 	if (isLoading || user === null) {
 		return (
-			<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
-				<div className="max-w-7xl mx-auto px-6 space-y-8">
-					<div>
-						<h1 className="text-4xl font-bold text-[#1a237e] mb-2">
-							Panel de Usuario
-						</h1>
-						<p className="text-gray-600">
-							Gestiona tu perfil, cursos y alumnos
-						</p>
-					</div>
-					<UserProfile user={userData} isLoading={isLoading} />
-				</div>
+			<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col items-center justify-center">
+				<div className="w-16 h-16 border-4 border-[#EE1120] border-t-transparent rounded-full animate-spin mb-4"></div>
+				<p className="text-[#252d62] font-bold text-2xl">Verificando sesión...</p>
 			</div>
 		);
 	}
