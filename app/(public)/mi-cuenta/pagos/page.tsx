@@ -22,12 +22,14 @@ import {
 	ChevronLeft,
 	GraduationCap,
 	Tag,
+	ShoppingBag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StudentDetails } from "@/types";
 import PagarCuotaModal from "@/components/website/cuotas/PagarCuotaModal";
 import ComprobanteCuotaModal from "@/components/website/cuotas/ComprobanteCuotaModal";
 import ComprobanteInscripcionModal from "@/components/website/pagos/ComprobanteInscripcionModal";
+import CompraEspecialModal from "@/components/website/pagos/CompraEspecialModal";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -49,8 +51,17 @@ interface Inscripcion {
 	status: "Confirmado" | "Pendiente";
 }
 
+interface CompraEspecial {
+	id: string;
+	compradorDNI: string;
+	detalle: string;
+	monto: number;
+	metodoDePago: string;
+	fecha: Timestamp;
+}
+
 type FiltroEstado = "todas" | "pendientes" | "pagadas";
-type TabVista = "cuotas" | "inscripciones";
+type TabVista = "cuotas" | "inscripciones" | "compras";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -388,6 +399,85 @@ function InscripcionCard({
 	);
 }
 
+// ─── Card de Compra Especial ──────────────────────────────────────────────────
+
+function CompraCard({ 
+	compra,
+	onVerComprobante
+}: { 
+	compra: CompraEspecial;
+	onVerComprobante: (c: CompraEspecial) => void;
+}) {
+	const [expandido, setExpandido] = useState(false);
+	const MAX_LENGTH = 100;
+	const esLargo = compra.detalle.length > MAX_LENGTH;
+
+	return (
+		<div className="h-full flex flex-col justify-between bg-white rounded-xl border border-gray-100 p-5 transition-all hover:shadow-md">
+			<div>
+				<div className="flex items-start justify-between gap-3 mb-4">
+					<div className="flex-1 min-w-0">
+						<p className="font-bold text-[#252d62] text-base truncate">
+							Compra de Productos
+						</p>
+						<p className="text-sm text-gray-500 mt-0.5">Compra Especial</p>
+					</div>
+					<span className="inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold flex-shrink-0 bg-blue-100 text-blue-800">
+						<ShoppingBag className="w-3.5 h-3.5" /> Confirmada
+					</span>
+				</div>
+
+				<div className="mb-4">
+					<p className="text-gray-500 text-xs mb-1">Detalle de la compra</p>
+					<p className="text-sm text-gray-800 bg-gray-50 p-2.5 rounded-lg border border-gray-100 leading-relaxed whitespace-pre-wrap break-words">
+						{esLargo && !expandido ? `${compra.detalle.slice(0, MAX_LENGTH)}...` : compra.detalle}
+						{esLargo && (
+							<button 
+								onClick={() => setExpandido(!expandido)}
+								className="text-blue-600 hover:text-blue-800 font-semibold ml-1 focus:outline-none inline-block"
+							>
+								{expandido ? "ver menos" : "ver más..."}
+							</button>
+						)}
+					</p>
+				</div>
+
+				<div className="grid grid-cols-2 gap-3 text-sm mb-2">
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Monto total</p>
+						<p className="font-bold text-gray-900">
+							${compra.monto?.toLocaleString("es-AR") ?? "-"}
+						</p>
+					</div>
+					<div>
+						<p className="text-gray-500 text-xs mb-0.5">Fecha</p>
+						<p className="font-medium text-gray-700 text-xs">
+							{formatearFecha(compra.fecha)}
+						</p>
+					</div>
+					<div className="col-span-2">
+						<p className="text-gray-500 text-xs mb-0.5">Método de pago</p>
+						<p className="font-medium text-gray-700 text-xs">
+							{compra.metodoDePago || "-"}
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<div className="mt-auto pt-3 border-t border-gray-100">
+				<Button
+					size="sm"
+					variant="outline"
+					className="flex items-center gap-1.5 text-xs text-[#252d62] border-[#252d62] hover:bg-[#252d62] hover:text-white transition-all w-full"
+					onClick={() => onVerComprobante(compra)}
+				>
+					<FileText className="w-3.5 h-3.5" /> Ver comprobante
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function PagosPage() {
@@ -399,9 +489,11 @@ export default function PagosPage() {
 	const [cuotaComprobante, setCuotaComprobante] = useState<Cuota | null>(null);
 	const [inscripcionComprobante, setInscripcionComprobante] =
 		useState<Inscripcion | null>(null);
+	const [compraComprobante, setCompraComprobante] = useState<CompraEspecial | null>(null);
 
 	const [cuotas, setCuotas] = useState<Cuota[]>([]);
 	const [inscripciones, setInscripciones] = useState<Inscripcion[]>([]);
+	const [compras, setCompras] = useState<CompraEspecial[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [filtroCuotas, setFiltroCuotas] = useState<FiltroEstado>("todas");
 
@@ -477,6 +569,21 @@ export default function PagosPage() {
 					});
 
 				setInscripciones(todasLasInscripciones);
+
+				if (userData.dni) {
+					const comprasSnap = await getDocs(
+						query(
+							collection(db, "ComprasEspeciales"),
+							where("compradorDNI", "==", String(userData.dni)),
+							orderBy("fecha", "desc"),
+						),
+					);
+					const todasLasCompras: CompraEspecial[] = comprasSnap.docs.map(
+						(d) => ({ id: d.id, ...d.data() } as CompraEspecial),
+					);
+					setCompras(todasLasCompras);
+				}
+
 			} catch (error) {
 				console.error("Error al cargar pagos:", error);
 			} finally {
@@ -604,6 +711,17 @@ export default function PagosPage() {
 						<GraduationCap className="w-4 h-4" /> Inscripciones (
 						{inscripcionesFiltradas.length})
 					</button>
+					<button
+						onClick={() => setTab("compras")}
+						className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+							tab === "compras"
+								? "bg-[#252d62] text-white shadow-sm"
+								: "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+						}`}
+					>
+						<ShoppingBag className="w-4 h-4" /> Compras (
+						{compras.length})
+					</button>
 				</div>
 
 				{/* ── TAB CUOTAS ── */}
@@ -726,6 +844,35 @@ export default function PagosPage() {
 						)}
 					</>
 				)}
+
+				{/* ── TAB COMPRAS ── */}
+				{tab === "compras" && (
+					<>
+						{compras.length === 0 ? (
+							<div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 flex flex-col items-center justify-center text-center">
+								<div className="bg-gray-100 p-4 rounded-full mb-4">
+									<ShoppingBag className="w-8 h-8 text-gray-400" />
+								</div>
+								<h3 className="text-lg font-bold text-gray-900 mb-1">
+									No hay compras para mostrar
+								</h3>
+								<p className="text-gray-500 text-sm">
+									No tenés compras especiales registradas.
+								</p>
+							</div>
+						) : (
+							<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
+								{compras.map((compra) => (
+									<CompraCard
+										key={compra.id}
+										compra={compra}
+										onVerComprobante={setCompraComprobante}
+									/>
+								))}
+							</div>
+						)}
+					</>
+				)}
 			</div>
 
 			<PagarCuotaModal
@@ -742,6 +889,11 @@ export default function PagosPage() {
 				inscripcion={inscripcionComprobante}
 				isOpen={!!inscripcionComprobante}
 				onClose={() => setInscripcionComprobante(null)}
+			/>
+			<CompraEspecialModal
+				compra={compraComprobante}
+				isOpen={!!compraComprobante}
+				onClose={() => setCompraComprobante(null)}
 			/>
 		</div>
 	);
