@@ -12,8 +12,18 @@ import {
 	KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getAuth, confirmPasswordReset } from "firebase/auth";
+import { getAuth, confirmPasswordReset, sendPasswordResetEmail } from "firebase/auth";
 import { app } from "@/lib/firebaseConfig";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+	DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function CrearContrasenaForm() {
 	const searchParams = useSearchParams();
@@ -30,6 +40,11 @@ function CrearContrasenaForm() {
 	const [message, setMessage] = useState({ type: "", text: "" });
 	const [isSuccess, setIsSuccess] = useState(false);
 
+	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [resetEmail, setResetEmail] = useState("");
+	const [isSendingReset, setIsSendingReset] = useState(false);
+	const [resetMessage, setResetMessage] = useState({ type: "", text: "" });
+
 	const passwordStrength = (() => {
 		if (!newPassword) return null;
 		if (newPassword.length < 6) return { level: "weak", label: "Muy corta", color: "bg-red-400" };
@@ -38,6 +53,80 @@ function CrearContrasenaForm() {
 			return { level: "strong", label: "Segura", color: "bg-green-500" };
 		return { level: "medium", label: "Aceptable", color: "bg-yellow-400" };
 	})();
+
+	const handleRequestNewLink = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!resetEmail) return;
+
+		setIsSendingReset(true);
+		setResetMessage({ type: "", text: "" });
+
+		try {
+			const auth = getAuth(app);
+			await sendPasswordResetEmail(auth, resetEmail);
+			setResetMessage({
+				type: "success",
+				text: "¡Te enviamos un nuevo enlace a tu correo!",
+			});
+			setTimeout(() => {
+				setIsModalOpen(false);
+				setResetEmail("");
+				setResetMessage({ type: "", text: "" });
+			}, 3000);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		} catch (error: any) {
+			console.error("Error al solicitar nuevo enlace:", error);
+			setResetMessage({
+				type: "error",
+				text: "Ocurrió un error. Por favor verificá que el correo sea correcto.",
+			});
+		} finally {
+			setIsSendingReset(false);
+		}
+	};
+
+	const renderResetModal = () => (
+		<Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle>Solicitar nuevo enlace</DialogTitle>
+					<DialogDescription>
+						Ingresá tu correo electrónico y te enviaremos un nuevo enlace para crear tu contraseña.
+					</DialogDescription>
+				</DialogHeader>
+				<form onSubmit={handleRequestNewLink} className="space-y-4 mt-4">
+					<div className="space-y-2">
+						<Label htmlFor="email">Correo electrónico</Label>
+						<Input
+							id="email"
+							type="email"
+							placeholder="tu@email.com"
+							value={resetEmail}
+							onChange={(e) => setResetEmail(e.target.value)}
+							required
+						/>
+					</div>
+					{resetMessage.text && (
+						<div className={`p-3 rounded-md text-sm ${resetMessage.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+							{resetMessage.text}
+						</div>
+					)}
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>
+							Cancelar
+						</Button>
+						<Button type="submit" disabled={isSendingReset || !resetEmail} className="bg-[#252d62] hover:bg-[#1a204d] text-white">
+							{isSendingReset ? (
+								<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enviando...</>
+							) : (
+								"Enviar enlace"
+							)}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -98,17 +187,30 @@ function CrearContrasenaForm() {
 
 	if (!oobCode) {
 		return (
-			<div className="bg-red-50 text-red-700 p-4 rounded-xl flex items-start gap-3 border border-red-200 text-sm">
-				<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-				<p>
-					No se encontró un código de seguridad válido en el enlace. Asegurate
-					de haber copiado el enlace completo desde el correo electrónico.
-					<br />
-					<span className="font-semibold mt-1 block">
-						Si el problema persiste, contactá a la administración del instituto.
-					</span>
-				</p>
-			</div>
+			<>
+				<div className="bg-red-50 text-red-700 p-4 rounded-xl flex flex-col gap-3 border border-red-200 text-sm">
+					<div className="flex items-start gap-3">
+						<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+						<p>
+							No se encontró un código de seguridad válido en el enlace. Asegurate
+							de haber copiado el enlace completo desde el correo electrónico.
+							<br />
+							<span className="font-semibold mt-1 block">
+								Si el problema persiste, contactá a la administración del instituto.
+							</span>
+						</p>
+					</div>
+					<Button 
+						type="button"
+						variant="outline" 
+						className="w-full border-red-200 text-red-700 hover:bg-red-100 hover:text-red-800 bg-white"
+						onClick={() => setIsModalOpen(true)}
+					>
+						Solicitar nuevo email
+					</Button>
+				</div>
+				{renderResetModal()}
+			</>
 		);
 	}
 
@@ -139,18 +241,30 @@ function CrearContrasenaForm() {
 		<>
 			{message.text && (
 				<div
-					className={`p-4 rounded-xl flex items-start gap-3 mb-6 border text-sm font-medium ${
+					className={`p-4 rounded-xl flex flex-col gap-3 mb-6 border text-sm font-medium ${
 						message.type === "success"
 							? "bg-green-50 border-green-200 text-green-800"
 							: "bg-red-50 border-red-200 text-red-800"
 					}`}
 				>
-					{message.type === "success" ? (
-						<CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
-					) : (
-						<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+					<div className="flex items-start gap-3">
+						{message.type === "success" ? (
+							<CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+						) : (
+							<AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+						)}
+						<p>{message.text}</p>
+					</div>
+					{message.type === "error" && (
+						<Button 
+							type="button"
+							variant="outline" 
+							className="w-full border-red-200 text-red-700 hover:bg-red-100 hover:text-red-800 bg-white"
+							onClick={() => setIsModalOpen(true)}
+						>
+							Solicitar nuevo email
+						</Button>
 					)}
-					<p>{message.text}</p>
 				</div>
 			)}
 
@@ -264,6 +378,7 @@ function CrearContrasenaForm() {
 					)}
 				</Button>
 			</form>
+			{renderResetModal()}
 		</>
 	);
 }
