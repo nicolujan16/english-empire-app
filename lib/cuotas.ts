@@ -26,6 +26,8 @@ export interface Cuota {
 	metodoPago: string | null;
 	inscripcionId: string;
 	descuentos?: Descuento[];
+	montoAjustado?: number | null;
+	motivoAjuste?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,9 +61,23 @@ export function calcularPrecioBase(cuota: Cuota): number {
 }
 
 /**
- * Aplica todos los descuentos acumulados sobre un precio base.
- * Los porcentajes se suman y se aplican en una sola operación.
- * Ej: 10% + 15% = 25% de descuento total.
+ * Devuelve el descuento de mayor porcentaje, o null si no hay ninguno.
+ * Regla de negocio: los descuentos NO se acumulan — siempre se aplica
+ * únicamente el de mayor beneficio (ej: etiqueta vs. grupo familiar).
+ */
+export function obtenerMejorDescuento(
+	descuentos?: Descuento[],
+): Descuento | null {
+	if (!descuentos || descuentos.length === 0) return null;
+	return descuentos.reduce((max, d) =>
+		d.porcentaje > max.porcentaje ? d : max,
+	);
+}
+
+/**
+ * Aplica los descuentos recibidos sobre un precio base (los porcentajes se
+ * suman entre sí). Como los descuentos no son acumulables, los callers deben
+ * pasar a lo sumo uno: `mejorDescuento ? [mejorDescuento] : []`.
  */
 export function aplicarDescuentos(
 	precioBase: number,
@@ -73,9 +89,13 @@ export function aplicarDescuentos(
 }
 
 /**
- * Precio final que debe pagar el usuario: base + descuentos aplicados.
+ * Precio final que debe pagar el usuario por una cuota pendiente:
+ * - Si tiene un monto ajustado manualmente, ese monto manda.
+ * - Si no, precio base según fecha + el mejor descuento (sin acumular).
  */
 export function calcularMontoPendiente(cuota: Cuota): number {
+	if (cuota.montoAjustado != null) return cuota.montoAjustado;
 	const base = calcularPrecioBase(cuota);
-	return aplicarDescuentos(base, cuota.descuentos);
+	const mejorDescuento = obtenerMejorDescuento(cuota.descuentos);
+	return aplicarDescuentos(base, mejorDescuento ? [mejorDescuento] : []);
 }

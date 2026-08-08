@@ -4,7 +4,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import {
 	type Cuota,
 	calcularPrecioBase,
-	aplicarDescuentos,
+	calcularMontoPendiente,
+	obtenerMejorDescuento,
 } from "@/lib/cuotas";
 
 const client = new MercadoPagoConfig({
@@ -57,15 +58,9 @@ export async function POST(request: Request) {
 		}
 
 		const precioBase = calcularPrecioBase(cuotaData);
-
-		const mejorDescuento = cuotaData.descuentos?.length
-			? cuotaData.descuentos.reduce((max, d) =>
-					d.porcentaje > max.porcentaje ? d : max,
-				)
-			: null;
-
-		const descuentosAAplicar = mejorDescuento ? [mejorDescuento] : [];
-		const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
+		const esMontoAjustado = cuotaData.montoAjustado != null;
+		const mejorDescuento = obtenerMejorDescuento(cuotaData.descuentos);
+		const montoFinal = calcularMontoPendiente(cuotaData);
 
 		let user_id_resuelto = cuotaData.alumnoId;
 
@@ -115,7 +110,8 @@ export async function POST(request: Request) {
 					anio: cuotaData.anio,
 					monto_base: precioBase,
 					monto_final: montoFinal,
-					descuento_aplicado: mejorDescuento ?? null,
+					monto_ajustado: cuotaData.montoAjustado ?? null,
+					descuento_aplicado: esMontoAjustado ? null : mejorDescuento,
 				},
 				notification_url: `${process.env.WEBHOOK_URL}/api/webhook-cuota`,
 			},

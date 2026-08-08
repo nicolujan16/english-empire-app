@@ -39,14 +39,13 @@ import {
 	type Cuota,
 	type Descuento,
 	calcularPrecioBase,
-	aplicarDescuentos,
+	calcularMontoPendiente,
+	obtenerMejorDescuento,
 } from "@/lib/cuotas";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
-interface CuotaDoc extends Cuota {
-	estado: "Pendiente" | "Pagado" | "Incobrable";
-}
+type CuotaDoc = Cuota;
 
 interface AlumnoInfo {
 	id: string;
@@ -61,15 +60,6 @@ interface RegistrarPagoModalProps {
 	onClose: () => void;
 	onSuccess: () => void;
 	preloadedDni?: string;
-}
-
-// ─── Lógica de Máximo Beneficio ──────────────────────────────────────────────
-
-function obtenerMejorDescuento(descuentos?: Descuento[]): Descuento | null {
-	if (!descuentos || descuentos.length === 0) return null;
-	return descuentos.reduce((max, obj) =>
-		obj.porcentaje > max.porcentaje ? obj : max,
-	);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -94,9 +84,7 @@ function formatMes(mes: number, anio: number): string {
 }
 
 function resolverMontoCobro(cuota: CuotaDoc): number {
-	const base = calcularPrecioBase(cuota);
-	const mejorDescuento = obtenerMejorDescuento(cuota.descuentos);
-	return aplicarDescuentos(base, mejorDescuento ? [mejorDescuento] : []);
+	return calcularMontoPendiente(cuota);
 }
 
 function resolverTextoCobro(cuota: CuotaDoc): string {
@@ -151,6 +139,8 @@ function mapDocToCuota(d: {
 		inscripcionId: (data.inscripcionId as string) ?? "",
 		fechaPago: (data.fechaPago as string | null) ?? null,
 		descuentos: (data.descuentos as Descuento[]) ?? [],
+		montoAjustado: (data.montoAjustado as number | null) ?? null,
+		motivoAjuste: (data.motivoAjuste as string | null) ?? null,
 	};
 }
 

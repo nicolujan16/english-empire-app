@@ -85,7 +85,9 @@ const MESES = [
 import {
 	type Cuota,
 	calcularPrecioBase,
+	calcularMontoPendiente,
 	aplicarDescuentos,
+	obtenerMejorDescuento,
 } from "@/lib/cuotas";
 
 function formatearFecha(timestamp: Timestamp): string {
@@ -95,13 +97,6 @@ function formatearFecha(timestamp: Timestamp): string {
 		month: "2-digit",
 		year: "numeric",
 	});
-}
-
-function getMejorDescuento(descuentos?: Cuota["descuentos"]) {
-	if (!descuentos || descuentos.length === 0) return null;
-	return descuentos.reduce((max, d) =>
-		d.porcentaje > max.porcentaje ? d : max,
-	);
 }
 
 // ─── Badges compartidos ───────────────────────────────────────────────────────
@@ -134,11 +129,13 @@ function CuotaCard({
 		(cuota.mes < new Date().getMonth() + 1 ||
 			cuota.anio < new Date().getFullYear());
 
-	const mejorDescuento = getMejorDescuento(cuota.descuentos);
-	const tieneDescuentos = !!mejorDescuento;
+	const mejorDescuento = obtenerMejorDescuento(cuota.descuentos);
+	const esMontoAjustado = cuota.montoAjustado != null;
+	// Si hay monto ajustado manualmente, el descuento no interviene en el precio
+	const mostrarDescuento = !!mejorDescuento && !esMontoAjustado;
 	const descuentosAAplicar = mejorDescuento ? [mejorDescuento] : [];
 	const precioBase = calcularPrecioBase(cuota);
-	const montoFinal = aplicarDescuentos(precioBase, descuentosAAplicar);
+	const montoFinal = calcularMontoPendiente(cuota);
 	const montoMostrar = isPagada ? cuota.montoPagado : montoFinal;
 
 	const precioPrimerMes = cuota.montoPrimerMes ?? cuota.cuota1a10;
@@ -176,7 +173,7 @@ function CuotaCard({
 					</div>
 				</div>
 
-				{tieneDescuentos && mejorDescuento && (
+				{mostrarDescuento && mejorDescuento && (
 					<div className="flex flex-wrap gap-1.5 mb-3">
 						<span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
 							<Tag className="w-2.5 h-2.5 shrink-0" />{" "}
@@ -198,9 +195,14 @@ function CuotaCard({
 							<p className="font-bold text-gray-900">
 								${montoMostrar?.toLocaleString("es-AR") ?? "-"}
 							</p>
-							{tieneDescuentos && !isPagada && precioBase !== montoFinal && (
+							{mostrarDescuento && !isPagada && precioBase !== montoFinal && (
 								<p className="text-xs text-gray-400 line-through">
 									${precioBase.toLocaleString("es-AR")}
+								</p>
+							)}
+							{esMontoAjustado && !isPagada && (
+								<p className="text-[10px] text-gray-500 font-medium">
+									Monto ajustado por administración
 								</p>
 							)}
 						</div>
@@ -223,7 +225,7 @@ function CuotaCard({
 					)}
 				</div>
 
-				{tieneDescuentos && !isPagada && (
+				{mostrarDescuento && !isPagada && (
 					<div className="mb-4 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2.5 text-xs text-emerald-700 space-y-1.5">
 						<p className="font-bold">
 							Precios con {mejorDescuento!.porcentaje}% de descuento

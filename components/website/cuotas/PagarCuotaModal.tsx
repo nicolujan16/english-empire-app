@@ -20,7 +20,8 @@ import {
 import {
 	type Cuota,
 	calcularPrecioBase,
-	aplicarDescuentos,
+	calcularMontoPendiente,
+	obtenerMejorDescuento,
 } from "@/lib/cuotas";
 
 const MESES = [
@@ -54,11 +55,13 @@ export default function PagarCuotaModal({
 
 	if (!cuota) return null;
 
-	const tieneDescuentos = cuota.descuentos && cuota.descuentos.length > 0;
-	const totalDescuento =
-		cuota.descuentos?.reduce((acc, d) => acc + d.porcentaje, 0) ?? 0;
+	const mejorDescuento = obtenerMejorDescuento(cuota.descuentos);
+	const esMontoAjustado = cuota.montoAjustado != null;
+	// Si hay monto ajustado manualmente, el descuento no interviene en el precio
+	const mostrarDescuento = !!mejorDescuento && !esMontoAjustado;
+	const totalDescuento = mejorDescuento?.porcentaje ?? 0;
 	const precioBase = calcularPrecioBase(cuota);
-	const montoFinal = aplicarDescuentos(precioBase, cuota.descuentos);
+	const montoFinal = calcularMontoPendiente(cuota);
 	const ahorro = precioBase - montoFinal;
 
 	const handlePagar = async () => {
@@ -124,49 +127,50 @@ export default function PagarCuotaModal({
 						</span>
 					</div>
 
-					{/* Desglose de descuentos */}
-					{tieneDescuentos && (
-						<>
-							<div className="border-t border-gray-200 pt-3 space-y-2">
-								<div className="flex justify-between text-sm">
-									<span className="text-gray-500">Precio base</span>
-									<span className="text-gray-500 line-through">
-										${precioBase.toLocaleString("es-AR")}
-									</span>
-								</div>
-								{cuota.descuentos!.map((d, i) => (
-									<div key={i} className="flex justify-between text-sm">
-										<span className="flex items-center gap-1.5 text-emerald-600 font-medium">
-											<Tag className="w-3 h-3" />
-											{d.detalle}
-										</span>
-										<span className="text-emerald-600 font-bold">
-											−{d.porcentaje}%
-										</span>
-									</div>
-								))}
-								<div className="flex justify-between text-sm text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1.5">
-									<span className="font-medium">Ahorrás</span>
-									<span className="font-bold">
-										−${ahorro.toLocaleString("es-AR")} ({totalDescuento}% off)
-									</span>
-								</div>
+					{/* Desglose del mejor descuento (no acumulable) */}
+					{mostrarDescuento && (
+						<div className="border-t border-gray-200 pt-3 space-y-2">
+							<div className="flex justify-between text-sm">
+								<span className="text-gray-500">Precio base</span>
+								<span className="text-gray-500 line-through">
+									${precioBase.toLocaleString("es-AR")}
+								</span>
 							</div>
-						</>
+							<div className="flex justify-between text-sm">
+								<span className="flex items-center gap-1.5 text-emerald-600 font-medium">
+									<Tag className="w-3 h-3" />
+									{mejorDescuento!.detalle}
+								</span>
+								<span className="text-emerald-600 font-bold">
+									−{mejorDescuento!.porcentaje}%
+								</span>
+							</div>
+							<div className="flex justify-between text-sm text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1.5">
+								<span className="font-medium">Ahorrás</span>
+								<span className="font-bold">
+									−${ahorro.toLocaleString("es-AR")} ({totalDescuento}% off)
+								</span>
+							</div>
+						</div>
 					)}
 
 					{/* Total */}
 					<div
-						className={`${tieneDescuentos ? "" : "border-t border-gray-200 pt-3"} flex justify-between items-center`}
+						className={`${mostrarDescuento ? "" : "border-t border-gray-200 pt-3"} flex justify-between items-center`}
 					>
 						<span className="font-bold text-gray-900">Total a pagar</span>
 						<div className="flex flex-col items-end">
 							<span className="font-bold text-xl text-[#EE1120]">
 								${montoFinal.toLocaleString("es-AR")}
 							</span>
-							{tieneDescuentos && (
+							{mostrarDescuento && (
 								<span className="text-[10px] text-emerald-600 font-medium">
 									Con {totalDescuento}% de descuento aplicado
+								</span>
+							)}
+							{esMontoAjustado && (
+								<span className="text-[10px] text-gray-500 font-medium">
+									Monto ajustado por administración
 								</span>
 							)}
 						</div>

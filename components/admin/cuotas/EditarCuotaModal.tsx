@@ -17,20 +17,18 @@ import {
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebaseConfig";
 import { Button } from "@/components/ui/button";
-import { type Cuota, type Descuento } from "@/lib/cuotas";
+import {
+	type Cuota,
+	type Descuento,
+	obtenerMejorDescuento,
+} from "@/lib/cuotas";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
-
-interface CuotaDoc extends Cuota {
-	estado: "Pendiente" | "Pagado" | "Incobrable";
-	montoAjustado?: number | null;
-	motivoAjuste?: string | null;
-}
 
 interface EditarCuotaModalProps {
 	isOpen: boolean;
 	onClose: () => void;
-	cuota: CuotaDoc | null;
+	cuota: Cuota | null;
 	onSuccess: () => void;
 }
 
@@ -38,13 +36,6 @@ interface EditarCuotaModalProps {
 
 const inputBase =
 	"w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#252d62]/20 focus:border-[#252d62] bg-gray-50 focus:bg-white transition-all font-medium";
-
-function obtenerMejorDescuento(descuentos?: Descuento[]): Descuento | null {
-	if (!descuentos || descuentos.length === 0) return null;
-	return descuentos.reduce((max, obj) =>
-		obj.porcentaje > max.porcentaje ? obj : max,
-	);
-}
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 

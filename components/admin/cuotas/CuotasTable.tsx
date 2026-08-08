@@ -26,9 +26,10 @@ import {
 import { Button } from "@/components/ui/button";
 import {
 	type Cuota,
-	type Descuento,
 	calcularPrecioBase,
+	calcularMontoPendiente,
 	aplicarDescuentos,
+	obtenerMejorDescuento,
 } from "@/lib/cuotas";
 import EditarCuotaModal from "./EditarCuotaModal";
 import { motion } from "framer-motion";
@@ -50,11 +51,7 @@ const MESES_NOMBRES = [
 
 const CF_URL = "/api/generar-cuotas";
 
-interface CuotaDoc extends Cuota {
-	estado: "Pendiente" | "Pagado" | "Incobrable";
-	montoAjustado?: number | null;
-	motivoAjuste?: string | null;
-}
+type CuotaDoc = Cuota;
 
 interface CuotasTableProps {
 	searchTerm: string;
@@ -70,26 +67,13 @@ interface CuotasTableProps {
 	printTrigger: number;
 }
 
-// ─── Lógica de Máximo Beneficio ──────────────────────────────────────
-
-function obtenerMejorDescuento(descuentos?: Descuento[]): Descuento | null {
-	if (!descuentos || descuentos.length === 0) return null;
-	return descuentos.reduce((max, obj) =>
-		obj.porcentaje > max.porcentaje ? obj : max,
-	);
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function resolverMontoCuota(cuota: CuotaDoc): number {
 	if (cuota.estado === "Pagado" && cuota.montoPagado !== null) {
 		return cuota.montoPagado;
 	}
-	if (cuota.montoAjustado != null) return cuota.montoAjustado;
-
-	const base = calcularPrecioBase(cuota);
-	const mejorDescuento = obtenerMejorDescuento(cuota.descuentos);
-	return aplicarDescuentos(base, mejorDescuento ? [mejorDescuento] : []);
+	return calcularMontoPendiente(cuota);
 }
 
 function obtenerIniciales(texto: string): string {
