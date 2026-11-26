@@ -19,6 +19,8 @@ import {
 	TrendingDown,
 	Tags,
 	ClipboardCheck,
+	CalendarCheck,
+	FileText,
 	Mail,
 } from "lucide-react";
 
@@ -82,9 +84,25 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 		},
 		{
 			icon: ClipboardCheck,
-			label: "Asistencias",
+			label: "Asistencia de alumnos",
 			path: "/admin/asistencias",
 			adminOnly: false,
+		},
+		{
+			// Asistencia del personal. Las secretarias ven una versión reducida
+			// (sin montos ni recibos): ver lib/asistencia/permisos.ts
+			icon: CalendarCheck,
+			label: "Registro de Asistencias",
+			path: "/admin/registro-asistencias",
+			adminOnly: false,
+		},
+		{
+			// Recibos de sueldo propios: solo para las secretarias
+			icon: FileText,
+			label: "Mis recibos",
+			path: "/admin/mis-recibos",
+			adminOnly: false,
+			soloSecretario: true,
 		},
 		{
 			icon: Tags,
@@ -113,7 +131,12 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 	];
 
 	const isAdmin = adminData?.rol === "admin";
-	const itemsVisibles = menuItems.filter((item) => !item.adminOnly || isAdmin);
+	const esSecretario = adminData?.rol === "secretario";
+	const itemsVisibles = menuItems.filter(
+		(item) =>
+			(!item.adminOnly || isAdmin) &&
+			(!("soloSecretario" in item && item.soloSecretario) || esSecretario),
+	);
 
 	const handleConfirmLogout = async () => {
 		try {
@@ -154,7 +177,9 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 				<ul className="space-y-1.5 mb-2">
 					{itemsVisibles.map((item, index) => {
 						const Icon = item.icon;
-						const isActive = pathname === item.path;
+						const isActive =
+							pathname === item.path ||
+							(item.path !== "/admin" && pathname.startsWith(`${item.path}/`));
 
 						return (
 							<motion.li

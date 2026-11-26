@@ -1,0 +1,556 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ═══════════════════════════════════════════════════════════
+    // FUNCIONES DE AYUDA
+    // Estas funciones se reutilizan en todas las reglas de abajo.
+    // ═══════════════════════════════════════════════════════════
+
+    // ¿Hay alguien logueado?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ¿El usuario logueado es Admin?
+    // Busca su UID en la colección Admins.
+    function isAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
+    }
+
+    // ¿El usuario logueado es Teacher?
+    // Busca su UID en la colección Teachers.
+    function isTeacher() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/Teachers/$(request.auth.uid));
+    }
+
+    // Devuelve el doc del Teacher logueado.
+    // Se usa para leer su array cursosAsignados.
+    function getTeacherDoc() {
+      return get(/databases/$(database)/documents/Teachers/$(request.auth.uid)).data;
+    }
+
+    // ¿El teacher tiene asignado este cursoId?
+    function teacherTieneCurso(cursoId) {
+      return isTeacher() &&
+        cursoId in getTeacherDoc().cursosAsignados;
+    }
+
+    // ¿El usuario logueado es el dueño del documento?
+    // Se usa para que un User vea solo sus propios datos.
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Doc de Admins del usuario logueado (llamar solo después de isAdmin()).
+    function adminDoc() {
+      return get(/databases/$(database)/documents/Admins/$(request.auth.uid)).data;
+    }
+
+    // Admin o secretario que no está inhabilitado.
+    // Los docs viejos no tienen el campo "activo": se toman como activos.
+    function isAdminActivo() {
+      return isAdmin() && adminDoc().get('activo', true) != false;
+    }
+
+    // ¿Es el director del instituto? (Admins/{uid}.esDirector == true)
+    // Se usa para los datos de sueldos del Registro de Asistencias.
+    function isDirector() {
+      return isAdminActivo() && adminDoc().get('esDirector', false) == true;
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // ADMINS
+    // Los admins dan de alta a otros admins y secretarios, pero:
+    // - nadie puede crear una cuenta de director (esDirector se pone desde la consola);
+    // - solo el director cambia esDirector, rol o activo ("Gestionar accesos");
+    // - solo el director borra cuentas.
+    // Antes cualquier secretario podía ponerse esDirector: true en su propio doc.
+    // ═══════════════════════════════════════════════════════════
+    match /Admins/{adminId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.get('esDirector', false) == false;
+      allow update: if isDirector()
+        || (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['esDirector', 'rol', 'activo']));
+      allow delete: if isDirector();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // TEACHERS
+    // Admins los gestionan. Cada teacher puede leer su propio doc
+    // (necesita saber sus cursosAsignados al iniciar sesión).
+    // ═══════════════════════════════════════════════════════════
+    match /Teachers/{teacherId} {
+      allow read, write: if isAdmin();
+      allow get: if isOwner(teacherId);
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // USERS (alumnos adultos)
+    // Admins tienen acceso total. El propio usuario puede leer
+    // y editar su perfil, pero no campos sensibles.
+    // ═══════════════════════════════════════════════════════════
+    match /Users/{userId} {
+      allow read, write: if isAdmin();
+      allow get: if isOwner(userId) || isTeacher();  // ← agregado isTeacher()
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasAny(["estado", "rol"]);
+      allow list: if isAdmin() || isTeacher();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // HIJOS (alumnos menores)
+    // Admins tienen acceso total. El tutor (User) puede ver
+    // los hijos vinculados a su UID.
+    // ═══════════════════════════════════════════════════════════
+    match /Hijos/{hijoId} {
+      allow read, write: if isAdmin();
+      allow get: if isTeacher()                                                         // ← nuevo
+        || (isAuthenticated() && resource.data.tutorId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.tutorId == request.auth.uid;
+      allow list: if isAdmin() || isTeacher() || (isAuthenticated() && resource.data.tutorId == request.auth.uid);
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // STAFF (página "Nosotros")
+    // Lectura pública (cualquier visitante de la web puede verlo).
+    // Solo Admins pueden modificarlo.
+    // ═══════════════════════════════════════════════════════════
+    match /Staff/{staffId} {
+      allow read: if true;  // público
+      allow write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // CURSOS
+    // Admins gestionan. Teachers pueden leer (necesitan ver
+    // info del curso al trabajar con asistencias).
+    // ═══════════════════════════════════════════════════════════
+    match /Cursos/{cursoId} {
+      allow write: if isAdmin();
+      allow read: if true;
+    }
+
+
+   // ═══════════════════════════════════════════════════════════
+    // INSCRIPCIONES
+    // Admins gestionan. El alumno puede ver las suyas o las de sus hijos.
+    // ═══════════════════════════════════════════════════════════
+    match /Inscripciones/{inscripcionId} {
+      allow read, write: if isAdmin();
+
+      allow read: if isAuthenticated() && (
+        resource.data.alumnoId == request.auth.uid || 
+        (
+          exists(/databases/$(database)/documents/Hijos/$(resource.data.alumnoId)) &&
+          get(/databases/$(database)/documents/Hijos/$(resource.data.alumnoId)).data.tutorId == request.auth.uid
+        )
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // CUOTAS
+    // Admins gestionan. El alumno puede ver las suyas o las de sus hijos.
+    // ═══════════════════════════════════════════════════════════
+    match /Cuotas/{cuotaId} {
+      allow read, write: if isAdmin();
+
+      allow read: if isAuthenticated() && (
+        resource.data.alumnoId == request.auth.uid || 
+        (
+          exists(/databases/$(database)/documents/Hijos/$(resource.data.alumnoId)) &&
+          get(/databases/$(database)/documents/Hijos/$(resource.data.alumnoId)).data.tutorId == request.auth.uid
+        )
+      );
+    }
+
+		
+    // ETIQUETAS DE DESCUENTO
+    match /EtiquetasDescuento/{etiquetaId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // Clases
+    // Admins tienen acceso total. 
+    // Un Teacher puede leer y escribir.
+    // asistencias SOLO de los cursos que tiene asignados
+    // (verificado en su propio doc via cursosAsignados).
+    // ═══════════════════════════════════════════════════════════
+   	match /Clases/{claseId} {
+      allow read, write: if isAdmin();
+
+      // Cualquier usuario autenticado puede leer las clases
+      allow read: if isAuthenticated();
+
+      // Para CREAR: evaluamos los datos que ESTÁN ENTRANDO (request.resource.data)
+      allow create: if teacherTieneCurso(request.resource.data.cursoId);
+
+      // Para ACTUALIZAR o BORRAR: evaluamos los datos que YA EXISTEN en la BD (resource.data)
+      allow update, delete: if teacherTieneCurso(resource.data.cursoId);
+}
+
+
+    // ═══════════════════════════════════════════════════════════
+    // INGRESOS ESPECIALES
+    // Solo Admins. Información financiera sensible.
+    // ═══════════════════════════════════════════════════════════
+    match /IngresosEspeciales/{ingresoId} {
+      allow read, write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // EGRESOS
+    // Solo Admins. Información financiera sensible.
+    // ═══════════════════════════════════════════════════════════
+    match /Egresos/{egresoId} {
+      allow read, write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // REASIGNACIONES DE CURSOS
+    // Solo Admins. Registro histórico de bajas y reasignaciones.
+    // ═══════════════════════════════════════════════════════════
+    match /ReasignacionesCursos/{reasignacionId} {
+      allow read, write: if isAdmin();
+    }
+    
+    
+    
+    // Reglas para la colección Configuraciones (Categorías de Ingresos)
+    match /Configuraciones/{document=**} {
+      // Permite leer a cualquier usuario autenticado (para cargar categorías o configuraciones)
+      allow read: if isAuthenticated();
+      
+      // Permite escribir SOLO a quienes tengan rol de administrador
+      allow write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // ELIMINACIONES PENDIENTES
+    // Solicitudes de eliminación creadas por secretarios que
+    // requieren aprobación de un admin.
+    // Tanto admins como secretarios están en la colección Admins,
+    // por lo que isAdmin() cubre ambos roles.
+    // ═══════════════════════════════════════════════════════════
+    match /eliminacionesPendientes/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // MAILS
+    // Registro de correos enviados vía Resend y cuota diaria.
+    // Solo Admins. Información operativa interna.
+    // ═══════════════════════════════════════════════════════════
+    match /Mails/{docId} {
+      allow read: if isAdmin();
+      // La escritura se hace exclusivamente desde el servidor
+      // (firebase-admin en emailServices.ts), por lo que el cliente
+      // no necesita permiso de write. Se deja denegado por defecto.
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // COMPRAS ESPECIALES
+    // Admins gestionan. El alumno puede ver las suyas verificando su DNI.
+    // ═══════════════════════════════════════════════════════════
+    match /ComprasEspeciales/{compraId} {
+      allow read, write: if isAdmin();
+      allow read: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/Users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.dni == resource.data.compradorDNI
+      );
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    // ═══ REGISTRO DE ASISTENCIAS DEL PERSONAL ═══════════════════
+    // Asistencia de secretarias y profesoras (llaveros NFC) y sus recibos.
+    // - Director: todo.
+    // - Resto del panel (isAdminActivo): ve y corrige la asistencia
+    //   (jornadas, clases, feriados), pero nada de dinero.
+    // - El kiosco escribe con el Admin SDK desde el servidor (no pasa por acá).
+    // - Nunca se borra un registro: se pasa a "Anulada" o activo = false.
+    // Las profesoras son los docs de Teachers (no hay colección aparte).
+    // ═══════════════════════════════════════════════════════════
+
+    function esFecha(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function esHora(v) {
+      return v is string && v.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
+    function esEstado(v) {
+      return v in ['Activa', 'Anulada'];
+    }
+
+    // Cada corrección lleva motivo y queda firmada con el uid de quien la hizo.
+    function cambioValido(c) {
+      return c.campo is string
+        && c.motivo is string
+        && c.motivo.trim().size() > 0
+        && c.por == request.auth.uid
+        && c.en is timestamp;
+    }
+
+    // Al crear: el historial arranca con al menos un cambio válido.
+    function historialInicial(d) {
+      return d.historial is list
+        && d.historial.size() > 0
+        && cambioValido(d.historial[d.historial.size() - 1]);
+    }
+
+    // Al editar: el historial solo crece (no se borran ni cambian entradas viejas).
+    function historialSoloAgrega() {
+      let antes = resource.data.get('historial', []);
+      let despues = request.resource.data.historial;
+      return despues is list
+        && despues.size() > antes.size()
+        && despues.hasAll(antes)
+        && cambioValido(despues[despues.size() - 1]);
+    }
+
+    function precioValido(d, campo) {
+      return d.get(campo, null) == null || (d[campo] is number && d[campo] >= 0);
+    }
+
+    function secretariaValida(d) {
+      return d.nombre is string && d.nombre.trim().size() > 0
+        && d.apellido is string && d.apellido.trim().size() > 0
+        && d.email is string && d.email.matches('^[^@ ]+@[^@ ]+[.][^@ ]+$')
+        && (d.get('dni', null) == null || (d.dni is string && d.dni.matches('^[0-9]{7,8}$')))
+        && d.rol == 'secretaria'
+        && d.activo is bool;
+    }
+
+    function jornadaValida(d) {
+      let salida = d.get('salida', null);
+      let minutos = d.get('minutos', null);
+      return d.personalId is string
+        && d.personalNombre is string
+        && esFecha(d.fecha)
+        && d.entrada is timestamp
+        && (salida == null || (salida is timestamp && salida > d.entrada))
+        && (minutos == null || (minutos is int && minutos >= 0))
+        && d.incompleta is bool
+        && esEstado(d.estado)
+        && d.origen in ['fichada', 'manual'];
+    }
+
+    // Los feriados predeterminados se calculan en código: el doc (id "pred-...")
+    // solo guarda si el instituto se adhiere o no.
+    function diaEspecialValido(id, d) {
+      return esFecha(d.fecha)
+        && d.descripcion is string && d.descripcion.trim().size() > 0
+        && d.todoElDia is bool
+        && d.cursoIds is list
+        && (d.todoElDia || (esHora(d.desde) && esHora(d.hasta) && d.desde < d.hasta))
+        && d.get('tipo', 'instituto') in ['feriado', 'instituto']
+        && d.get('cerrado', false) is bool
+        && d.get('sinClases', true) is bool
+        && d.get('adherido', true) is bool
+        && d.get('predeterminado', false) == id.matches('^pred-.*');
+    }
+
+    // El id de la clase es `${cursoId}_${fecha}_${HHMM}`: tiene que coincidir con los datos.
+    function claseValida(id, d) {
+      return d.cursoId is string
+        && esFecha(d.fecha)
+        && esHora(d.horaInicio)
+        && id == d.cursoId + '_' + d.fecha + '_' + d.horaInicio.replace(':', '')
+        && d.profesoraDictoId is string
+        && d.profesoraDictoNombre is string
+        && d.esReemplazo is bool
+        && d.get('contarIgual', false) is bool
+        && esEstado(d.estado);
+    }
+
+    // ─── Personal (secretarias) ─────────────────────────────────
+    // Todo el panel lo lee (nombres en el calendario). Solo el director lo carga.
+    // El resto solo puede tocar jornadaAbiertaId (al corregir una jornada abierta).
+    match /Personal/{personaId} {
+      allow read: if isAdminActivo();
+      allow create: if isDirector() && secretariaValida(request.resource.data);
+      allow update: if (isDirector() && secretariaValida(request.resource.data))
+        || (isAdminActivo() && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['jornadaAbiertaId', 'actualizadoEn']));
+      allow delete: if false;
+    }
+
+    // Precio por hora de cada secretaria. Solo director.
+    match /PersonalLiquidacion/{personaId} {
+      allow read: if isDirector();
+      allow write: if isDirector() && precioValido(request.resource.data, 'precioHora');
+    }
+
+    // Pago de las profesoras por curso (monto fijo, porcentajes, alumnos corregidos).
+    // Va aparte de Cursos porque Cursos es de lectura pública. Solo director.
+    match /CursosLiquidacion/{cursoId} {
+      allow read: if isDirector();
+      allow write: if isDirector()
+        && precioValido(request.resource.data, 'montoFijo')
+        && (request.resource.data.get('cantidadAlumnosManual', null) == null
+            || (request.resource.data.cantidadAlumnosManual is int
+                && request.resource.data.cantidadAlumnosManual >= 0))
+        && request.resource.data.get('porcentajes', {}) is map;
+    }
+
+    // ─── Registros de asistencia (todo el panel) ────────────────
+    match /Jornadas/{jornadaId} {
+      allow read: if isAdminActivo();
+      // Desde el panel solo se crean jornadas manuales; las de fichada las crea el servidor.
+      allow create: if isAdminActivo()
+        && jornadaValida(request.resource.data)
+        && request.resource.data.origen == 'manual'
+        && historialInicial(request.resource.data);
+      allow update: if isAdminActivo()
+        && jornadaValida(request.resource.data)
+        && request.resource.data.personalId == resource.data.personalId
+        && request.resource.data.fecha == resource.data.fecha
+        && historialSoloAgrega();
+      allow delete: if false;
+    }
+
+    match /ClasesDictadas/{claseId} {
+      allow read: if isAdminActivo();
+      allow create: if isAdminActivo()
+        && claseValida(claseId, request.resource.data)
+        && request.resource.data.origen == 'manual'
+        && historialInicial(request.resource.data);
+      allow update: if isAdminActivo()
+        && claseValida(claseId, request.resource.data)
+        && historialSoloAgrega();
+      allow delete: if false;
+    }
+
+    // Feriados, salidas, etc. Se pueden dar de baja: no son registros de asistencia.
+    match /DiasEspeciales/{diaId} {
+      allow read, delete: if isAdminActivo();
+      allow create, update: if isAdminActivo() && diaEspecialValido(diaId, request.resource.data);
+    }
+
+    // Registro crudo del kiosco: inmutable. Solo se puede marcar como resuelta.
+    match /Fichadas/{fichadaId} {
+      allow read: if isAdminActivo();
+      allow update: if isAdminActivo()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resuelta'])
+        && request.resource.data.resuelta is bool;
+      allow create, delete: if false;
+    }
+
+    match /Reemplazos/{reemplazoId} {
+      allow read, write: if isAdminActivo();
+    }
+
+    // Llaveros: todo el panel los ve (Lector y llaveros); solo el director los asigna.
+    // Los crea el kiosco desde el servidor (Admin SDK) la primera vez que se apoyan.
+    match /Llaveros/{llaveroId} {
+      allow read: if isAdminActivo();
+      allow create, update: if isDirector();
+      allow delete: if false; // la baja es estado "Baja"
+    }
+
+    // Auditoría: quién hizo cada carga o corrección manual. Se escribe junto con el
+    // cambio, firmada con el uid de quien lo hace, y nadie la lee desde la app
+    // (solo el desarrollador, desde la consola de Firebase).
+    match /AuditoriaAsistencia/{id} {
+      allow create: if isAdminActivo() && request.resource.data.porUid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+
+    // ─── Solo director ──────────────────────────────────────────
+
+    match /Cierres/{periodo} {
+      allow read, create, update: if isDirector();
+      allow delete: if false;
+    }
+
+    // ¿Quién puede ver la imagen de un recibo y su resumen publicado?
+    // (el recibo completo, con porcentajes y montos fijos, es solo del director)
+    // - El director: todos.
+    // - Una profesora (portal docente): los suyos, personalId == su uid de Teachers.
+    // - Una secretaria (panel de admin): los que tienen el email de su cuenta.
+    //   El email se guarda en el recibo al generarlo; si está vacío o es null no lo ve nadie más.
+    // Se accede a los campos directo (d.email, no d.get) para que Firestore pueda validar
+    // las consultas "mis recibos" (where personalId == … / where email == …).
+    function puedeVerRecibo(d) {
+      return isDirector()
+        || (isTeacher() && d.personalId == request.auth.uid)
+        || (isAdminActivo()
+            && d.email is string
+            && d.email != ''
+            && d.email == request.auth.token.email.lower());
+    }
+
+    // Recibo completo: el cálculo (porcentajes, monto fijo, clases) y la edición a mano.
+    // Solo el director: el porcentaje de cada profesora no lo ve ella.
+    match /RecibosPersonal/{reciboId} {
+      allow read, create, update: if isDirector();
+      allow delete: if false;
+    }
+
+    // Resumen que ve la dueña en "Mis recibos": período, número, fecha, nombre y total.
+    // Se publica junto con la imagen.
+    match /RecibosPersonalPublicados/{reciboId} {
+      allow read: if puedeVerRecibo(resource.data);
+      allow create, update: if isDirector();
+      allow delete: if false;
+    }
+
+    // Imagen JPG de cada recibo (data URL), aparte para no cargarla en los listados.
+    // Tope por debajo del máximo de 1 MiB de un documento.
+    match /RecibosPersonalImagenes/{reciboId} {
+      allow read: if puedeVerRecibo(resource.data);
+      allow create, update: if isDirector()
+        && request.resource.data.imagen is string
+        && request.resource.data.imagen.size() < 1000000
+        && request.resource.data.imagen[0:23] == 'data:image/jpeg;base64,'
+        && request.resource.data.version is int;
+      allow delete: if false;
+    }
+
+    // Números correlativos: Contadores/recibos-YYYY { ultimo }. Solo puede avanzar.
+    match /Contadores/{contadorId} {
+      allow read: if isDirector();
+      allow create: if isDirector() && request.resource.data.ultimo is int;
+      allow update: if isDirector()
+        && request.resource.data.ultimo is int
+        && request.resource.data.ultimo > resource.data.ultimo;
+      allow delete: if false;
+    }
+
+    // Configuración del registro (doc "general"): fecha de inicio del registro.
+    // Todo el panel la lee (el calendario la usa); solo el director la cambia.
+    match /ConfiguracionAsistencia/{docId} {
+      allow read: if isAdminActivo();
+      allow create, update: if isDirector() && esFecha(request.resource.data.fechaInicio);
+      allow delete: if false;
+    }
+
+    // Tokens del kiosco: solo los toca el servidor (Admin SDK).
+    match /Dispositivos/{dispositivoId} {
+      allow read, write: if false;
+    }
+
+  }
+}

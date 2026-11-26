@@ -13,7 +13,9 @@ import {
 	BookOpen,
 	Eye,
 	EyeOff,
+	FileText,
 } from "lucide-react";
+import MisRecibos from "@/components/recibos-personal/MisRecibos";
 import { Button } from "@/components/ui/button";
 
 // Firebase Imports
@@ -340,6 +342,17 @@ export default function ProfesoresPage() {
 						))}
 					</div>
 				)}
+			</div>
+
+			{/* Recibos de sueldo (los genera el director en Registro de Asistencias) */}
+			<div>
+				<h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+					<FileText className="w-5 h-5 text-[#4338ca]" /> Mis recibos de sueldo
+				</h3>
+				<MisRecibos
+					filtro={{ por: "personalId", valor: teacherData.id }}
+					acento="indigo"
+				/>
 			</div>
 		</motion.div>
 	);

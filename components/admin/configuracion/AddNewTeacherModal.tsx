@@ -16,14 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-import { initializeApp } from "firebase/app";
-import {
-	getAuth,
-	createUserWithEmailAndPassword,
-	sendPasswordResetEmail,
-} from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { app, db } from "@/lib/firebaseConfig";
+import { crearCuentaProfesor } from "@/lib/services/teachersServices";
 
 interface Props {
 	isOpen: boolean;
@@ -68,40 +61,8 @@ export default function AddNewTeacherModal({ isOpen, onClose }: Props) {
 
 		setIsLoading(true);
 		try {
-			// 1. App secundaria para no desloguear al admin actual
-			const secondaryApp = initializeApp(
-				app.options,
-				`TeacherCreation_${Date.now()}`,
-			);
-			const secondaryAuth = getAuth(secondaryApp);
-
-			const randomPassword =
-				Math.random().toString(36).slice(-8) +
-				Math.random().toString(36).slice(-4).toUpperCase() +
-				"@1!";
-
-			const userCredential = await createUserWithEmailAndPassword(
-				secondaryAuth,
-				form.email.trim(),
-				randomPassword,
-			);
-			await secondaryAuth.signOut();
-
-			// 2. Crear doc en Teachers
-			await setDoc(doc(db, "Teachers", userCredential.user.uid), {
-				email: form.email.trim(),
-				nombre: form.nombre.trim(),
-				apellido: form.apellido.trim(),
-				dni: form.dni.replace(/[\s.]/g, ""),
-				telefono: form.telefono.trim(),
-				titulo: form.titulo.trim(),
-				activo: true,
-				creadoEn: serverTimestamp(),
-			});
-
-			// 3. Enviar mail de restablecimiento para que el profe elija su contraseña
-			const primaryAuth = getAuth(app);
-			await sendPasswordResetEmail(primaryAuth, form.email.trim());
+			// Crea la cuenta en Auth, el doc en Teachers y manda el mail de contraseña
+			await crearCuentaProfesor(form);
 
 			setExito(true);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
