@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
 	BookOpen,
@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { iniciales } from "@/lib/asistencia/fechas";
 import { dniConPuntos } from "@/lib/asistencia/reciboImpreso";
-import type { RepositorioCarga } from "@/lib/asistencia/repositorio";
+import type { CuentaSecretaria, RepositorioCarga } from "@/lib/asistencia/repositorio";
 import {
 	nombreCompleto,
 	type Curso,
@@ -80,6 +80,53 @@ export default function TabPersonal({
 		? (personal.find((p) => p.id === cursosDeId && p.rol === "profesora") ?? null)
 		: null;
 
+	// Cuentas del panel con rol secretario que todavía no están en el registro
+	const [cuentas, setCuentas] = useState<CuentaSecretaria[] | null>(null);
+	const [filasTraer, setFilasTraer] = useState<CuentaSecretaria[] | null>(null);
+	const [errorTraer, setErrorTraer] = useState<string | null>(null);
+	const [trayendo, setTrayendo] = useState(false);
+	useEffect(() => {
+		let vigente = true;
+		repo
+			.cuentasDeSecretarias()
+			.then((c) => vigente && setCuentas(c))
+			.catch(() => vigente && setCuentas(null));
+		return () => {
+			vigente = false;
+		};
+	}, [repo]);
+	const sinTraer = useMemo(() => {
+		const ids = new Set(personal.map((p) => p.id));
+		return (cuentas ?? []).filter((c) => !ids.has(c.uid));
+	}, [cuentas, personal]);
+	const filasValidas =
+		!!filasTraer && filasTraer.every((f) => f.nombre.trim() !== "" && f.apellido.trim() !== "");
+
+	const abrirTraer = () => {
+		setFilasTraer(sinTraer.map((c) => ({ ...c })));
+		setErrorTraer(null);
+	};
+	const editarFila = (uid: string, campo: "nombre" | "apellido", valor: string) =>
+		setFilasTraer((fs) => fs?.map((f) => (f.uid === uid ? { ...f, [campo]: valor } : f)) ?? null);
+	const traer = async () => {
+		if (!filasTraer) return;
+		setTrayendo(true);
+		setErrorTraer(null);
+		try {
+			const n = await repo.traerSecretariasDelPanel(filasTraer);
+			notificar(
+				n === 1
+					? "Se agregó 1 secretaria al personal."
+					: `Se agregaron ${n} secretarias al personal.`,
+			);
+			setFilasTraer(null);
+		} catch (e) {
+			setErrorTraer(mensajeDeError(e));
+		} finally {
+			setTrayendo(false);
+		}
+	};
+
 	const cursosPorProfe = useMemo(() => {
 		const m = new Map<string, Curso[]>();
 		cursos.forEach((c) =>
@@ -133,8 +180,8 @@ export default function TabPersonal({
 
 	// El rol no se cambia después del alta: secretarias y profesoras viven en colecciones distintas
 	const rolBloqueado = editando !== null;
-	// El email de una profesora es el de su cuenta del portal docente
-	const emailBloqueado = editando?.rol === "profesora";
+	// El email es el de su cuenta (portal docente o panel): no se cambia después del alta
+	const emailBloqueado = editando !== null;
 
 	const guardar = async () => {
 		setGuardando(true);
@@ -146,7 +193,7 @@ export default function TabPersonal({
 					? "Datos actualizados."
 					: form.rol === "profesora"
 						? `Se creó la cuenta de ${form.nombre.trim()}: le llegó un mail para elegir su contraseña.`
-						: `${form.nombre.trim()} se agregó al personal.`,
+						: `Se creó la cuenta del panel de ${form.nombre.trim()}: le llegó un mail para elegir su contraseña.`,
 			);
 			setModalAbierto(false);
 		} catch (e) {
@@ -213,6 +260,24 @@ export default function TabPersonal({
 					<UserPlus className="w-5 h-5" /> Agregar persona
 				</Button>
 			</div>
+
+			{/* Uso único: las secretarias que ya tienen cuenta en el panel (Admins) */}
+			{sinTraer.length > 0 && (
+				<div className="p-4 bg-white border border-dashed border-gray-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+					<p className="text-sm text-gray-600">
+						{sinTraer.length === 1
+							? "Hay 1 secretaria con cuenta en el panel que todavía no está en el registro: "
+							: `Hay ${sinTraer.length} secretarias con cuenta en el panel que todavía no están en el registro: `}
+						<strong>{sinTraer.map((c) => `${c.nombre} ${c.apellido}`.trim()).join(", ")}</strong>.
+					</p>
+					<Button
+						onClick={abrirTraer}
+						className="bg-[#252d62] hover:bg-[#1a2046] text-white font-bold rounded-xl flex items-center gap-2 shrink-0"
+					>
+						<Users className="w-4 h-4" /> Traer secretarias del panel
+					</Button>
+				</div>
+			)}
 
 			{/* Tabla */}
 			<div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -393,6 +458,56 @@ export default function TabPersonal({
 				onCerrar={() => setCursosDeId(null)}
 			/>
 
+			{/* Modal: traer las secretarias del panel */}
+			<ModalFormulario
+				abierto={filasTraer !== null}
+				onCerrar={() => setFilasTraer(null)}
+				titulo="Traer secretarias del panel"
+				subtitulo="Revisá cómo quedan el nombre y el apellido: así van impresos en el recibo"
+				icono={Users}
+				error={errorTraer}
+				guardando={trayendo}
+				puedeGuardar={filasValidas}
+				onGuardar={traer}
+				textoGuardar={
+					filasTraer && filasTraer.length === 1
+						? "Traer 1 secretaria"
+						: `Traer ${filasTraer?.length ?? 0} secretarias`
+				}
+				ancho="sm:max-w-2xl"
+			>
+				<p className="text-sm text-gray-600">
+					En el panel el nombre está guardado junto, y se separó tomando la última palabra como
+					apellido. Corregilo si hace falta. El DNI lo cargás después, editando a cada una.
+				</p>
+				<div className="space-y-3">
+					{filasTraer?.map((f) => (
+						<div key={f.uid} className="p-3 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
+							<p className="text-xs text-gray-500 truncate">
+								{f.email}
+								{!f.activo && " · inactiva en el panel"}
+							</p>
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+								<Campo label="Nombre">
+									<input
+										value={f.nombre}
+										onChange={(e) => editarFila(f.uid, "nombre", e.target.value)}
+										className={inputClase}
+									/>
+								</Campo>
+								<Campo label="Apellido">
+									<input
+										value={f.apellido}
+										onChange={(e) => editarFila(f.uid, "apellido", e.target.value)}
+										className={`${inputClase} ${f.apellido.trim() ? "" : "border-red-300 focus:ring-red-200"}`}
+									/>
+								</Campo>
+							</div>
+						</div>
+					))}
+				</div>
+			</ModalFormulario>
+
 			{/* Modal alta / edición */}
 			<ModalFormulario
 				abierto={modalAbierto}
@@ -403,7 +518,7 @@ export default function TabPersonal({
 						? editando?.rol === "profesora"
 							? "Son los mismos datos de su cuenta del portal docente"
 							: "Los registros ya cargados conservan el nombre anterior"
-						: "Después le vas a poder asignar un llavero"
+						: "Se le crea la cuenta y después le vas a poder asignar un llavero"
 				}
 				icono={UserPlus}
 				error={error}
@@ -457,9 +572,11 @@ export default function TabPersonal({
 						label="Email"
 						hint={
 							emailBloqueado
-								? "Es el de su cuenta del portal docente: no se cambia desde acá."
+								? editando?.rol === "profesora"
+									? "Es el de su cuenta del portal docente: no se cambia desde acá."
+									: "Es el de su cuenta del panel: no se cambia desde acá."
 								: form.rol === "secretaria"
-									? "Usá el mismo email con el que entra al panel: así ve sus recibos en “Mis recibos”."
+									? "Con este email se crea su cuenta del panel, donde ve sus recibos."
 									: "Con este email se crea su cuenta del portal docente, donde ve sus recibos."
 						}
 					>
@@ -478,7 +595,7 @@ export default function TabPersonal({
 						rolBloqueado
 							? "El rol no se puede cambiar después del alta."
 							: form.rol === "secretaria"
-								? "Cobra por horas trabajadas."
+								? "Cobra por horas trabajadas. Se le crea la cuenta del panel (rol secretario) y le llega un mail para elegir su contraseña."
 								: "Cobra un pago mensual por cada curso. Se le crea la cuenta del portal docente y le llega un mail para elegir su contraseña."
 					}
 				>

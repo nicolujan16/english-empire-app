@@ -489,13 +489,15 @@ service cloud.firestore {
     // (el recibo completo, con porcentajes y montos fijos, es solo del director)
     // - El director: todos.
     // - Una profesora (portal docente): los suyos, personalId == su uid de Teachers.
-    // - Una secretaria (panel de admin): los que tienen el email de su cuenta.
+    // - Una secretaria (panel de admin): personalId == su uid (Personal/{uid} tiene el mismo id
+    //   que su cuenta de Admins), o los que tienen el email de su cuenta (recibos anteriores).
     //   El email se guarda en el recibo al generarlo; si está vacío o es null no lo ve nadie más.
     // Se accede a los campos directo (d.email, no d.get) para que Firestore pueda validar
     // las consultas "mis recibos" (where personalId == … / where email == …).
     function puedeVerRecibo(d) {
       return isDirector()
         || (isTeacher() && d.personalId == request.auth.uid)
+        || (isAdminActivo() && d.personalId == request.auth.uid)
         || (isAdminActivo()
             && d.email is string
             && d.email != ''

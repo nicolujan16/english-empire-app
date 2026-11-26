@@ -4,7 +4,8 @@
  * conocen Firebase y se pueden probar con un repositorio mock.
  *
  * Usa la base del instituto (english-empire-2026):
- * - Secretarias: `Personal` (+ `PersonalLiquidacion` con el precio por hora, solo director)
+ * - Secretarias: `Personal/{uid}`, con el mismo id que su cuenta del panel (`Admins`, rol
+ *                "secretario") (+ `PersonalLiquidacion` con el precio por hora, solo director)
  * - Profesoras:  `Teachers` (las mismas cuentas del portal docente)
  * - Cursos:      `Cursos` (los de Admin → Cursos) + titulares desde `Teachers.cursosAsignados`
  *                + `CursosLiquidacion` (monto fijo, porcentajes, alumnos corregidos; solo director)
@@ -28,6 +29,7 @@ import {
 	type WriteBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseConfig";
+import { crearCuentaSecretario } from "@/lib/services/adminsServices";
 import { crearCuentaProfesor } from "@/lib/services/teachersServices";
 import { interpretarHorarios, vigenciaDelCurso } from "./cursosInstituto";
 import { fechaAR, fechaHoraAR, horaAR, minutosEntre } from "./fechas";
@@ -48,7 +50,8 @@ import {
 // ─── Nombres de colecciones ───────────────────────────────────────────────────
 
 export const COL = {
-	personal: "Personal", // secretarias
+	personal: "Personal", // secretarias (id = uid de su cuenta en Admins)
+	admins: "Admins", // cuentas del panel: las secretarias son las de rol "secretario"
 	personalLiquidacion: "PersonalLiquidacion", // precio por hora (solo director)
 	teachers: "Teachers", // profesoras
 	cursos: "Cursos",
@@ -107,6 +110,34 @@ export interface ConfiguracionAsistencia {
 	guardada: boolean;
 }
 
+/** Una cuenta del panel (Admins) con rol "secretario" */
+export interface CuentaSecretaria {
+	uid: string;
+	nombre: string;
+	apellido: string;
+	email: string;
+	activo: boolean;
+}
+
+/**
+ * Admins guarda el nombre completo junto ("María Laura Pérez"): se toma la última
+ * palabra como apellido. Si el doc ya trae `apellido` aparte, se usa ese.
+ */
+export function separarNombre(d: DocumentData): { nombre: string; apellido: string } {
+	const completo = String(d.nombre ?? "").trim().replace(/\s+/g, " ");
+	const apellido = typeof d.apellido === "string" ? d.apellido.trim() : "";
+	if (apellido) {
+		const sinApellido = completo.endsWith(` ${apellido}`)
+			? completo.slice(0, -apellido.length - 1)
+			: completo;
+		return { nombre: sinApellido, apellido };
+	}
+	const i = completo.lastIndexOf(" ");
+	return i === -1
+		? { nombre: completo, apellido: "" }
+		: { nombre: completo.slice(0, i), apellido: completo.slice(i + 1) };
+}
+
 // ─── Interfaz (lo que consume la UI) ──────────────────────────────────────────
 
 export interface RegistrosDelDia {
@@ -136,8 +167,18 @@ export interface RepositorioCarga {
 		onError?: (e: Error) => void,
 		opciones?: OpcionesLectura,
 	): () => void;
-	/** Alta o edición. Una profesora nueva crea su cuenta del portal docente (Auth + Teachers) */
+	/**
+	 * Alta o edición. Una profesora nueva crea su cuenta del portal docente (Auth + Teachers);
+	 * una secretaria nueva, su cuenta del panel (Auth + Admins con rol secretario).
+	 */
 	guardarPersona(datos: PersonaInput, existente?: Persona): Promise<void>;
+	/** Cuentas del panel con rol "secretario" (Admins), con el nombre separado en nombre y apellido */
+	cuentasDeSecretarias(): Promise<CuentaSecretaria[]>;
+	/**
+	 * Crea `Personal/{uid}` para cada cuenta de secretario que todavía no está en el
+	 * registro (las que ya están se saltean). Devuelve cuántas se agregaron.
+	 */
+	traerSecretariasDelPanel(cuentas: CuentaSecretaria[]): Promise<number>;
 	cambiarActivoPersona(persona: Persona, activo: boolean): Promise<void>;
 	/** Precio por hora de varias secretarias de una sola vez */
 	guardarPreciosHora(
@@ -585,7 +626,12 @@ export const repositorioFirestore: RepositorioCarga = {
 			return;
 		}
 
-		// ── Secretarias: viven en Personal ──
+		// ── Secretarias: Personal/{uid de su cuenta del panel (Admins)} ──
+		if (existente && email !== existente.email.trim().toLowerCase()) {
+			throw new Error(
+				"El email de una secretaria es el de su cuenta del panel: no se puede cambiar desde acá.",
+			);
+		}
 		const mismos = await getDocs(
 			query(collection(db, COL.personal), where("email", "==", email)),
 		);
@@ -602,19 +648,71 @@ export const repositorioFirestore: RepositorioCarga = {
 			activo: datos.activo,
 			actualizadoEn: serverTimestamp(),
 		};
+		if (existente) {
+			const batch = writeBatch(db);
+			batch.update(doc(db, COL.personal, existente.id), base);
+			await batch.commit();
+			return;
+		}
+		// Nueva: primero la cuenta del panel, y su registro con el mismo id.
+		// Si esto último fallara, la cuenta aparece en "Traer secretarias del panel".
+		const uid = await crearCuentaSecretario({
+			nombre: datos.nombre,
+			apellido: datos.apellido,
+			email,
+		});
 		const batch = writeBatch(db);
-		if (!existente) {
-			batch.set(doc(collection(db, COL.personal)), {
-				...base,
+		batch.set(doc(db, COL.personal, uid), {
+			...base,
+			llaveroUid: null,
+			jornadaAbiertaId: null,
+			ultimaFichadaEn: null,
+			creadoEn: serverTimestamp(),
+		});
+		await batch.commit();
+	},
+
+	async cuentasDeSecretarias() {
+		const snap = await getDocs(
+			query(collection(db, COL.admins), where("rol", "==", "secretario")),
+		);
+		return snap.docs
+			.map((d) => {
+				const data = d.data();
+				return {
+					uid: d.id,
+					...separarNombre(data),
+					email: String(data.email ?? "").trim().toLowerCase(),
+					activo: data.activo !== false,
+				};
+			})
+			.sort((a, b) =>
+				`${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`, "es"),
+			);
+	},
+
+	async traerSecretariasDelPanel(cuentas) {
+		const yaEstan = new Set((await getDocs(collection(db, COL.personal))).docs.map((d) => d.id));
+		const nuevas = cuentas.filter((c) => !yaEstan.has(c.uid));
+		if (nuevas.length === 0) return 0;
+		const batch = writeBatch(db);
+		nuevas.forEach((c) =>
+			batch.set(doc(db, COL.personal, c.uid), {
+				nombre: c.nombre.trim(),
+				apellido: c.apellido.trim(),
+				email: c.email.trim().toLowerCase(),
+				dni: null,
+				rol: "secretaria",
+				activo: c.activo,
 				llaveroUid: null,
 				jornadaAbiertaId: null,
 				ultimaFichadaEn: null,
 				creadoEn: serverTimestamp(),
-			});
-		} else {
-			batch.update(doc(db, COL.personal, existente.id), base);
-		}
+				actualizadoEn: serverTimestamp(),
+			}),
+		);
 		await batch.commit();
+		return nuevas.length;
 	},
 
 	async cambiarActivoPersona(persona, activo) {

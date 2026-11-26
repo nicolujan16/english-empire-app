@@ -2,9 +2,7 @@
 
 /**
  * Mis recibos (panel de admin): las secretarias ven sus recibos de sueldo.
- * Se buscan por el email de la cuenta con la que entraron al panel, que tiene que
- * ser el mismo con el que el director las cargó en Registro de Asistencias → Carga
- * de personal.
+ * Se buscan por el uid de su cuenta del panel: es el mismo id que su doc de `Personal`.
  */
 import React from "react";
 import { motion } from "framer-motion";
@@ -14,7 +12,7 @@ import { useAdminAuth } from "@/context/AdminAuthContext";
 
 export default function MisRecibosPage() {
 	const { adminUser } = useAdminAuth();
-	const email = adminUser?.email ?? null;
+	const uid = adminUser?.uid ?? null;
 
 	return (
 		<div className="space-y-6 max-w-7xl mx-auto">
@@ -35,7 +33,7 @@ export default function MisRecibosPage() {
 			</motion.div>
 
 			<MisRecibos
-				filtro={email ? { por: "email", valor: email } : null}
+				filtro={uid ? { por: "personalId", valor: uid } : null}
 				textoVacio="Todavía no tenés recibos. Cuando el director genere tu recibo del mes, va a aparecer acá."
 			/>
 		</div>

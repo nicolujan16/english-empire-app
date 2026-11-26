@@ -26,7 +26,11 @@ Los permisos de pantalla están en `lib/asistencia/permisos.ts`. **La protecció
 ## Modelo de datos
 
 ### Personas
-- **Secretarias** → `Personal/{autoId}`: `nombre, apellido, email, dni, rol: "secretaria", activo, llaveroUid, jornadaAbiertaId, ultimaFichadaEn`.
+- **Secretarias** → `Personal/{uid}`: `nombre, apellido, email, dni, rol: "secretaria", activo, llaveroUid, jornadaAbiertaId, ultimaFichadaEn`.
+  - Son las cuentas del panel con `rol: "secretario"` (`Admins/{uid}`): el doc de `Personal` tiene **el mismo id** que su cuenta, igual que las profesoras con `Teachers`.
+  - **Traer secretarias del panel** (Carga de personal): aparece mientras haya cuentas de secretario sin su doc en `Personal`. El director revisa el nombre y el apellido (en `Admins` están juntos y se separan por la última palabra) y se crean de una vez. El DNI se carga después.
+  - Una secretaria nueva desde Carga de personal crea su cuenta del panel (Auth + `Admins` con rol secretario + mail para la contraseña) con `lib/services/adminsServices.ts`.
+  - El email no se cambia desde el registro, porque es el de la cuenta. El `activo` del registro (si puede fichar) es independiente del `activo` de `Admins` (si puede entrar al panel).
 - **Profesoras** → `Teachers/{uid}`: son las mismas cuentas del portal docente. No hay colección aparte.
   - Si se da de alta una profesora desde Carga de personal, se crea la cuenta (Auth + `Teachers` + mail para la contraseña) con `lib/services/teachersServices.ts`, igual que en Configuración.
   - El email no se cambia desde el registro, porque es el de la cuenta.
@@ -140,7 +144,7 @@ Cada carga o corrección manual (jornadas, movimientos, clases, días especiales
 ## Mis recibos (cada persona ve los suyos)
 
 - **Profesoras:** en el inicio del portal docente, sección "Mis recibos de sueldo". Se buscan por `personalId == uid` (su doc de `Teachers`).
-- **Secretarias:** en el panel de admin, "Mis recibos" (solo para el rol `secretario`, en `/admin/mis-recibos`). Se buscan por el **email de su cuenta del panel**. Cada recibo guarda `email` al generarse, así que en Carga de personal la secretaria tiene que tener **el mismo email** con el que entra al panel.
+- **Secretarias:** en el panel de admin, "Mis recibos" (solo para el rol `secretario`, en `/admin/mis-recibos`). Se buscan por `personalId == uid` de su cuenta del panel (es el id de su doc de `Personal`). Las reglas también aceptan el email de la cuenta, para recibos de secretarias cargadas antes con otro id.
 - Se leen de `RecibosPersonalPublicados`, que no tiene porcentajes ni montos fijos. Se publica recién cuando se guarda la imagen, así que siempre corresponde a una imagen lista.
 
 ## Recibo impreso y edición a mano

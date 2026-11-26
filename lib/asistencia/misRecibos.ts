@@ -8,9 +8,9 @@
  * cálculo (porcentajes, monto fijo), que queda solo para el director en RecibosPersonal.
  *
  * - Profesoras (portal docente): los recibos con `personalId == su uid`.
- * - Secretarias (panel de admin): los recibos con `email == el email de su cuenta`.
- *   Por eso, en Carga de personal la secretaria se carga con el mismo email con el
- *   que entra al panel.
+ * - Secretarias (panel de admin): también por `personalId == su uid`, porque su doc
+ *   de `Personal` tiene el mismo id que su cuenta del panel (`Admins`).
+ *   (El filtro por email queda para recibos de secretarias cargadas antes con otro id.)
  *
  * Las reglas de Firestore solo dejan leer los propios (ver puedeVerRecibo).
  */
