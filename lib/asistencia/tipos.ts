@@ -3,7 +3,9 @@
  * La UI trabaja con `Date`: el repositorio convierte desde/hacia Timestamp.
  *
  * De dónde sale cada cosa en la base del instituto (english-empire-2026):
- * - Persona secretaria → `Personal/{id}` (+ `PersonalLiquidacion/{id}` con el precio por hora)
+ * - Persona secretaria → `Personal/{uid}` (+ `PersonalLiquidacion/{id}` con el precio por hora).
+ *                        Si también es profesora, además tiene `Teachers/{uid}` (mismo id):
+ *                        es UNA persona, con `tambienProfesora: true` (ver suscribirPersonal)
  * - Persona profesora  → `Teachers/{uid}` (la misma cuenta del portal docente)
  * - Curso              → `Cursos/{id}` (nombre, horarios, vigencia)
  *                        + titulares desde `Teachers.cursosAsignados` (y los días de cada
@@ -36,10 +38,16 @@ export interface Persona {
 	llaveroUid: string | null;
 	jornadaAbiertaId: string | null;
 	precioHora: number | null; // solo secretarias: se carga en Carga de datos → Precio/hora - Secretarias
-	/** Solo profesoras (vienen de Teachers) */
+	/**
+	 * Solo secretarias: también es profesora (tiene `Teachers/{uid}` activo, con el mismo
+	 * id). Aparece una sola vez, como secretaria: ficha su turno con el llavero, y sus
+	 * clases cuentan como dadas si estaba en su turno (ver clasesDelMes).
+	 */
+	tambienProfesora?: boolean;
+	/** Solo profesoras (vienen de Teachers) y secretarias que también son profesoras */
 	telefono?: string;
 	titulo?: string;
-	/** Solo profesoras: Teachers.cursosAsignados, tal cual está guardado (puede tener cursos borrados) */
+	/** Profesoras (y secretarias que también lo son): Teachers.cursosAsignados, tal cual está guardado */
 	cursoIds?: string[];
 }
 
@@ -236,11 +244,11 @@ export interface CursoLiquidado {
 }
 
 /**
- * Un reemplazo del mes en el recibo de una profesora. El valor de la clase es
- * el pago mensual de la titular en ese curso ÷ las clases del curso en el mes
- * según sus horarios (feriados incluidos). Se le resta a la titular y se le suma
- * a la que dio la clase. Si el curso tiene varias titulares, cada una pierde su
- * parte y la reemplazante cobra la suma (un renglón por titular).
+ * Un reemplazo del mes en un recibo. El valor de la clase es el pago mensual de la
+ * titular en ese curso ÷ sus clases del curso en el mes (feriados incluidos). Se le
+ * resta a la titular y se le suma a quien dio la clase, que puede ser otra profesora
+ * o una secretaria. Si la clase tiene varias titulares, cada una pierde su parte y la
+ * reemplazante cobra la suma (un renglón por titular).
  */
 export interface ReemplazoLiquidado {
 	claseId: string; // = id de ClasesDictadas
@@ -328,12 +336,15 @@ export interface Recibo {
 	fechaEmision: string | null; // "YYYY-MM-DD"
 	nombreRecibo: string; // "Apellido, Nombre", como va impreso
 	dni: string | null;
-	totalMinutos: number | null; // secretarias
+	/** Secretarias: minutos que se pagan (ya sin el tiempo de las clases que dio en su turno) */
+	totalMinutos: number | null;
+	/** Secretarias: minutos de su turno que estuvo dando clase (se descuentan). null en recibos viejos */
+	minutosEnClase: number | null;
 	precioHora: number | null; // secretarias
-	totalClases: number | null; // profesoras
-	clases: ClaseLiquidada[]; // profesoras: control de asistencia
-	cursos: CursoLiquidado[]; // profesoras: lo que cobra (recibos viejos: [])
-	reemplazos: ReemplazoLiquidado[]; // profesoras: lo que suma o resta por reemplazos
+	totalClases: number | null;
+	clases: ClaseLiquidada[]; // las clases que dio (control de asistencia)
+	cursos: CursoLiquidado[]; // pago mensual de los cursos de los que es titular (recibos viejos: [])
+	reemplazos: ReemplazoLiquidado[]; // lo que suma o resta por reemplazos (secretarias también)
 	/** Lo calculado al generar. Si hay edición, lo que se paga es `edicion.total` (ver totalDelRecibo) */
 	totalAPagar: number;
 	/** Cambios a mano del director (null = se imprime lo calculado) */

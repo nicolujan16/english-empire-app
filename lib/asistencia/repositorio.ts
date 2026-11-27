@@ -184,6 +184,12 @@ export interface RepositorioCarga {
 	 */
 	traerSecretariasDelPanel(cuentas: CuentaSecretaria[]): Promise<number>;
 	cambiarActivoPersona(persona: Persona, activo: boolean): Promise<void>;
+	/**
+	 * Una secretaria que también es profesora: crea (o reactiva) su `Teachers/{uid}`,
+	 * con el mismo id que su cuenta del panel. Entra al portal docente con el mismo
+	 * email y contraseña, y se le asignan cursos como a cualquier profesora.
+	 */
+	hacerTambienProfesora(persona: Persona): Promise<void>;
 	/** Precio por hora de varias secretarias de una sola vez */
 	guardarPreciosHora(
 		cambios: { personalId: string; precioHora: number | null }[],
@@ -236,6 +242,19 @@ export interface RepositorioCarga {
 		motivo: string,
 	): Promise<void>;
 	anularClase(clase: ClaseDictada, motivo: string): Promise<void>;
+	/**
+	 * Una clase sin registro guardado que el calendario cuenta como dada (secretaria que
+	 * también es profesora y estaba en su turno): Juan dice que no la dio nadie. Queda
+	 * guardada como Anulada, y eso manda sobre lo calculado.
+	 */
+	anularClaseEnSuTurno(input: {
+		curso: Curso;
+		fecha: string;
+		horaInicio: string;
+		horaFin: string;
+		profesora: Persona;
+		motivo: string;
+	}): Promise<void>;
 	/** Los días especiales guardados del año (sin los predeterminados: ver feriados.ts) */
 	suscribirDiasEspeciales(
 		anio: number,
@@ -463,15 +482,25 @@ export const repositorioFirestore: RepositorioCarga = {
 		let profesoras: Persona[] = [];
 		let precios = new Map<string, number | null>();
 
-		const emitir = () =>
-			cb(
-				[
-					...secretarias.map(({ id, d }) =>
-						aSecretaria(id, d, precios.get(id) ?? null),
-					),
-					...profesoras,
-				].sort(porNombre),
-			);
+		// Una secretaria que también es profesora (mismo id en Personal y Teachers) es UNA
+		// persona: aparece como secretaria, con tambienProfesora y sus cursos
+		const emitir = () => {
+			const docentes = new Map(profesoras.map((p) => [p.id, p]));
+			const lista = secretarias.map(({ id, d }) => {
+				const s = aSecretaria(id, d, precios.get(id) ?? null);
+				const docente = docentes.get(id);
+				if (!docente) return s;
+				docentes.delete(id);
+				return {
+					...s,
+					tambienProfesora: docente.activo,
+					cursoIds: docente.cursoIds,
+					telefono: docente.telefono,
+					titulo: docente.titulo,
+				};
+			});
+			cb([...lista, ...docentes.values()].sort(porNombre));
+		};
 		const listo = combinar(conLiq ? 3 : 2, emitir);
 		const fallo = (e: Error) => onError?.(e);
 
@@ -658,6 +687,15 @@ export const repositorioFirestore: RepositorioCarga = {
 		if (existente) {
 			const batch = writeBatch(db);
 			batch.update(doc(db, COL.personal, existente.id), base);
+			// Si también es profesora, su doc de Teachers tiene los mismos datos
+			if (existente.cursoIds !== undefined)
+				batch.update(doc(db, COL.teachers, existente.id), {
+					nombre: base.nombre,
+					apellido: base.apellido,
+					dni: dni ?? "",
+					...(existente.tambienProfesora ? { activo: datos.activo } : {}),
+					actualizadoEn: serverTimestamp(),
+				});
 			await batch.commit();
 			return;
 		}
@@ -728,6 +766,50 @@ export const repositorioFirestore: RepositorioCarga = {
 		batch.update(doc(db, col, persona.id), {
 			activo,
 			actualizadoEn: serverTimestamp(),
+		});
+		// Secretaria que también es profesora: las dos partes juntas
+		if (persona.rol === "secretaria" && persona.tambienProfesora)
+			batch.update(doc(db, COL.teachers, persona.id), {
+				activo,
+				actualizadoEn: serverTimestamp(),
+			});
+		await batch.commit();
+	},
+
+	async hacerTambienProfesora(persona) {
+		if (persona.rol !== "secretaria")
+			throw new Error("Solo una secretaria se puede sumar como profesora.");
+		const ref = doc(db, COL.teachers, persona.id);
+		const existente = await getDoc(ref);
+		const batch = writeBatch(db);
+		if (existente.exists()) {
+			batch.update(ref, {
+				nombre: persona.nombre.trim(),
+				apellido: persona.apellido.trim(),
+				dni: persona.dni ?? "",
+				activo: true,
+				actualizadoEn: serverTimestamp(),
+			});
+		} else {
+			// Los mismos campos que crearCuentaProfesor, pero sin crear otra cuenta
+			batch.set(ref, {
+				email: persona.email.trim().toLowerCase(),
+				nombre: persona.nombre.trim(),
+				apellido: persona.apellido.trim(),
+				dni: persona.dni ?? "",
+				telefono: "",
+				titulo: "",
+				activo: true,
+				cursosAsignados: [],
+				creadoEn: serverTimestamp(),
+			});
+		}
+		auditar(batch, {
+			accion: "hacer_tambien_profesora",
+			coleccion: COL.teachers,
+			docId: persona.id,
+			motivo: null,
+			detalle: { nombre: nombreCompleto(persona) },
 		});
 		await batch.commit();
 	},
@@ -1049,6 +1131,43 @@ export const repositorioFirestore: RepositorioCarga = {
 			docId: id,
 			motivo,
 			detalle: { profesoraId: profesora.id, esReemplazo, fecha, horaInicio },
+		});
+		await batch.commit();
+	},
+
+	async anularClaseEnSuTurno({ curso, fecha, horaInicio, horaFin, profesora, motivo }) {
+		const id = idClaseDictada(curso.id, fecha, horaInicio);
+		const ref = doc(db, COL.clasesDictadas, id);
+		if ((await getDoc(ref)).exists())
+			throw new Error("Esta clase ya tiene un registro guardado. Editala desde el calendario.");
+		const titularIds = titularesDelDia(curso, diaSemanaDeFecha(fecha));
+		const batch = writeBatch(db);
+		batch.set(ref, {
+			cursoId: curso.id,
+			cursoNombre: curso.nombre,
+			fecha,
+			horaInicio,
+			horaFin,
+			profesoraDictoId: profesora.id,
+			profesoraDictoNombre: nombreCompleto(profesora),
+			esReemplazo: !titularIds.includes(profesora.id),
+			titularIds,
+			llegada: null,
+			minutosTarde: null,
+			estado: "Anulada",
+			contarIgual: false,
+			origen: "manual",
+			fueOffline: false,
+			historial: [cambio("estado", "Dada en su turno", "Anulada", motivo)],
+			creadoEn: serverTimestamp(),
+			actualizadoEn: serverTimestamp(),
+		});
+		auditar(batch, {
+			accion: "anular_clase_en_su_turno",
+			coleccion: COL.clasesDictadas,
+			docId: id,
+			motivo,
+			detalle: { profesoraId: profesora.id, fecha, horaInicio },
 		});
 		await batch.commit();
 	},

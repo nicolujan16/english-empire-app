@@ -7,6 +7,11 @@
  * Las titulares de cada clase son las de ese día de la semana (titulares.ts), y si
  * una clase es reemplazo se calcula con ellas: así, si Juan reparte los días después
  * de que se registró una clase, el calendario y el recibo dicen lo mismo.
+ *
+ * Una secretaria que también es profesora ficha solo su turno (un llavero): su clase
+ * cuenta como dada si estaba en su turno a esa hora (dadaEnSuTurno). No se guarda:
+ * se calcula, así si Juan corrige la jornada se recalcula sola. Si no la dio, Juan
+ * la asigna a otra o la anula desde el calendario (eso sí se guarda y manda).
  */
 import type {
 	ClaseCalendario,
@@ -17,7 +22,7 @@ import type {
 } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { diaEspecialQueExcluye } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { combinarDiasEspeciales, diasQueAplican } from "./feriados";
-import { diaSemanaDeFecha, horaAR, sumarDias } from "./fechas";
+import { diaSemanaDeFecha, fechaHoraAR, horaAR, sumarDias } from "./fechas";
 import { titularesDelDia } from "./titulares";
 import {
 	idClaseDictada,
@@ -66,12 +71,46 @@ export const diasDelMes = (periodo: string) => {
  * días no quedan como "sin registro". No cambia los montos: la liquidación usa las
  * dictadas y los horarios del curso, no esta lista de esperadas.
  */
+/**
+ * Secretaria que también es profesora y es titular de la clase: la clase cuenta como
+ * dada por ella si tiene una jornada activa que se superpone con la clase (si la
+ * jornada sigue abierta, solo cuenta la del mismo día). Devuelve quién, o null.
+ */
+export function dadaEnSuTurno(
+	clase: { fecha: string; horaInicio: string; horaFin: string; titularIds: string[] },
+	personal: Persona[],
+	jornadas: Pick<Jornada, "personalId" | "fecha" | "entrada" | "salida" | "estado">[],
+): Persona | null {
+	const ini = fechaHoraAR(clase.fecha, clase.horaInicio).getTime();
+	const fin = fechaHoraAR(clase.fecha, clase.horaFin).getTime();
+	return (
+		personal.find(
+			(p) =>
+				p.rol === "secretaria" &&
+				p.tambienProfesora === true &&
+				clase.titularIds.includes(p.id) &&
+				jornadas.some(
+					(j) =>
+						j.personalId === p.id &&
+						j.estado === "Activa" &&
+						j.entrada.getTime() < fin &&
+						(j.salida ? j.salida.getTime() > ini : j.fecha === clase.fecha),
+				),
+		) ?? null
+	);
+}
+
 export function clasesDelMes(
 	periodo: string,
 	cursos: Curso[],
 	dictadas: ClaseDictada[],
 	personal: Persona[],
 	fechaInicio = "",
+	/** Para las clases de las secretarias que también son profesoras (dadaEnSuTurno) */
+	turnos: { jornadas: Jornada[]; diasEspeciales: DiaEspecialCalendario[] } = {
+		jornadas: [],
+		diasEspeciales: [],
+	},
 ): ClaseCalendario[] {
 	const porId = new Map(dictadas.map((d) => [d.id, d]));
 	const cursosPorId = new Map(cursos.map((c) => [c.id, c]));
@@ -109,7 +148,7 @@ export function clasesDelMes(
 					.filter((h) => h.dia === dia)
 					.forEach((h) => {
 						const id = idClaseDictada(c.id, fecha, h.inicio);
-						clases.push({
+						const base = {
 							id,
 							fecha,
 							cursoId: c.id,
@@ -118,7 +157,26 @@ export function clasesDelMes(
 							horaFin: h.fin,
 							titularIds,
 							titularNombres,
-							dictada: aDictada(porId.get(id), titularIds),
+						};
+						const guardada = porId.get(id);
+						// Sin registro: si es de una secretaria-profesora que estaba en su turno, la dio ella
+						const enSuTurno =
+							!guardada && !diaEspecialQueExcluye(base, turnos.diasEspeciales)
+								? dadaEnSuTurno(base, personal, turnos.jornadas)
+								: null;
+						clases.push({
+							...base,
+							dictada: enSuTurno
+								? {
+										profesoraId: enSuTurno.id,
+										profesoraNombre: nombreCompleto(enSuTurno),
+										esReemplazo: false,
+										minutosTarde: null,
+										estado: "Activa",
+										contarIgual: false,
+										enSuTurno: true,
+									}
+								: aDictada(guardada, titularIds),
 						});
 						porId.delete(id);
 					});
@@ -227,6 +285,7 @@ export function armarCalendario(input: {
 	const diasEspeciales = diasQueAplican(
 		combinarDiasEspeciales(input.diasEspeciales, desde, hasta),
 	);
+	const diasCalendario = diasEspeciales.map(aDiaEspecialCalendario);
 	return {
 		empleados: empleadosDelMes(input.personal, input.jornadas, input.dictadas),
 		jornadas: input.jornadas.map(aJornadaCalendario),
@@ -236,8 +295,9 @@ export function armarCalendario(input: {
 			input.dictadas,
 			input.personal,
 			input.fechaInicio,
+			{ jornadas: input.jornadas, diasEspeciales: diasCalendario },
 		),
-		diasEspeciales: diasEspeciales.map(aDiaEspecialCalendario),
+		diasEspeciales: diasCalendario,
 		pendientes: pendientesDeFichadas(input.fichadas),
 	};
 }

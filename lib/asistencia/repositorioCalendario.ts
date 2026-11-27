@@ -95,6 +95,7 @@ export const aRecibo = (id: string, d: DocumentData): Recibo => ({
 	nombreRecibo: d.nombreRecibo ?? d.nombre ?? "",
 	dni: typeof d.dni === "string" && d.dni ? d.dni : null,
 	totalMinutos: numeroONull(d.totalMinutos),
+	minutosEnClase: numeroONull(d.minutosEnClase),
 	precioHora: numeroONull(d.precioHora),
 	totalClases: numeroONull(d.totalClases),
 	clases: Array.isArray(d.clases) ? d.clases : [],
@@ -234,7 +235,9 @@ export async function generarRecibo(
 	const refContador = doc(db, COL.contadores, `recibos-${anio}`);
 	const nombreRecibo = persona ? nombreParaRecibo(persona) : l.nombre;
 	const dni = persona?.dni ?? null;
-	// Con este email la secretaria ve su recibo desde el panel (ver firestore.rules)
+	// El recibo lo ve la dueña por su uid (personalId): una secretaria que también es
+	// profesora ve el mismo en el panel y en el portal docente. El email queda por los
+	// recibos viejos (ver puedeVerRecibo en firestore.rules)
 	const email = persona?.email ? persona.email.trim().toLowerCase() : null;
 
 	return runTransaction(db, async (tx) => {
@@ -266,14 +269,14 @@ export async function generarRecibo(
 			numero,
 			numeroTexto,
 			fechaEmision,
-			...(l.rol === "secretaria"
-				? { totalMinutos: l.totalMinutos, precioHora: l.precioHora }
-				: {
-						totalClases: l.totalClases,
-						clases: l.clases,
-						cursos: l.cursos,
-						reemplazos: l.reemplazos,
-					}),
+			// Todas las partes: horas (secretarias), clases, cursos y reemplazos
+			totalMinutos: l.totalMinutos,
+			minutosEnClase: l.totalMinutos === null ? null : l.minutosEnClase,
+			precioHora: l.precioHora,
+			totalClases: l.totalClases,
+			clases: l.clases,
+			cursos: l.cursos,
+			reemplazos: l.reemplazos,
 			totalAPagar: l.totalAPagar,
 			version,
 			imagenVersion: null,
@@ -295,12 +298,6 @@ export async function generarRecibo(
 			id,
 			...datos,
 			edicion: edicion ? { ...edicion, editadoEn: new Date() } : null,
-			totalMinutos: l.rol === "secretaria" ? l.totalMinutos : null,
-			precioHora: l.rol === "secretaria" ? l.precioHora : null,
-			totalClases: l.rol === "profesora" ? l.totalClases : null,
-			clases: l.rol === "profesora" ? l.clases : [],
-			cursos: l.rol === "profesora" ? l.cursos : [],
-			reemplazos: l.rol === "profesora" ? l.reemplazos : [],
 			generadoEn: new Date(),
 			enviadoEn: null,
 		};

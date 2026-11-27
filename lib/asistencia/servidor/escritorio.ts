@@ -45,9 +45,14 @@ export async function leerDatos(desde: string, hasta: string) {
 		activo: d.activo !== false,
 		llaveroUid: texto(d.llaveroUid),
 	});
+	// Una secretaria que también es profesora (mismo id en Personal y Teachers) va una
+	// sola vez, como secretaria: así ficha (su turno) y así tiene su llavero
+	const idsSecretarias = new Set(personalSnap.docs.map((d) => d.id));
 	const personal = [
 		...personalSnap.docs.map((d) => persona(d.id, d.data(), "secretaria")),
-		...teachersSnap.docs.map((d) => persona(d.id, d.data(), "profesora")),
+		...teachersSnap.docs
+			.filter((d) => !idsSecretarias.has(d.id))
+			.map((d) => persona(d.id, d.data(), "profesora")),
 	];
 
 	// Profesoras de cada curso (Teachers.cursosAsignados) con sus días (null = todos)

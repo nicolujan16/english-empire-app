@@ -156,8 +156,9 @@ export default function TabCursos({
 	const [error, setError] = useState<string | null>(null);
 	const [guardando, setGuardando] = useState(false);
 
+	// Profesoras, y secretarias que también lo son
 	const profesoras = useMemo(
-		() => personal.filter((p) => p.rol === "profesora"),
+		() => personal.filter((p) => p.rol === "profesora" || p.tambienProfesora === true),
 		[personal],
 	);
 

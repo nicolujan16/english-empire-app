@@ -2,6 +2,7 @@
  * Datos del recibo tal como se imprime (plantilla de Juan). Funciones puras.
  * Se arman desde un recibo guardado o, para la vista previa, desde la liquidación.
  */
+import { redondearCentavos } from "./dinero";
 import type { Liquidacion } from "./liquidacion";
 import type {
 	ClaseLiquidada,
@@ -69,12 +70,13 @@ export const horasRecibo = (minutos: number) => {
 };
 
 /**
- * Renglones del recibo:
- * - Secretaria: uno solo ("Secretaria", horas, precio por hora).
- * - Profesora: uno por curso, con su pago mensual: "KINDER A", "12 AL",
- *   lo que le toca por alumno (monto fijo × %) y el total. El porcentaje NO se
- *   imprime: es un dato interno del director. Después los
- *   reemplazos, agrupados por curso y valor de la clase: "REEMPLAZOS (KINDER A)"
+ * Renglones del recibo, por partes (cada persona tiene las que le tocan):
+ * - Horas (secretarias): uno solo ("Secretaria", horas, precio por hora). Las horas
+ *   son las que se pagan: ya sin el tiempo de su turno que estuvo dando clase.
+ * - Cursos: uno por curso, con su pago mensual: "KINDER A", "12 AL", lo que le
+ *   toca por alumno (monto fijo × %) y el total. El porcentaje NO se imprime: es
+ *   un dato interno del director.
+ * - Reemplazos, agrupados por curso y valor de la clase: "REEMPLAZOS (KINDER A)"
  *   suma y "DESC. REEMPLAZOS (KINDER A)" resta (total negativo).
  * - Recibos viejos de profesora (sin `cursos`, de cuando se cobraba por clase):
  *   uno por curso y precio, con los reemplazos aparte ("REEMPLAZOS (KIDS 2)").
@@ -88,19 +90,22 @@ export function lineasDelRecibo(r: {
 	reemplazos?: ReemplazoLiquidado[];
 	totalAPagar: number;
 }): LineaRecibo[] {
-	if (r.rol === "secretaria") {
-		return [
-			{
-				concepto: "Secretaria",
-				cantidad: horasRecibo(r.totalMinutos ?? 0),
-				precio: r.precioHora ?? 0,
-				total: r.totalAPagar,
-			},
-		];
-	}
-
 	const reemplazos = r.reemplazos ?? [];
+	const lineasHoras: LineaRecibo[] =
+		r.totalMinutos === null
+			? []
+			: [
+					{
+						concepto: "Secretaria",
+						cantidad: horasRecibo(r.totalMinutos),
+						precio: r.precioHora ?? 0,
+						// Misma cuenta que la liquidación (totalHoras)
+						total: redondearCentavos(((r.precioHora ?? 0) * r.totalMinutos) / 60),
+					},
+				];
+
 	if (
+		r.rol === "secretaria" ||
 		r.cursos.length > 0 ||
 		reemplazos.length > 0 ||
 		!r.clases.some((c) => c.precio !== undefined)
@@ -114,7 +119,7 @@ export function lineasDelRecibo(r: {
 					: 0,
 			total: c.total,
 		}));
-		return [...lineasCursos, ...lineasDeReemplazos(reemplazos)];
+		return [...lineasHoras, ...lineasCursos, ...lineasDeReemplazos(reemplazos)];
 	}
 
 	const grupos = new Map<string, LineaRecibo & { n: number; orden: string }>();
@@ -217,14 +222,6 @@ export const impresoDesdeLiquidacion = (
 	periodo,
 	nombreRecibo: persona ? nombreParaRecibo(persona) : l.nombre,
 	dni: persona?.dni ?? null,
-	lineas: lineasDelRecibo({
-		rol: l.rol,
-		totalMinutos: l.rol === "secretaria" ? l.totalMinutos : null,
-		precioHora: l.rol === "secretaria" ? l.precioHora : null,
-		clases: l.rol === "profesora" ? l.clases : [],
-		cursos: l.rol === "profesora" ? l.cursos : [],
-		reemplazos: l.rol === "profesora" ? l.reemplazos : [],
-		totalAPagar: l.totalAPagar,
-	}),
+	lineas: lineasDelRecibo(l),
 	total: l.totalAPagar,
 });

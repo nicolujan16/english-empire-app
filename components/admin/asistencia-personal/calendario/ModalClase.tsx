@@ -4,7 +4,11 @@
  * Modal del calendario para una clase:
  * - Sin registro (o anulada): asignar quién la dio. Sirve para cargar una clase
  *   pasada que nadie fichó.
+ * - Dada "en su turno" (secretaria que también es profesora y estaba en su turno, sin
+ *   registro guardado): confirmar quién la dio o marcar que no la dio nadie.
  * - Ya registrada: cambiar quién la dio, marcar "contar igual" o anularla.
+ * La puede haber dado una profesora o una secretaria: si no es titular de ese día, es
+ * reemplazo (cobra el valor de la clase, y si era su turno ese tiempo no va a sus horas).
  * Siempre con motivo, que queda en el historial: "Motivo del registro manual" si se
  * carga una clase que dio su titular, "Motivo del cambio" si fue otra (reemplazo)
  * o si se edita una clase ya registrada.
@@ -52,12 +56,16 @@ export default function ModalClase({
 }) {
 	// Si está anulada, se "asigna" de nuevo: crearClaseManual la reactiva con su historial
 	const editar = !!dictada && dictada.estado === "Activa";
+	// Sin registro guardado, pero cuenta como dada: era su turno de secretaria
+	const enSuTurno = !dictada && clase.dictada?.enSuTurno === true ? clase.dictada : null;
 	const curso = cursos.find((c) => c.id === clase.cursoId);
 	// Las titulares de ese día según la asignación actual (lo guardado puede ser viejo)
 	const titularIds = clase.titularIds;
 
 	const [profesoraId, setProfesoraId] = useState(
-		editar ? dictada.profesoraDictoId : (clase.titularIds[0] ?? ""),
+		editar
+			? dictada.profesoraDictoId
+			: (enSuTurno?.profesoraId ?? clase.titularIds[0] ?? ""),
 	);
 	const [contarIgual, setContarIgual] = useState(dictada?.contarIgual ?? false);
 	const [anular, setAnular] = useState(false);
@@ -65,21 +73,24 @@ export default function ModalClase({
 	const [guardando, setGuardando] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const profesorasActivas = personal.filter(
-		(p) => p.rol === "profesora" && p.activo,
-	);
-	const titulares = profesorasActivas.filter((p) => titularIds.includes(p.id));
-	const otras = profesorasActivas.filter((p) => !titularIds.includes(p.id));
+	// Puede darla cualquiera: profesoras (y secretarias que también lo son) o secretarias
+	const activas = personal.filter((p) => p.activo);
+	const esDocente = (p: Persona) => p.rol === "profesora" || p.tambienProfesora === true;
+	const titulares = activas.filter((p) => titularIds.includes(p.id));
+	const otras = activas.filter((p) => esDocente(p) && !titularIds.includes(p.id));
+	const secretarias = activas.filter((p) => !esDocente(p) && !titularIds.includes(p.id));
 	// Si la que la dio ya no está activa, igual tiene que aparecer en la lista
 	const actualInactiva =
-		editar && !profesorasActivas.some((p) => p.id === dictada.profesoraDictoId)
+		editar && !activas.some((p) => p.id === dictada.profesoraDictoId)
 			? personal.find((p) => p.id === dictada.profesoraDictoId)
 			: undefined;
+	const elegida = personal.find((p) => p.id === profesoraId);
 
 	const seraReemplazo = !!profesoraId && !titularIds.includes(profesoraId);
 	// Cargar a mano una clase que dio su titular (ej.: se olvidó el llavero) no es un
 	// cambio de profesora: es un registro manual. Si la dio otra, sí es un cambio (reemplazo).
 	const esRegistroManual = !editar && !anular && !seraReemplazo;
+	const puedeAnular = editar || !!enSuTurno;
 	const diaEspecial = diaEspecialQueExcluye(clase, diasEspeciales);
 	const puedeGuardar = !!motivo.trim() && (anular || !!profesoraId);
 
@@ -90,6 +101,18 @@ export default function ModalClase({
 		try {
 			if (editar && anular) {
 				await repositorioFirestore.anularClase(dictada, motivo.trim());
+			} else if (enSuTurno && anular) {
+				const dio = personal.find((p) => p.id === enSuTurno.profesoraId);
+				if (!curso || !dio)
+					throw new Error("No se encontró el curso o la persona de esta clase.");
+				await repositorioFirestore.anularClaseEnSuTurno({
+					curso,
+					fecha: clase.fecha,
+					horaInicio: clase.horaInicio,
+					horaFin: clase.horaFin,
+					profesora: dio,
+					motivo: motivo.trim(),
+				});
 			} else if (editar) {
 				if (!profesora) throw new Error("Elegí quién dio la clase.");
 				await repositorioFirestore.editarClase(
@@ -150,13 +173,15 @@ export default function ModalClase({
 
 			{!editar && (
 				<p className="text-sm text-gray-600">
-					{dictada
-						? "Esta clase estaba anulada. Elegí quién la dio para volver a registrarla."
-						: "Nadie registró esta clase. Elegí quién la dio y queda cargada como si hubiera fichado."}
+					{enSuTurno
+						? `Cuenta como dada por ${enSuTurno.profesoraNombre}: estaba en su turno de secretaria a esa hora, y ese tiempo no se le paga como horas. Si la dio otra persona, elegila; si no la dio nadie, anulala.`
+						: dictada
+							? "Esta clase estaba anulada. Elegí quién la dio para volver a registrarla."
+							: "Nadie registró esta clase. Elegí quién la dio y queda cargada como si hubiera fichado."}
 				</p>
 			)}
 
-			{editar && (
+			{puedeAnular && (
 				<Interruptor
 					activo={anular}
 					onChange={setAnular}
@@ -174,7 +199,7 @@ export default function ModalClase({
 							autoFocus
 						>
 							<option value="" disabled>
-								Elegí una profesora
+								Elegí quién la dio
 							</option>
 							{actualInactiva && (
 								<option value={actualInactiva.id}>
@@ -199,14 +224,27 @@ export default function ModalClase({
 									))}
 								</optgroup>
 							)}
+							{secretarias.length > 0 && (
+								<optgroup label="Secretarias (reemplazo)">
+									{secretarias.map((p) => (
+										<option key={p.id} value={p.id}>
+											{nombreCompleto(p)}
+										</option>
+									))}
+								</optgroup>
+							)}
 						</select>
 					</Campo>
 
 					{seraReemplazo && (
 						<div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700 flex items-center gap-2">
 							<Repeat className="w-4 h-4 shrink-0" />
-							No es titular del curso: la clase queda como{" "}
-							<strong>reemplazo</strong> y la cobra ella.
+							<span>
+								No es titular de ese día: la clase queda como <strong>reemplazo</strong>.
+								El valor de la clase se le descuenta a la titular y lo cobra quien la dio.
+								{elegida?.rol === "secretaria" &&
+									" Si fue durante su turno, ese tiempo no se le paga como horas de secretaria."}
+							</span>
 						</div>
 					)}
 

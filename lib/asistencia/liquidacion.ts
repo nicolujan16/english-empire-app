@@ -2,16 +2,24 @@
  * Cálculo de lo que cobra cada persona en el mes. Funciones puras.
  * Lo usan la tabla del calendario y la pantalla de recibos, así muestran lo mismo.
  *
- * - Secretarias: precio por hora × horas trabajadas. Cuentan las jornadas
- *   Activas con salida (las incompletas no suman hasta que Juan las complete).
- * - Profesoras: pago mensual fijo por cada curso del que es titular y que está
- *   vigente en el mes: monto fijo × alumnos × su porcentaje (ver pagoCursos.ts).
+ * Cada persona tiene un solo recibo, armado por partes (tiene las que le tocan):
+ * - Horas (secretarias): precio por hora × minutos de sus turnos. Cuentan las
+ *   jornadas Activas con salida (las incompletas no suman hasta que Juan las
+ *   complete). **El tiempo de su turno que estuvo dando una clase (propia o de
+ *   reemplazo) no se paga como hora de secretaria**: se descuenta la superposición.
+ *   Ej.: turno de 18 a 22 con clase de 19 a 20 → se pagan 3 horas.
+ * - Cursos (titulares): pago mensual fijo por cada curso del que es titular y que
+ *   está vigente en el mes: monto fijo × alumnos × su porcentaje (ver pagoCursos.ts).
  *   No depende de cuántas clases dio: las clases que cuentan (Activa, no excluida
  *   por un día especial, salvo "contar igual") van al recibo como control.
- * - Reemplazos: si una clase que cuenta la dio alguien que no es titular de ese
- *   día (aunque sea profesora del curso: ver titulares.ts), el valor de la clase
- *   (pago mensual de la titular ÷ sus clases del curso en el mes, feriados
- *   incluidos) se le resta a la titular y se le suma a la reemplazante.
+ * - Reemplazos (cualquiera, también secretarias): si una clase que cuenta la dio
+ *   alguien que no es titular de ese día (aunque sea profesora del curso: ver
+ *   titulares.ts), el valor de la clase (pago mensual de la titular ÷ sus clases del
+ *   curso en el mes, feriados incluidos) se le resta a la titular y se le suma a
+ *   quien la dio.
+ *
+ * Así salen solos los cuatro casos: secretaria, profesora, secretaria que reemplaza
+ * y secretaria que también es profesora.
  */
 import {
 	diaEspecialQueExcluye,
@@ -21,7 +29,7 @@ import {
 	type JornadaCalendario,
 } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { redondearCentavos } from "./dinero";
-import { diaSemanaDeFecha } from "./fechas";
+import { diaSemanaDeFecha, fechaHoraAR } from "./fechas";
 import { titularesDelDia } from "./titulares";
 import {
 	clasesDelMesDeProfesora,
@@ -39,35 +47,36 @@ import type {
 	Rol,
 } from "./tipos";
 
-interface LiquidacionBase {
+export interface Liquidacion {
 	personalId: string;
 	nombre: string;
+	/** "secretaria" si tiene horas (está en Personal), aunque también sea profesora */
 	rol: Rol;
+	/** Secretaria que además es titular de cursos (o tiene su cuenta del portal docente) */
+	tambienProfesora: boolean;
+	// ── Horas: solo secretarias ──
+	/** Minutos que se pagan (los de sus turnos menos los que estuvo dando clase). null = no es secretaria */
+	totalMinutos: number | null;
+	/** Minutos de sus turnos que estuvo dando clase: se descuentan de las horas */
+	minutosEnClase: number;
+	precioHora: number | null;
+	/** Lo que cobra por las horas: precio por hora × totalMinutos */
+	totalHoras: number;
+	// ── Clases, cursos y reemplazos: cualquiera ──
+	/** Clases que dio y cuentan (control de asistencia) */
+	totalClases: number;
+	clases: ClaseLiquidada[];
+	cursos: CursoLiquidado[];
+	reemplazos: ReemplazoLiquidado[];
 	totalAPagar: number;
 	/** true si falta algún precio: esa parte se calculó en $0 */
 	faltaPrecio: boolean;
 	/** Secretarias: precio por hora. Profesoras: null (cobran un monto mensual por curso) */
 	precio: number | null;
 	precioEsPromedio: boolean;
-	/** Profesoras: cursos que cobra en el mes. Secretarias: 0 */
+	/** Cursos que cobra en el mes */
 	cantidadCursos: number;
 }
-
-export interface LiquidacionSecretaria extends LiquidacionBase {
-	rol: "secretaria";
-	totalMinutos: number;
-	precioHora: number | null;
-}
-
-export interface LiquidacionProfesora extends LiquidacionBase {
-	rol: "profesora";
-	totalClases: number;
-	clases: ClaseLiquidada[];
-	cursos: CursoLiquidado[];
-	reemplazos: ReemplazoLiquidado[];
-}
-
-export type Liquidacion = LiquidacionSecretaria | LiquidacionProfesora;
 
 export interface DatosLiquidacion {
 	periodo: string; // "YYYY-MM"
@@ -89,6 +98,39 @@ export const minutosQueCuentan = (j: JornadaCalendario): number => {
 	);
 };
 
+/**
+ * Minutos de la jornada en los que estuvo dando alguna de esas clases (la unión de
+ * las clases, recortada a la jornada). Nunca más que lo que suma la jornada.
+ */
+export function minutosEnClaseDeJornada(
+	j: JornadaCalendario,
+	clases: Pick<ClaseCalendario, "fecha" | "horaInicio" | "horaFin">[],
+): number {
+	const suma = minutosQueCuentan(j);
+	if (suma === 0 || !j.salida) return 0;
+	const ini = j.entrada.getTime();
+	const fin = j.salida.getTime();
+	const tramos = clases
+		.map((c) => [
+			Math.max(fechaHoraAR(c.fecha, c.horaInicio).getTime(), ini),
+			Math.min(fechaHoraAR(c.fecha, c.horaFin).getTime(), fin),
+		])
+		.filter(([a, b]) => b > a)
+		.sort((x, y) => x[0] - y[0]);
+	let total = 0;
+	let desde = 0;
+	let hasta = 0;
+	tramos.forEach(([a, b], i) => {
+		if (i === 0 || a > hasta) {
+			total += hasta - desde;
+			desde = a;
+			hasta = b;
+		} else hasta = Math.max(hasta, b);
+	});
+	total += hasta - desde;
+	return Math.min(suma, Math.round(total / 60000));
+}
+
 /** true si la clase dictada cuenta para el recibo */
 export const claseCuenta = (
 	c: ClaseCalendario,
@@ -102,7 +144,7 @@ const ordenarClases = (a: ClaseCalendario, b: ClaseCalendario) =>
 		? a.horaInicio.localeCompare(b.horaInicio)
 		: a.fecha.localeCompare(b.fecha);
 
-/** Una clase dada por otra en lugar de una titular, con lo que vale */
+/** Una clase dada por otra persona en lugar de una titular, con lo que vale */
 interface Traspaso {
 	clase: ClaseCalendario;
 	titularId: string;
@@ -150,47 +192,44 @@ const ordenarReemplazos = (a: ReemplazoLiquidado, b: ReemplazoLiquidado) =>
 export function liquidarPersona(
 	empleado: EmpleadoCalendario,
 	datos: DatosLiquidacion,
+	traspasosMes: Traspaso[] = traspasosDelMes(datos),
 ): Liquidacion {
-	if (empleado.tipo === "secretaria") {
-		const precioHora =
-			datos.personal.find((p) => p.id === empleado.id)?.precioHora ?? null;
-		const totalMinutos = datos.jornadas
-			.filter((j) => j.empleadoId === empleado.id)
-			.reduce((acc, j) => acc + minutosQueCuentan(j), 0);
-		return {
-			personalId: empleado.id,
-			nombre: empleado.nombreCompleto,
-			rol: "secretaria",
-			totalMinutos,
-			precioHora,
-			precio: precioHora,
-			precioEsPromedio: false,
-			cantidadCursos: 0,
-			totalAPagar: redondearCentavos(((precioHora ?? 0) * totalMinutos) / 60),
-			faltaPrecio: precioHora === null && totalMinutos > 0,
-		};
-	}
+	const esSecretaria = empleado.tipo === "secretaria";
+	const persona = datos.personal.find((p) => p.id === empleado.id && p.rol === empleado.tipo);
 
-	const clases = datos.clases
+	// ── Clases que dio y cuentan (propias o reemplazos) ──
+	const dadas = datos.clases
 		.filter(
 			(c) =>
 				c.dictada?.profesoraId === empleado.id &&
 				claseCuenta(c, datos.diasEspeciales),
 		)
-		.sort(ordenarClases)
-		.map(
-			(c): ClaseLiquidada => ({
-				claseId: c.id,
-				fecha: c.fecha,
-				cursoId: c.cursoId,
-				cursoNombre: c.cursoNombre,
-				horaInicio: c.horaInicio,
-				horaFin: c.horaFin,
-				esReemplazo: c.dictada?.esReemplazo ?? false,
-			}),
-		);
+		.sort(ordenarClases);
+	const clases = dadas.map(
+		(c): ClaseLiquidada => ({
+			claseId: c.id,
+			fecha: c.fecha,
+			cursoId: c.cursoId,
+			cursoNombre: c.cursoNombre,
+			horaInicio: c.horaInicio,
+			horaFin: c.horaFin,
+			esReemplazo: c.dictada?.esReemplazo ?? false,
+		}),
+	);
 
-	// Cursos activos de los que es titular y que están vigentes en el mes
+	// ── Horas (secretarias): sus turnos menos el tiempo que estuvo dando clase ──
+	const precioHora = esSecretaria ? (persona?.precioHora ?? null) : null;
+	let totalMinutos: number | null = null;
+	let minutosEnClase = 0;
+	if (esSecretaria) {
+		const suyas = datos.jornadas.filter((j) => j.empleadoId === empleado.id);
+		const brutos = suyas.reduce((acc, j) => acc + minutosQueCuentan(j), 0);
+		minutosEnClase = suyas.reduce((acc, j) => acc + minutosEnClaseDeJornada(j, dadas), 0);
+		totalMinutos = Math.max(0, brutos - minutosEnClase);
+	}
+	const totalHoras = redondearCentavos(((precioHora ?? 0) * (totalMinutos ?? 0)) / 60);
+
+	// ── Cursos activos de los que es titular y que están vigentes en el mes ──
 	const cursos = datos.cursos
 		.filter(
 			(c) =>
@@ -211,8 +250,8 @@ export function liquidarPersona(
 			};
 		});
 
-	// Reemplazos: suma lo que dio en lugar de otra, resta lo que le dieron a ella
-	const traspasos = traspasosDelMes(datos).filter(
+	// ── Reemplazos: suma lo que dio en lugar de otra, resta lo que le dieron a ella ──
+	const traspasos = traspasosMes.filter(
 		(t) => t.reemplazanteId === empleado.id || t.titularId === empleado.id,
 	);
 	const reemplazos = traspasos
@@ -241,27 +280,35 @@ export function liquidarPersona(
 	return {
 		personalId: empleado.id,
 		nombre: empleado.nombreCompleto,
-		rol: "profesora",
+		rol: esSecretaria ? "secretaria" : "profesora",
+		tambienProfesora: esSecretaria && (persona?.tambienProfesora === true || cursos.length > 0),
+		totalMinutos,
+		minutosEnClase,
+		precioHora,
+		totalHoras,
 		totalClases: clases.length,
 		clases,
 		cursos,
 		reemplazos,
-		precio: null,
+		precio: precioHora,
 		precioEsPromedio: false,
 		cantidadCursos: cursos.length,
-		totalAPagar: redondearCentavos(totalCursos + totalReemplazos),
+		totalAPagar: redondearCentavos(totalHoras + totalCursos + totalReemplazos),
 		faltaPrecio:
+			(esSecretaria && precioHora === null && (totalMinutos ?? 0) > 0) ||
 			cursos.some(
 				(c) =>
 					c.cantidadAlumnos === null || c.montoFijo === null || c.porcentaje === null,
-			) || traspasos.some((t) => t.monto === null),
+			) ||
+			traspasos.some((t) => t.monto === null),
 	};
 }
 
 /** Liquidación de todo el personal del mes: secretarias primero, después por nombre */
-export const liquidarMes = (datos: DatosLiquidacion): Liquidacion[] =>
-	datos.empleados
-		.map((e) => liquidarPersona(e, datos))
+export const liquidarMes = (datos: DatosLiquidacion): Liquidacion[] => {
+	const traspasos = traspasosDelMes(datos);
+	return datos.empleados
+		.map((e) => liquidarPersona(e, datos, traspasos))
 		.sort((a, b) =>
 			a.rol === b.rol
 				? a.nombre.localeCompare(b.nombre)
@@ -269,20 +316,20 @@ export const liquidarMes = (datos: DatosLiquidacion): Liquidacion[] =>
 					? -1
 					: 1,
 		);
+};
 
 /** Qué falta configurar para que los recibos no salgan en $0 */
 export function preciosFaltantes(liquidaciones: Liquidacion[]) {
 	const cursosSinPrecio = new Set<string>();
-	liquidaciones.forEach((l) => {
-		if (l.rol === "profesora")
-			l.cursos.forEach((c) => {
-				if (c.cantidadAlumnos === null || c.montoFijo === null || c.porcentaje === null)
-					cursosSinPrecio.add(c.cursoNombre);
-			});
-	});
+	liquidaciones.forEach((l) =>
+		l.cursos.forEach((c) => {
+			if (c.cantidadAlumnos === null || c.montoFijo === null || c.porcentaje === null)
+				cursosSinPrecio.add(c.cursoNombre);
+		}),
+	);
 	return {
 		secretarias: liquidaciones
-			.filter((l) => l.rol === "secretaria" && l.faltaPrecio)
+			.filter((l) => l.rol === "secretaria" && l.precioHora === null && (l.totalMinutos ?? 0) > 0)
 			.map((l) => l.nombre),
 		cursos: [...cursosSinPrecio].sort(),
 	};
@@ -290,32 +337,36 @@ export function preciosFaltantes(liquidaciones: Liquidacion[]) {
 
 export type EstadoRecibo = "sin_generar" | "generado" | "desactualizado";
 
-/** Compara lo que se calcula hoy con el recibo guardado */
+/**
+ * Compara lo que se calcula hoy con el recibo guardado. Compara todas las partes
+ * (los recibos viejos no tienen las que no correspondían a su rol: vienen vacías).
+ */
 export function estadoRecibo(l: Liquidacion, recibo?: Recibo): EstadoRecibo {
 	if (!recibo) return "sin_generar";
+	const reemplazos = recibo.reemplazos ?? [];
 	const igual =
 		recibo.totalAPagar === l.totalAPagar &&
-		(l.rol === "secretaria"
-			? recibo.totalMinutos === l.totalMinutos && recibo.precioHora === l.precioHora
-			: recibo.totalClases === l.totalClases &&
-				recibo.clases.length === l.clases.length &&
-				recibo.clases.every((c, i) => c.claseId === l.clases[i].claseId) &&
-				recibo.cursos.length === l.cursos.length &&
-				recibo.cursos.every(
-					(c, i) =>
-						c.cursoId === l.cursos[i].cursoId &&
-						c.total === l.cursos[i].total &&
-						c.cantidadAlumnos === l.cursos[i].cantidadAlumnos &&
-						c.montoFijo === l.cursos[i].montoFijo &&
-						c.porcentaje === l.cursos[i].porcentaje,
-				) &&
-				(recibo.reemplazos ?? []).length === l.reemplazos.length &&
-				(recibo.reemplazos ?? []).every(
-					(r, i) =>
-						r.claseId === l.reemplazos[i].claseId &&
-						r.tipo === l.reemplazos[i].tipo &&
-						r.otraId === l.reemplazos[i].otraId &&
-						r.monto === l.reemplazos[i].monto,
-				));
+		(recibo.totalMinutos ?? null) === l.totalMinutos &&
+		(recibo.minutosEnClase ?? 0) === l.minutosEnClase &&
+		(recibo.precioHora ?? null) === l.precioHora &&
+		recibo.clases.length === l.clases.length &&
+		recibo.clases.every((c, i) => c.claseId === l.clases[i].claseId) &&
+		recibo.cursos.length === l.cursos.length &&
+		recibo.cursos.every(
+			(c, i) =>
+				c.cursoId === l.cursos[i].cursoId &&
+				c.total === l.cursos[i].total &&
+				c.cantidadAlumnos === l.cursos[i].cantidadAlumnos &&
+				c.montoFijo === l.cursos[i].montoFijo &&
+				c.porcentaje === l.cursos[i].porcentaje,
+		) &&
+		reemplazos.length === l.reemplazos.length &&
+		reemplazos.every(
+			(r, i) =>
+				r.claseId === l.reemplazos[i].claseId &&
+				r.tipo === l.reemplazos[i].tipo &&
+				r.otraId === l.reemplazos[i].otraId &&
+				r.monto === l.reemplazos[i].monto,
+		);
 	return igual ? "generado" : "desactualizado";
 }

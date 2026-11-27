@@ -76,9 +76,31 @@ export default function TabPersonal({
 	// Modal de cursos: se guarda el id y se busca en `personal`, que llega en vivo,
 	// así el modal muestra los cambios apenas se guardan
 	const [cursosDeId, setCursosDeId] = useState<string | null>(null);
+	const esDocente = (p: Persona) => p.rol === "profesora" || p.tambienProfesora === true;
 	const profesoraCursos = cursosDeId
-		? (personal.find((p) => p.id === cursosDeId && p.rol === "profesora") ?? null)
+		? (personal.find((p) => p.id === cursosDeId && esDocente(p)) ?? null)
 		: null;
+	// Secretaria que también va a ser profesora (confirmación)
+	const [sumarProfesora, setSumarProfesora] = useState<Persona | null>(null);
+	const [sumando, setSumando] = useState(false);
+	const [errorSumar, setErrorSumar] = useState<string | null>(null);
+	const confirmarSumarProfesora = async () => {
+		if (!sumarProfesora) return;
+		setSumando(true);
+		setErrorSumar(null);
+		try {
+			await repo.hacerTambienProfesora(sumarProfesora);
+			notificar(
+				`${sumarProfesora.nombre} ya es también profesora: asignale sus cursos y entra al portal docente con su misma cuenta.`,
+			);
+			setCursosDeId(sumarProfesora.id);
+			setSumarProfesora(null);
+		} catch (e) {
+			setErrorSumar(mensajeDeError(e));
+		} finally {
+			setSumando(false);
+		}
+	};
 
 	// Cuentas del panel con rol secretario que todavía no están en el registro
 	const [cuentas, setCuentas] = useState<CuentaSecretaria[] | null>(null);
@@ -140,7 +162,9 @@ export default function TabPersonal({
 		return personal.filter(
 			(p) =>
 				(verInactivos || p.activo) &&
-				(filtroRol === "todos" || p.rol === filtroRol) &&
+				(filtroRol === "todos" ||
+					p.rol === filtroRol ||
+					(filtroRol === "profesora" && p.tambienProfesora === true)) &&
 				(!q ||
 					nombreCompleto(p).toLowerCase().includes(q) ||
 					p.email.toLowerCase().includes(q) ||
@@ -288,7 +312,7 @@ export default function TabPersonal({
 					<p className="text-sm font-bold text-[#252d62]">
 						{personal.filter((p) => p.activo && p.rol === "secretaria").length}{" "}
 						secretarias ·{" "}
-						{personal.filter((p) => p.activo && p.rol === "profesora").length}{" "}
+						{personal.filter((p) => p.activo && esDocente(p)).length}{" "}
 						profesoras activas
 					</p>
 				</div>
@@ -355,9 +379,16 @@ export default function TabPersonal({
 											</td>
 											<td className="px-6 py-4">
 												{p.rol === "secretaria" ? (
-													<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-[#252d62]">
-														<Briefcase className="w-3 h-3" /> Secretaria
-													</span>
+													<div className="flex flex-wrap gap-1">
+														<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-[#252d62]">
+															<Briefcase className="w-3 h-3" /> Secretaria
+														</span>
+														{p.tambienProfesora && (
+															<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700">
+																<GraduationCap className="w-3 h-3" /> Profesora
+															</span>
+														)}
+													</div>
 												) : (
 													<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700">
 														<GraduationCap className="w-3 h-3" /> Profesora
@@ -376,7 +407,7 @@ export default function TabPersonal({
 												)}
 											</td>
 											<td className="px-6 py-4 text-gray-600">
-												{p.rol === "profesora" ? (
+												{esDocente(p) ? (
 													<button
 														type="button"
 														onClick={() => setCursosDeId(p.id)}
@@ -422,7 +453,20 @@ export default function TabPersonal({
 												</button>
 											</td>
 											<td className="px-6 py-4 text-right whitespace-nowrap">
-												{p.rol === "profesora" && (
+												{p.rol === "secretaria" && !p.tambienProfesora && p.activo && (
+													<button
+														onClick={() => {
+															setErrorSumar(null);
+															setSumarProfesora(p);
+														}}
+														className="p-2 rounded-lg text-gray-400 hover:text-purple-700 hover:bg-purple-50 transition-colors"
+														aria-label={`Sumar a ${nombreCompleto(p)} como profesora`}
+														title="También es profesora"
+													>
+														<GraduationCap className="w-4 h-4" />
+													</button>
+												)}
+												{esDocente(p) && (
 													<button
 														onClick={() => setCursosDeId(p.id)}
 														className="p-2 rounded-lg text-gray-400 hover:text-[#252d62] hover:bg-indigo-50 transition-colors"
@@ -457,6 +501,35 @@ export default function TabPersonal({
 				notificar={notificar}
 				onCerrar={() => setCursosDeId(null)}
 			/>
+
+			{/* Modal: una secretaria que también es profesora */}
+			<ModalFormulario
+				abierto={sumarProfesora !== null}
+				onCerrar={() => setSumarProfesora(null)}
+				titulo="También es profesora"
+				subtitulo={sumarProfesora ? nombreCompleto(sumarProfesora) : ""}
+				icono={GraduationCap}
+				error={errorSumar}
+				guardando={sumando}
+				onGuardar={confirmarSumarProfesora}
+				textoGuardar="Sumar como profesora"
+			>
+				<ul className="text-sm text-gray-600 space-y-2 list-disc pl-5">
+					<li>
+						Entra al <strong>portal docente</strong> con su misma cuenta (mismo email y
+						contraseña). No se crea otra cuenta.
+					</li>
+					<li>
+						Le asignás sus cursos y días como a cualquier profesora, y cobra su pago mensual.
+					</li>
+					<li>
+						Sigue fichando su turno con <strong>su mismo llavero</strong>. Su clase cuenta como
+						dada si estaba en su turno a esa hora, y ese tiempo no se le paga como horas de
+						secretaria. Si no la dio, la corregís desde el calendario.
+					</li>
+					<li>Tiene un solo recibo por mes, con todo junto, y lo ve en los dos paneles.</li>
+				</ul>
+			</ModalFormulario>
 
 			{/* Modal: traer las secretarias del panel */}
 			<ModalFormulario
@@ -517,7 +590,9 @@ export default function TabPersonal({
 					editandoId
 						? editando?.rol === "profesora"
 							? "Son los mismos datos de su cuenta del portal docente"
-							: "Los registros ya cargados conservan el nombre anterior"
+							: editando?.tambienProfesora
+								? "También se actualizan en su cuenta del portal docente"
+								: "Los registros ya cargados conservan el nombre anterior"
 						: "Se le crea la cuenta y después le vas a poder asignar un llavero"
 				}
 				icono={UserPlus}

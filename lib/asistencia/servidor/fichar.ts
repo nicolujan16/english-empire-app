@@ -11,6 +11,8 @@
  *   Llaveros/{UID} con su asignación y se borra el pendiente.
  * - Secretaria: un toque alterna entrada y salida (Jornadas). Si quedó abierta una
  *   entrada de otro día, esa queda "sin salida" y el toque es una entrada nueva.
+ *   Una secretaria que también es profesora (mismo id en Teachers) ficha como
+ *   secretaria: sus clases cuentan como dadas si estaba en su turno (calendario.ts).
  * - Profesora: un toque registra todas las clases de su bloque (ClasesDictadas, ver
  *   bloques.ts). Solo cuentan las clases de los días que da ella (titulares.ts): la
  *   clase de un día de otra profesora queda "sin clase" y el director la asigna como

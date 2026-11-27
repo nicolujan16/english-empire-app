@@ -36,6 +36,11 @@ Los permisos de pantalla están en `lib/asistencia/permisos.ts`. **La protecció
   - El email no se cambia desde el registro, porque es el de la cuenta.
   - Sus cursos se asignan desde Carga de personal (ícono de libro o celda "Cursos"). El modal escribe en `Teachers.cursosAsignados`, igual que Configuración → Gestionar profesores, y guarda al instante.
   - El rol no cambia después del alta: secretarias y profesoras viven en colecciones distintas.
+- **Secretaria que también es profesora** → `Personal/{uid}` + `Teachers/{uid}`, **con el mismo id**. Es una sola persona.
+  - Se suma desde Carga de personal (ícono de birrete en la fila de la secretaria, `hacerTambienProfesora`): crea su `Teachers/{uid}` sin cuenta nueva, así entra al portal docente con su mismo email y contraseña. Después se le asignan cursos y días como a cualquier profesora.
+  - En la web aparece una sola vez, como secretaria con `tambienProfesora: true` (lo arma `suscribirPersonal`). La API de la app de escritorio la manda una sola vez, como secretaria.
+  - Ficha **su turno** con un solo llavero (`fichar.ts` busca primero en `Personal`). Su clase cuenta como **dada en su turno** si tiene una jornada que se superpone con la clase (`dadaEnSuTurno` en `calendario.ts`). No se guarda: se calcula, así si se corrige la jornada se recalcula. Si no la dio, el director la asigna a otra o la anula desde el calendario (eso sí se guarda y manda).
+  - Editar sus datos o desactivarla actualiza también su doc de `Teachers`.
 - **`PersonalLiquidacion/{personalId}`** → `{ precioHora }`. Solo director. Va aparte porque las secretarias leen `Personal`.
 
 ### Cursos
@@ -147,10 +152,27 @@ Cada carga o corrección manual (jornadas, movimientos, clases, días especiales
    - Ej.: lunes y miércoles en noviembre 2026 = 5 + 4 = 9 → 176.400 ÷ 9 = **19.600**. Si Fio da solo los lunes: 176.400 ÷ 5 = **35.280**.
    - Solo se usa para el valor de un reemplazo: se le descuenta a la titular y lo cobra la reemplazante.
 
+## Cómo se arma el recibo de cada persona (`lib/asistencia/liquidacion.ts`)
+
+Un solo recibo por persona y por mes (`RecibosPersonal/{personalId}_{YYYY-MM}`), armado por partes. Cada una tiene las que le tocan:
+
+| Parte | Quién | Cuánto |
+|---|---|---|
+| Horas | Secretarias | Precio por hora × minutos de sus turnos, **menos el tiempo de su turno que estuvo dando una clase** (propia o de reemplazo) |
+| Cursos | Titulares | Pago mensual de cada curso |
+| Reemplazos | Cualquiera, también secretarias | Suma el valor de las clases que dio en lugar de la titular; resta las que le dieron a ella |
+
+- Ej.: turno de 18 a 22 con clase de 19 a 20 → se pagan 3 horas de secretaria (más el pago del curso o el valor del reemplazo). Si la clase cae fuera del turno, no se descuenta nada.
+- Solo se descuentan las clases que cuentan (Activas, no excluidas por un día especial, salvo "contar igual").
+- **Secretarias como reemplazantes:** en "¿Quién dio la clase?" (calendario y Carga de datos → Registro) aparecen después de las profesoras. Siempre es reemplazo: se le descuenta el valor a la titular y lo cobra la secretaria.
+- El recibo guarda todas las partes (`totalMinutos`, `minutosEnClase`, `precioHora`, `clases`, `cursos`, `reemplazos`). Los generados antes solo tienen las de su rol, y siguen "al día" mientras no cambie nada.
+- Renglones impresos: "Secretaria" (horas que se pagan), un renglón por curso y los reemplazos agrupados.
+
 ## Mis recibos (cada persona ve los suyos)
 
 - **Profesoras:** en el inicio del portal docente, sección "Mis recibos de sueldo". Se buscan por `personalId == uid` (su doc de `Teachers`).
 - **Secretarias:** en el panel de admin, "Mis recibos" (solo para el rol `secretario`, en `/admin/mis-recibos`). Se buscan por `personalId == uid` de su cuenta del panel (es el id de su doc de `Personal`). Las reglas también aceptan el email de la cuenta, para recibos de secretarias cargadas antes con otro id.
+- **Secretaria que también es profesora:** ve el mismo recibo en los dos lados (panel y portal docente), porque los dos buscan por su uid.
 - Se leen de `RecibosPersonalPublicados`, que no tiene porcentajes ni montos fijos. Se publica recién cuando se guarda la imagen, así que siempre corresponde a una imagen lista.
 
 ## Recibo impreso y edición a mano

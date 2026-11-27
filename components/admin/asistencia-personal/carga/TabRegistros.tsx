@@ -33,6 +33,7 @@ import {
 	sumarDias,
 } from "@/lib/asistencia/fechas";
 import { titularesDelDia } from "@/lib/asistencia/titulares";
+import { dadaEnSuTurno } from "@/lib/asistencia/calendario";
 import type {
 	RegistrosDelDia,
 	RepositorioCarga,
@@ -70,6 +71,8 @@ interface FilaClase {
 	/** Titulares de ese día (titularesDelDia); null si el curso ya no existe */
 	titularIds: string[] | null;
 	dictada: ClaseDictada | null;
+	/** Sin registro guardado: secretaria que también es profesora y estaba en su turno */
+	enSuTurno: Persona | null;
 	fueraDeHorario: boolean;
 }
 
@@ -196,9 +199,12 @@ export default function TabRegistros({
 	const secretariasActivas = personal.filter(
 		(p) => p.rol === "secretaria" && p.activo,
 	);
+	// Quién puede dar una clase: profesoras (y secretarias que también lo son) primero,
+	// después las secretarias (siempre como reemplazo)
 	const profesorasActivas = personal.filter(
-		(p) => p.rol === "profesora" && p.activo,
+		(p) => (p.rol === "profesora" || p.tambienProfesora === true) && p.activo,
 	);
+	const secretariasReemplazo = secretariasActivas.filter((p) => !p.tambienProfesora);
 
 	// ── Clases esperadas del día + registradas ────────────────────────────────
 	const filasClases: FilaClase[] = useMemo(() => {
@@ -229,6 +235,13 @@ export default function TabRegistros({
 							),
 							titularIds,
 							dictada: dictadas.get(id) ?? null,
+							enSuTurno: dictadas.has(id)
+								? null
+								: dadaEnSuTurno(
+										{ fecha, horaInicio: h.inicio, horaFin: h.fin, titularIds },
+										personal,
+										registros?.jornadas ?? [],
+									),
 							fueraDeHorario: false,
 						});
 						dictadas.delete(id);
@@ -250,12 +263,13 @@ export default function TabRegistros({
 				),
 				titularIds,
 				dictada: d,
+				enSuTurno: null,
 				fueraDeHorario: true,
 			});
 		});
 
 		return filas.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
-	}, [cursos, cursosPorId, fecha, registros]);
+	}, [cursos, cursosPorId, fecha, registros, personal]);
 
 	const jornadas = registros?.jornadas ?? [];
 	const jornadasSinSalida = jornadas.filter(
@@ -697,7 +711,9 @@ export default function TabRegistros({
 												? esReemplazoActual(f)
 													? `Dio: ${d.profesoraDictoNombre} · titular ${f.titulares.join(", ") || "—"}`
 													: `Dio: ${d.profesoraDictoNombre}`
-												: f.titulares.join(", ") || "Sin profesora asignada"}
+												: f.enSuTurno
+													? `Dio: ${nombreCompleto(f.enSuTurno)} · estaba en su turno de secretaria`
+													: f.titulares.join(", ") || "Sin profesora asignada"}
 											{d?.origen === "manual" && " · carga manual"}
 											{d?.contarIgual && " · cuenta igual"}
 										</p>
@@ -714,6 +730,10 @@ export default function TabRegistros({
 										) : d ? (
 											<Badge icon={UserCheck} className="bg-green-50 text-green-700 border-green-100">
 												Dada
+											</Badge>
+										) : f.enSuTurno ? (
+											<Badge icon={UserCheck} className="bg-green-50 text-green-700 border-green-100">
+												En su turno
 											</Badge>
 										) : (
 											<Badge
@@ -946,7 +966,7 @@ export default function TabRegistros({
 						className={inputClase}
 					>
 						<option value="" disabled>
-							Elegí una profesora
+							Elegí quién la dio
 						</option>
 						{(() => {
 							const titulares = profesorasActivas.filter((p) =>
@@ -955,9 +975,13 @@ export default function TabRegistros({
 							const otras = profesorasActivas.filter(
 								(p) => !titularesSeleccion.includes(p.id),
 							);
+							const secretarias = secretariasReemplazo.filter(
+								(p) => !titularesSeleccion.includes(p.id),
+							);
 							const actual =
 								modalClase?.modo === "editar" &&
-								!profesorasActivas.some((p) => p.id === modalClase.clase.profesoraDictoId)
+								!profesorasActivas.some((p) => p.id === modalClase.clase.profesoraDictoId) &&
+								!secretarias.some((p) => p.id === modalClase.clase.profesoraDictoId)
 									? personalPorId.get(modalClase.clase.profesoraDictoId)
 									: undefined;
 							return (
@@ -985,6 +1009,15 @@ export default function TabRegistros({
 											))}
 										</optgroup>
 									)}
+									{secretarias.length > 0 && (
+										<optgroup label="Secretarias (reemplazo)">
+											{secretarias.map((p) => (
+												<option key={p.id} value={p.id}>
+													{nombreCompleto(p)}
+												</option>
+											))}
+										</optgroup>
+									)}
 								</>
 							);
 						})()}
@@ -993,8 +1026,13 @@ export default function TabRegistros({
 				{seraReemplazo && (
 					<div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700 flex items-center gap-2">
 						<Repeat className="w-4 h-4 shrink-0" />
-						No es titular del curso: la clase queda como <strong>reemplazo</strong> y
-						cuenta para ella.
+						<span>
+							No es titular de ese día: la clase queda como <strong>reemplazo</strong>.
+							El valor de la clase se le descuenta a la titular y lo cobra quien la dio
+							{personalPorId.get(fc.profesoraId)?.rol === "secretaria"
+								? " (si fue durante su turno, ese tiempo no se le paga como horas)."
+								: "."}
+						</span>
 					</div>
 				)}
 				{modalClase?.modo === "editar" && (

@@ -96,6 +96,11 @@ export interface ClaseCalendario {
 		estado: "Activa" | "Anulada";
 		contarIgual: boolean; // override de Juan sobre un día especial
 		fueOffline?: boolean;
+		/**
+		 * true = no hay registro guardado: es de una secretaria que también es profesora y
+		 * estaba en su turno a esa hora, así que se cuenta como dada (ver dadaEnSuTurno)
+		 */
+		enSuTurno?: boolean;
 	} | null;
 }
 
@@ -125,9 +130,9 @@ export interface ResumenEmpleado {
 	empleadoId: string;
 	nombreCompleto: string;
 	tipo: TipoEmpleado;
-	totalMinutos: number; // secretarias
-	totalClases: number; // profesoras (ya sin las excluidas)
-	clasesExcluidas: number; // profesoras: dictadas en día especial que no cuentan
+	totalMinutos: number; // secretarias (lo de sus turnos, antes de descontar las clases)
+	totalClases: number; // clases que dio (ya sin las excluidas): profesoras y secretarias
+	clasesExcluidas: number; // dictadas en día especial que no cuentan
 	jornadasIncompletas: number;
 	clasesSinRegistro: number;
 }
@@ -139,6 +144,8 @@ export interface MontoEmpleado {
 	precioEsPromedio: boolean;
 	/** Profesoras: cursos que cobra en el mes */
 	cantidadCursos?: number;
+	/** Secretarias: minutos de su turno que estuvo dando clase (no se pagan como horas) */
+	minutosEnClase?: number;
 	totalAPagar: number;
 	faltaPrecio: boolean;
 }
@@ -537,19 +544,20 @@ export default function CalendarioAsistencia({
 							if (j.incompleta || !j.salida) r.jornadasIncompletas++;
 							r.totalMinutos += minutosDeJornada(j) ?? 0;
 						});
-				} else {
-					clases.forEach((c) => {
-						if (
-							c.dictada?.estado === "Activa" &&
-							c.dictada.profesoraId === e.id
-						) {
-							if (excluidaPor(c)) r.clasesExcluidas++;
-							else r.totalClases++;
-						}
-						if (c.titularIds.includes(e.id) && esSinRegistro(c))
-							r.clasesSinRegistro++;
-					});
 				}
+				// Clases: las de las profesoras, y las que dio una secretaria (reemplazos o
+				// las suyas, si también es profesora)
+				clases.forEach((c) => {
+					if (
+						c.dictada?.estado === "Activa" &&
+						c.dictada.profesoraId === e.id
+					) {
+						if (excluidaPor(c)) r.clasesExcluidas++;
+						else r.totalClases++;
+					}
+					if (c.titularIds.includes(e.id) && esSinRegistro(c))
+						r.clasesSinRegistro++;
+				});
 				return r;
 			})
 			.sort((a, b) =>
@@ -1050,10 +1058,7 @@ export default function CalendarioAsistencia({
 										</tr>
 									)}
 									{resumen.map((r) => {
-										const revisar =
-											r.tipo === "secretaria"
-												? r.jornadasIncompletas
-												: r.clasesSinRegistro;
+										const revisar = r.jornadasIncompletas + r.clasesSinRegistro;
 										const monto = montos[r.empleadoId];
 										return (
 											<tr
@@ -1095,6 +1100,13 @@ export default function CalendarioAsistencia({
 															? formatMinutos(r.totalMinutos)
 															: `${r.totalClases} clase${r.totalClases === 1 ? "" : "s"}`}
 													</p>
+													{r.tipo === "secretaria" && r.totalClases > 0 && (
+														<p className="text-xs text-purple-700">
+															+{r.totalClases} clase{r.totalClases === 1 ? "" : "s"}
+															{verMontos && (monto?.minutosEnClase ?? 0) > 0 &&
+																` · −${formatMinutos(monto!.minutosEnClase!)} de horas`}
+														</p>
+													)}
 													{r.clasesExcluidas > 0 && (
 														<p className="text-xs text-sky-700">
 															+{r.clasesExcluidas} en día especial (no cuentan)
@@ -1149,9 +1161,12 @@ export default function CalendarioAsistencia({
 													) : (
 														<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 whitespace-nowrap">
 															<AlertTriangle className="w-3 h-3" />
-															{r.tipo === "secretaria"
-																? `${revisar} sin salida`
-																: `${revisar} sin registro`}
+															{[
+																r.jornadasIncompletas > 0 && `${r.jornadasIncompletas} sin salida`,
+																r.clasesSinRegistro > 0 && `${r.clasesSinRegistro} sin registro`,
+															]
+																.filter(Boolean)
+																.join(" · ")}
 														</span>
 													)}
 												</td>
