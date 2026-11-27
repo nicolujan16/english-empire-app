@@ -12,7 +12,9 @@
  * - Secretaria: un toque alterna entrada y salida (Jornadas). Si quedó abierta una
  *   entrada de otro día, esa queda "sin salida" y el toque es una entrada nueva.
  * - Profesora: un toque registra todas las clases de su bloque (ClasesDictadas, ver
- *   bloques.ts). Si la clase cae en un día especial se registra igual y se avisa.
+ *   bloques.ts). Solo cuentan las clases de los días que da ella (titulares.ts): la
+ *   clase de un día de otra profesora queda "sin clase" y el director la asigna como
+ *   reemplazo. Si la clase cae en un día especial se registra igual y se avisa.
  * - Antirrebote: toques de la misma persona dentro de los 60 s no cuentan.
  */
 import { FieldValue, Timestamp, type DocumentData, type DocumentReference, type DocumentSnapshot } from "firebase-admin/firestore";
@@ -22,6 +24,7 @@ import { interpretarHorarios, vigenciaDelCurso } from "../cursosInstituto";
 import { fechaAR, formatMinutos, horaAR, minutosEntre, diaSemanaDeFecha } from "../fechas";
 import { combinarDiasEspeciales, diasQueAplican } from "../feriados";
 import { idClaseDictada, idLlaveroPendiente, type DiaEspecial } from "../tipos";
+import { leerDiasAsignados } from "../titulares";
 import { normalizarUid } from "../uid";
 import type { DispositivoAutenticado } from "./autenticacion";
 
@@ -86,8 +89,11 @@ const COL = {
 
 const nombreDe = (d: DocumentData) => `${d.nombre ?? ""} ${d.apellido ?? ""}`.trim();
 
-/** Clases de hoy de los cursos de la profesora (activos y vigentes), en bloques */
-async function bloquesDelDia(cursoIds: string[], fecha: string): Promise<Bloque[]> {
+/**
+ * Clases de hoy de los cursos de la profesora (activos y vigentes) que da ella ese
+ * día de la semana, en bloques. `titularIds` son las titulares de ese día.
+ */
+async function bloquesDelDia(profesoraId: string, cursoIds: string[], fecha: string): Promise<Bloque[]> {
 	if (cursoIds.length === 0) return [];
 	const dia = diaSemanaDeFecha(fecha);
 	const anio = Number(fecha.slice(0, 4));
@@ -104,17 +110,25 @@ async function bloquesDelDia(cursoIds: string[], fecha: string): Promise<Bloque[
 		if (!vigente) continue;
 		const deHoy = interpretarHorarios(d.horarios).horarios.filter((h) => h.dia === dia);
 		if (deHoy.length === 0) continue;
-		const titulares = await adminDb
+		const profesoras = await adminDb
 			.collection(COL.teachers)
 			.where("cursosAsignados", "array-contains", s.id)
 			.get();
+		// Titulares de hoy: sin días cargados para el curso (null) = todos los días
+		const titularIds = profesoras.docs
+			.filter((t) => {
+				const dias = leerDiasAsignados(t.data().diasAsignados, s.id);
+				return dias === null || dias.includes(dia);
+			})
+			.map((t) => t.id);
+		if (!titularIds.includes(profesoraId)) continue;
 		deHoy.forEach((h) =>
 			clases.push({
 				cursoId: s.id,
 				cursoNombre: String(d.nombre ?? ""),
 				inicio: h.inicio,
 				fin: h.fin,
-				titularIds: titulares.docs.map((t) => t.id),
+				titularIds,
 			}),
 		);
 	}
@@ -194,7 +208,10 @@ export async function procesarFichada(
 		const teacher = await adminDb.collection(COL.teachers).doc(personalIdPrevio).get();
 		if (teacher.exists) {
 			const cursos: string[] = Array.isArray(teacher.data()?.cursosAsignados) ? teacher.data()!.cursosAsignados : [];
-			[bloques, diasEspeciales] = await Promise.all([bloquesDelDia(cursos, fecha), diasEspecialesDe(fecha)]);
+			[bloques, diasEspeciales] = await Promise.all([
+				bloquesDelDia(personalIdPrevio, cursos, fecha),
+				diasEspecialesDe(fecha),
+			]);
 		}
 	}
 

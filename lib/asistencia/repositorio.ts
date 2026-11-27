@@ -13,9 +13,11 @@
  */
 import {
 	Timestamp,
+	FieldPath,
 	arrayRemove,
 	arrayUnion,
 	collection,
+	deleteField,
 	doc,
 	getCountFromServer,
 	getDoc,
@@ -32,7 +34,8 @@ import { auth, db } from "@/lib/firebaseConfig";
 import { crearCuentaSecretario } from "@/lib/services/adminsServices";
 import { crearCuentaProfesor } from "@/lib/services/teachersServices";
 import { interpretarHorarios, vigenciaDelCurso } from "./cursosInstituto";
-import { fechaAR, fechaHoraAR, horaAR, minutosEntre } from "./fechas";
+import { diaSemanaDeFecha, fechaAR, fechaHoraAR, horaAR, minutosEntre } from "./fechas";
+import { leerDiasAsignados, titularesDelDia } from "./titulares";
 import {
 	idClaseDictada,
 	nombreCompleto,
@@ -40,6 +43,7 @@ import {
 	type ClaseDictada,
 	type Curso,
 	type DiaEspecial,
+	type DiaSemana,
 	type DiaEspecialInput,
 	type Jornada,
 	type LiquidacionCursoInput,
@@ -227,7 +231,8 @@ export interface RepositorioCarga {
 	}): Promise<void>;
 	editarClase(
 		clase: ClaseDictada,
-		cambios: { profesora: Persona; contarIgual: boolean },
+		/** `titularIds`: las titulares de ese día según la asignación actual (titularesDelDia) */
+		cambios: { profesora: Persona; contarIgual: boolean; titularIds?: string[] },
 		motivo: string,
 	): Promise<void>;
 	anularClase(clase: ClaseDictada, motivo: string): Promise<void>;
@@ -329,7 +334,7 @@ export const aCurso = (
 	id: string,
 	d: DocumentData,
 	anio: number,
-	titulares: Persona[],
+	titulares: { persona: Persona; dias: DiaSemana[] | null }[],
 	liq: DocumentData | null,
 	inscriptos: number | null,
 ): Curso => {
@@ -348,8 +353,9 @@ export const aCurso = (
 		id,
 		nombre: d.nombre ?? "",
 		activo: (d.active ?? d.activo) !== false,
-		profesoraIds: titulares.map((p) => p.id),
-		profesoraNombres: titulares.map(nombreCompleto),
+		profesoraIds: titulares.map((t) => t.persona.id),
+		profesoraNombres: titulares.map((t) => nombreCompleto(t.persona)),
+		diasPorProfesora: Object.fromEntries(titulares.map((t) => [t.persona.id, t.dias])),
 		horarios,
 		fechaInicio,
 		fechaFin,
@@ -508,7 +514,7 @@ export const repositorioFirestore: RepositorioCarga = {
 		const conLiq = opciones.conLiquidacion === true;
 		const anio = opciones.anio ?? anioActual();
 		let cursos: { id: string; d: DocumentData }[] = [];
-		let teachers: { persona: Persona; cursos: string[] }[] = [];
+		let teachers: { persona: Persona; cursos: string[]; diasAsignados: unknown }[] = [];
 		let liquidaciones = new Map<string, DocumentData>();
 		const inscriptos = new Map<string, number | null>();
 		let cancelado = false;
@@ -517,8 +523,8 @@ export const repositorioFirestore: RepositorioCarga = {
 			const lista = cursos.map(({ id, d }) => {
 				const titulares = teachers
 					.filter((t) => t.cursos.includes(id))
-					.map((t) => t.persona)
-					.sort(porNombre);
+					.sort((a, b) => porNombre(a.persona, b.persona))
+					.map((t) => ({ persona: t.persona, dias: leerDiasAsignados(t.diasAsignados, id) }));
 				return aCurso(
 					id,
 					d,
@@ -560,6 +566,7 @@ export const repositorioFirestore: RepositorioCarga = {
 						cursos: Array.isArray(d.data().cursosAsignados)
 							? d.data().cursosAsignados
 							: [],
+						diasAsignados: d.data().diasAsignados,
 					}));
 					listo("teachers");
 				},
@@ -753,20 +760,34 @@ export const repositorioFirestore: RepositorioCarga = {
 			actualizadoPor: uidActual(),
 		});
 
-		// Titulares: es la misma asignación que se ve en Configuración → Gestionar profesores
+		// Profesoras del curso: es la misma asignación que se ve en Configuración →
+		// Gestionar profesores. Los días de cada una van en Teachers.diasAsignados.{cursoId}
 		const antes = new Set(curso.profesoraIds);
 		const despues = new Set(datos.profesoraIds);
+		const conDias = curso.diasDeClase.length > 0;
 		despues.forEach((pid) => {
-			if (!antes.has(pid))
-				batch.update(doc(db, COL.teachers, pid), {
-					cursosAsignados: arrayUnion(curso.id),
-				});
+			const dias = datos.diasPorProfesora[pid];
+			const diasCambiaron =
+				conDias &&
+				!!dias &&
+				JSON.stringify([...dias].sort()) !==
+					JSON.stringify(curso.diasPorProfesora[pid] ?? null);
+			if (antes.has(pid) && !diasCambiaron) return;
+			const ref = doc(db, COL.teachers, pid);
+			const campoDias = new FieldPath("diasAsignados", curso.id);
+			const valorDias = conDias && dias ? [...dias].sort((a, b) => a - b) : deleteField();
+			if (antes.has(pid)) batch.update(ref, campoDias, valorDias);
+			else batch.update(ref, "cursosAsignados", arrayUnion(curso.id), campoDias, valorDias);
 		});
 		antes.forEach((pid) => {
 			if (!despues.has(pid))
-				batch.update(doc(db, COL.teachers, pid), {
-					cursosAsignados: arrayRemove(curso.id),
-				});
+				batch.update(
+					doc(db, COL.teachers, pid),
+					"cursosAsignados",
+					arrayRemove(curso.id),
+					new FieldPath("diasAsignados", curso.id),
+					deleteField(),
+				);
 		});
 		await batch.commit();
 	},
@@ -781,9 +802,13 @@ export const repositorioFirestore: RepositorioCarga = {
 
 	async quitarCursoAProfesora(profesoraId, cursoId) {
 		const batch = writeBatch(db);
-		batch.update(doc(db, COL.teachers, profesoraId), {
-			cursosAsignados: arrayRemove(cursoId),
-		});
+		batch.update(
+			doc(db, COL.teachers, profesoraId),
+			"cursosAsignados",
+			arrayRemove(cursoId),
+			new FieldPath("diasAsignados", cursoId),
+			deleteField(),
+		);
 		await batch.commit();
 	},
 
@@ -972,7 +997,9 @@ export const repositorioFirestore: RepositorioCarga = {
 			);
 		}
 
-		const esReemplazo = !curso.profesoraIds.includes(profesora.id);
+		// Titulares de ese día: si la da otra (aunque sea profesora del curso), es reemplazo
+		const titularIds = titularesDelDia(curso, diaSemanaDeFecha(fecha));
+		const esReemplazo = !titularIds.includes(profesora.id);
 		const datos = {
 			cursoId: curso.id,
 			cursoNombre: curso.nombre,
@@ -982,7 +1009,7 @@ export const repositorioFirestore: RepositorioCarga = {
 			profesoraDictoId: profesora.id,
 			profesoraDictoNombre: nombreCompleto(profesora),
 			esReemplazo,
-			titularIds: curso.profesoraIds,
+			titularIds,
 			llegada: null,
 			minutosTarde: null,
 			estado: "Activa",
@@ -1026,7 +1053,7 @@ export const repositorioFirestore: RepositorioCarga = {
 		await batch.commit();
 	},
 
-	async editarClase(clase, { profesora, contarIgual }, motivo) {
+	async editarClase(clase, { profesora, contarIgual, titularIds }, motivo) {
 		const cambios = [];
 		const update: Record<string, unknown> = {};
 		if (profesora.id !== clase.profesoraDictoId) {
@@ -1036,7 +1063,9 @@ export const repositorioFirestore: RepositorioCarga = {
 			);
 			update.profesoraDictoId = profesora.id;
 			update.profesoraDictoNombre = nombre;
-			update.esReemplazo = !clase.titularIds.includes(profesora.id);
+			const titulares = titularIds ?? clase.titularIds;
+			update.esReemplazo = !titulares.includes(profesora.id);
+			if (titularIds) update.titularIds = titularIds;
 		}
 		if (contarIgual !== clase.contarIgual) {
 			cambios.push(

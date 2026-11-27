@@ -5,8 +5,9 @@
  *
  * Los cursos se crean y editan en Admin → Cursos (nombre, horarios, vigencia):
  * acá se ven tal cual. Lo que se edita es lo que define el pago de las profesoras:
- * - Titulares: es la misma asignación que Configuración → Gestionar profesores
- *   (`Teachers.cursosAsignados`).
+ * - Profesoras: es la misma asignación que Configuración → Gestionar profesores
+ *   (`Teachers.cursosAsignados`), y los días que da cada una (`Teachers.diasAsignados`):
+ *   las titulares de cada clase son las de ese día (ver titulares.ts).
  * - Alumnos: salen de los inscriptos (Users + Hijos), con opción de corregirlos.
  * - Monto fijo y porcentaje de cada profesora (`CursosLiquidacion`).
  */
@@ -34,6 +35,7 @@ import {
 	sumarMeses,
 } from "@/lib/asistencia/fechas";
 import {
+	clasesDelMesDeProfesora,
 	clasesDelMesSegunHorarios,
 	cursoSinDatosDePago,
 	pagoMensual,
@@ -41,6 +43,7 @@ import {
 	sumaPorcentajes,
 } from "@/lib/asistencia/pagoCursos";
 import { formatPesos } from "@/lib/asistencia/dinero";
+import { diasSinTitular, faltaRepartirDias } from "@/lib/asistencia/titulares";
 import type { RepositorioCarga } from "@/lib/asistencia/repositorio";
 import {
 	nombreCompleto,
@@ -63,6 +66,17 @@ import {
 const diaCorto = (d: DiaSemana) =>
 	DIAS_SEMANA.find((x) => x.valor === d)?.corto ?? "?";
 
+/** "Lu, Mi" (null = todos los días del curso) */
+const textoDias = (dias: DiaSemana[] | null) =>
+	dias === null ? "todos los días" : dias.length === 0 ? "sin días" : dias.map(diaCorto).join(", ");
+
+/** Horarios del curso de ese día: "18:00–19:30 y 20:00–21:00" */
+const horariosDelDia = (c: Curso, d: DiaSemana) =>
+	c.horarios
+		.filter((h) => h.dia === d)
+		.map((h) => `${h.inicio}–${h.fin}`)
+		.join(" y ");
+
 type Seccion = "profesoras" | "precios";
 
 /** "" → null; si no es un número válido, NaN (lo marca la validación) */
@@ -83,8 +97,18 @@ const mesesDeVigencia = (c: Pick<Curso, "fechaInicio" | "fechaFin">) => {
 /** Devuelve el primer error de validación (y en qué sección está), o null */
 const validar = (
 	f: LiquidacionCursoInput,
+	conDias: boolean,
+	nombreDe: (id: string) => string,
 ): { mensaje: string; seccion: Seccion } | null => {
 	const precios = (mensaje: string) => ({ mensaje, seccion: "precios" as const });
+	if (conDias) {
+		const sinDias = f.profesoraIds.find((id) => (f.diasPorProfesora[id] ?? []).length === 0);
+		if (sinDias)
+			return {
+				mensaje: `Elegí qué días da ${nombreDe(sinDias)}, o sacala del curso.`,
+				seccion: "profesoras",
+			};
+	}
 	// Precios: opcionales (si faltan, el recibo lo avisa), pero si están tienen que ser válidos
 	if (
 		f.cantidadAlumnosManual !== null &&
@@ -152,6 +176,10 @@ export default function TabCursos({
 		setEditando(c);
 		setForm({
 			profesoraIds: [...c.profesoraIds],
+			// Las que todavía no tienen días repartidos (null) dan todos los días
+			diasPorProfesora: Object.fromEntries(
+				c.profesoraIds.map((id) => [id, [...(c.diasPorProfesora[id] ?? c.diasDeClase)]]),
+			),
 			cantidadAlumnosManual: c.alumnosCorregidos ? c.cantidadAlumnos : null,
 			montoFijo: c.montoFijo,
 			porcentajes: { ...c.porcentajes },
@@ -168,14 +196,32 @@ export default function TabCursos({
 	};
 
 	const toggleProfesora = (id: string) =>
-		setForm((f) =>
-			f && {
-				...f,
-				profesoraIds: f.profesoraIds.includes(id)
-					? f.profesoraIds.filter((x) => x !== id)
-					: [...f.profesoraIds, id],
-			},
-		);
+		setForm((f) => {
+			if (!f || !editando) return f;
+			const diasPorProfesora = { ...f.diasPorProfesora };
+			if (f.profesoraIds.includes(id)) {
+				delete diasPorProfesora[id];
+				return {
+					...f,
+					profesoraIds: f.profesoraIds.filter((x) => x !== id),
+					diasPorProfesora,
+				};
+			}
+			// Una profesora nueva arranca con los días que no tiene nadie
+			const cubiertos = new Set(f.profesoraIds.flatMap((p) => f.diasPorProfesora[p] ?? []));
+			diasPorProfesora[id] = editando.diasDeClase.filter((d) => !cubiertos.has(d));
+			return { ...f, profesoraIds: [...f.profesoraIds, id], diasPorProfesora };
+		});
+
+	const toggleDia = (id: string, dia: DiaSemana) =>
+		setForm((f) => {
+			if (!f) return f;
+			const actuales = f.diasPorProfesora[id] ?? [];
+			const dias = actuales.includes(dia)
+				? actuales.filter((d) => d !== dia)
+				: [...actuales, dia].sort((a, b) => a - b);
+			return { ...f, diasPorProfesora: { ...f.diasPorProfesora, [id]: dias } };
+		});
 
 	const setPorcentaje = (id: string, valor: string) =>
 		setForm((f) => {
@@ -193,6 +239,7 @@ export default function TabCursos({
 			? {
 					...editando,
 					profesoraIds: form.profesoraIds,
+					diasPorProfesora: form.diasPorProfesora,
 					montoFijo: form.montoFijo,
 					porcentajes: form.porcentajes,
 					cantidadAlumnos: corregirAlumnos
@@ -220,7 +267,10 @@ export default function TabCursos({
 			...form,
 			cantidadAlumnosManual: corregirAlumnos ? form.cantidadAlumnosManual : null,
 		};
-		const err = validar(datos);
+		const err = validar(datos, editando.diasDeClase.length > 0, (id) => {
+			const p = profesoras.find((x) => x.id === id);
+			return p ? nombreCompleto(p) : "la profesora";
+		});
 		if (err) {
 			setError(err.mensaje);
 			setSeccion(err.seccion);
@@ -377,6 +427,12 @@ export default function TabCursos({
 												return (
 													<li key={id} className="truncate">
 														{c.profesoraNombres[i]}
+														{c.diasDeClase.length > 0 && (
+															<span className="text-gray-400">
+																{" "}
+																· {textoDias(c.diasPorProfesora[id] ?? null)}
+															</span>
+														)}
 														{c.porcentajes[id] !== undefined && (
 															<span className="text-gray-400">
 																{" "}
@@ -393,6 +449,22 @@ export default function TabCursos({
 									<p className="text-sm text-amber-600 flex items-center gap-1.5">
 										<Users className="w-4 h-4" /> Sin profesora asignada
 									</p>
+								)}
+								{faltaRepartirDias(c) ? (
+									<p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mt-2 flex items-start gap-1.5">
+										<AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+										<span>
+											Falta repartir los días: hoy las {c.profesoraIds.length} profesoras
+											son titulares de todas las clases.
+										</span>
+									</p>
+								) : (
+									diasSinTitular(c).length > 0 && (
+										<p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mt-2 flex items-start gap-1.5">
+											<AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+											<span>Sin profesora: {diasSinTitular(c).map(diaCorto).join(", ")}.</span>
+										</p>
+									)
 								)}
 							</div>
 
@@ -416,7 +488,7 @@ export default function TabCursos({
 				titulo={editando ? `Liquidación de ${editando.nombre}` : ""}
 				subtitulo={
 					seccion === "profesoras"
-						? "Quiénes son las titulares del curso"
+						? "Quiénes dan el curso y qué días"
 						: "Lo que cobra cada profesora por mes en este curso"
 				}
 				icono={CalendarClock}
@@ -504,9 +576,75 @@ export default function TabCursos({
 								)}
 								<p className="text-xs text-gray-400">
 									Es la misma asignación que se ve en Configuración → Gestionar
-									profesores (y en el portal docente). Si otra profesora da una clase
-									de este curso, queda registrada como reemplazo.
+									profesores (y en el portal docente).
 								</p>
+
+								{form.profesoraIds.length > 0 && editando.diasDeClase.length > 0 && (
+									<div className="space-y-2 pt-2">
+										<div>
+											<label className="text-sm font-semibold text-gray-700">
+												Días que da cada una
+											</label>
+											<p className="text-xs text-gray-400">
+												Un día puede tener más de una profesora. Si una clase la da
+												alguien que no tiene ese día (aunque sea del curso), queda
+												como reemplazo.
+											</p>
+										</div>
+										<div className="bg-gray-50 border border-gray-100 rounded-xl divide-y divide-gray-100">
+											{form.profesoraIds.map((id) => {
+												const persona = profesoras.find((p) => p.id === id);
+												const dias = form.diasPorProfesora[id] ?? [];
+												return (
+													<div
+														key={id}
+														className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+													>
+														<p
+															className={`text-sm font-semibold truncate ${dias.length === 0 ? "text-amber-700" : "text-gray-800"}`}
+														>
+															{persona ? nombreCompleto(persona) : "Profesora"}
+														</p>
+														<div className="flex flex-wrap gap-1.5">
+															{editando.diasDeClase.map((d) => {
+																const sel = dias.includes(d);
+																const horario = horariosDelDia(editando, d);
+																return (
+																	<button
+																		key={d}
+																		type="button"
+																		onClick={() => toggleDia(id, d)}
+																		aria-pressed={sel}
+																		title={horario || undefined}
+																		className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+																			sel
+																				? "bg-[#252d62] border-[#252d62] text-white"
+																				: "bg-white border-gray-200 text-gray-500 hover:bg-gray-100"
+																		}`}
+																	>
+																		{diaCorto(d)}
+																	</button>
+																);
+															})}
+														</div>
+													</div>
+												);
+											})}
+										</div>
+										{diasSinTitular(borrador).length > 0 && (
+											<p className="text-xs text-amber-700 flex items-start gap-1.5">
+												<AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+												<span>
+													Sin profesora:{" "}
+													{diasSinTitular(borrador)
+														.map((d) => `${diaCorto(d)} ${horariosDelDia(editando, d)}`.trim())
+														.join(", ")}
+													. Esas clases no tienen titular.
+												</span>
+											</p>
+										)}
+									</div>
+								)}
 								{sinProfesoras && (
 									<p className="text-xs text-gray-500 flex items-center gap-1.5">
 										<Lock className="w-3.5 h-3.5 shrink-0" /> Asigná al menos una
@@ -611,7 +749,8 @@ export default function TabCursos({
 										{form.profesoraIds.map((id) => {
 											const persona = profesoras.find((p) => p.id === id);
 											const mensual = pagoMensual(borrador, id);
-											const porClase = pagoPorClaseEstimado(mensual, clasesDelMes);
+											const susClases = clasesDelMesDeProfesora(borrador, mes, id);
+											const porClase = pagoPorClaseEstimado(mensual, susClases);
 											return (
 												<div
 													key={id}
@@ -653,7 +792,7 @@ export default function TabCursos({
 																<p className="text-xs text-gray-500">
 																	{porClase === null
 																		? "Sin clases ese mes"
-																		: `≈ ${formatPesos(porClase)} por clase`}
+																		: `≈ ${formatPesos(porClase)} por clase (${susClases} en el mes)`}
 																</p>
 															</>
 														)}
@@ -681,8 +820,9 @@ export default function TabCursos({
 									</div>
 									<p className="text-xs text-gray-400">
 										El recibo de la profesora es el pago mensual: no depende de las
-										clases que dio. El valor por clase es el que se le descuenta si la
-										reemplazan (y cobra la reemplazante).
+										clases que dio. El valor por clase (pago mensual ÷ sus clases del
+										mes, según sus días) es el que se le descuenta si la reemplazan (y
+										cobra la reemplazante).
 									</p>
 								</div>
 							</>

@@ -42,7 +42,13 @@ Los permisos de pantalla están en `lib/asistencia/permisos.ts`. **La protecció
 - **`Cursos/{id}`** → los de Admin → Cursos. El registro solo los lee:
   - **Horarios:** se interpretan del mapa de texto (`{"Lunes": "18:00 - 19:30, 20:00 - 21:00"}`) en `lib/asistencia/cursosInstituto.ts`. Los horarios sin hora de fin o "A definir" **no generan clases esperadas**, y la tab Liquidación de cursos lo avisa.
   - **Vigencia:** sale de `inicioMes`/`finMes`, con el año del mes que se está mirando.
-- **Titulares** → `Teachers.cursosAsignados`, la misma asignación de Configuración → Gestionar profesores.
+- **Profesoras del curso** → `Teachers.cursosAsignados`, la misma asignación de Configuración → Gestionar profesores. Cobran su pago mensual.
+- **Días de cada una** → `Teachers.diasAsignados = { [cursoId]: [1, 3] }` (1 = lunes … 7 = domingo). Se reparten en Liquidación de cursos (`lib/asistencia/titulares.ts`):
+  - Las **titulares de una clase** son las profesoras del curso que tienen ese día. Un día puede tener varias (dan juntas).
+  - Si una profesora tiene el curso pero **no tiene días cargados** para ese curso, da todos los días. Así siguen funcionando las asignaciones anteriores y las que se hacen desde Configuración (que asigna el curso entero). El curso avisa "Falta repartir los días" si tiene dos o más profesoras en esa situación, y "Sin profesora" si queda un día sin titular.
+  - Si da la clase una profesora que no tiene ese día, **es reemplazo**, aunque sea del curso. Su llavero le da "sin clase" ese día y el director la asigna desde el calendario.
+  - Si una clase es reemplazo se calcula con las titulares actuales (no con lo que se guardó al registrarla): al repartir los días se recalcula todo el mes, y los recibos ya generados quedan "desactualizados".
+  - Quitar un curso desde Carga de personal o Liquidación de cursos borra también sus días. Desde Configuración → Gestionar profesores no: si se vuelve a asignar, recupera los días viejos.
 - **`CursosLiquidacion/{cursoId}`** → `{ montoFijo, porcentajes: {teacherUid: %}, cantidadAlumnosManual }`. Solo director.
   - Va aparte porque `Cursos` es de lectura pública.
   - **Alumnos:** se cuentan los inscriptos (`Users` + `Hijos` con el curso en `cursos`, usando `getCountFromServer`). Si `cantidadAlumnosManual` no es null, se usa esa.
@@ -117,7 +123,7 @@ La aplicación de escritorio no escribe en Firestore. Manda cada toque al servid
 - Un toque offline usa la hora de la computadora; si es de hace más de 48 h, o del futuro, queda marcado con `revisarHora`.
 - Llavero desconocido: se registra solo. Si coincide con un pendiente `num-{numero}`, se vincula.
 - Secretarias: entrada y salida en `Jornadas`.
-- Profesoras: un toque por bloque crea las `ClasesDictadas` del bloque.
+- Profesoras: un toque por bloque crea las `ClasesDictadas` del bloque. Solo cuentan las clases de los días que da ella.
 - Antirrebote de 60 s.
 - **Todavía no contempla `Reemplazos`:** una reemplazante queda como "sin clase" y el director lo corrige desde el calendario.
 - Las computadoras se administran en la web: Lector y llaveros → Computadoras (solo el director).
@@ -134,11 +140,11 @@ Cada carga o corrección manual (jornadas, movimientos, clases, días especiales
    - No usa los horarios ni depende de las clases que dio.
    - Si es titular de varios cursos, se suma lo de cada uno.
    - Ej.: Kinder A con Fio: 49.000 × 8 × 45% = **176.400**.
-2. **Pago por clase (estimado)** = pago mensual ÷ clases del curso en el mes.
-   - Las clases del mes son los días del mes que caen en los días de la semana del curso.
+2. **Pago por clase (estimado)** = pago mensual ÷ clases que **ella** tiene en el curso en el mes.
+   - Las clases del mes son los días del mes que caen en los días de la semana que da ella en el curso (todos los del curso si no se repartieron).
    - Cada día cuenta una vez, aunque tenga dos horarios, y aunque el horario no tenga hora de fin.
    - Los feriados se cuentan igual.
-   - Ej.: lunes y miércoles en noviembre 2026 = 5 + 4 = 9 → 176.400 ÷ 9 = **19.600**.
+   - Ej.: lunes y miércoles en noviembre 2026 = 5 + 4 = 9 → 176.400 ÷ 9 = **19.600**. Si Fio da solo los lunes: 176.400 ÷ 5 = **35.280**.
    - Solo se usa para el valor de un reemplazo: se le descuenta a la titular y lo cobra la reemplazante.
 
 ## Mis recibos (cada persona ve los suyos)

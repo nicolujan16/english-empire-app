@@ -32,6 +32,7 @@ import {
 	iniciales,
 	sumarDias,
 } from "@/lib/asistencia/fechas";
+import { titularesDelDia } from "@/lib/asistencia/titulares";
 import type {
 	RegistrosDelDia,
 	RepositorioCarga,
@@ -66,9 +67,20 @@ interface FilaClase {
 	horaInicio: string;
 	horaFin: string;
 	titulares: string[];
+	/** Titulares de ese día (titularesDelDia); null si el curso ya no existe */
+	titularIds: string[] | null;
 	dictada: ClaseDictada | null;
 	fueraDeHorario: boolean;
 }
+
+/** Titulares del curso el día de esa fecha (si la da otra, es reemplazo) */
+const titularesDeLaFecha = (curso: Curso | null | undefined, fecha: string) =>
+	curso ? titularesDelDia(curso, diaSemanaDeFecha(fecha)) : [];
+
+/** Si la clase es reemplazo según la asignación actual (lo guardado puede ser viejo) */
+const esReemplazoActual = (f: FilaClase) =>
+	!!f.dictada &&
+	(f.titularIds ? !f.titularIds.includes(f.dictada.profesoraDictoId) : f.dictada.esReemplazo);
 
 type ModalJornada =
 	| { modo: "nueva" }
@@ -205,13 +217,17 @@ export default function TabRegistros({
 					.filter((h) => h.dia === dia)
 					.forEach((h) => {
 						const id = idClaseDictada(c.id, fecha, h.inicio);
+						const titularIds = titularesDelDia(c, dia);
 						filas.push({
 							key: id,
 							curso: c,
 							cursoNombre: c.nombre,
 							horaInicio: h.inicio,
 							horaFin: h.fin,
-							titulares: c.profesoraNombres,
+							titulares: titularIds.map(
+								(t) => c.profesoraNombres[c.profesoraIds.indexOf(t)] ?? "",
+							),
+							titularIds,
 							dictada: dictadas.get(id) ?? null,
 							fueraDeHorario: false,
 						});
@@ -220,18 +236,23 @@ export default function TabRegistros({
 			);
 
 		// Registradas que no coinciden con ningún horario (clases extra)
-		dictadas.forEach((d) =>
+		dictadas.forEach((d) => {
+			const curso = cursosPorId.get(d.cursoId) ?? null;
+			const titularIds = curso ? titularesDelDia(curso, dia) : null;
 			filas.push({
 				key: d.id,
-				curso: cursosPorId.get(d.cursoId) ?? null,
+				curso,
 				cursoNombre: d.cursoNombre,
 				horaInicio: d.horaInicio,
 				horaFin: d.horaFin,
-				titulares: cursosPorId.get(d.cursoId)?.profesoraNombres ?? [],
+				titulares: (titularIds ?? []).map(
+					(t) => curso?.profesoraNombres[curso.profesoraIds.indexOf(t)] ?? "",
+				),
+				titularIds,
 				dictada: d,
 				fueraDeHorario: true,
-			}),
-		);
+			});
+		});
 
 		return filas.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
 	}, [cursos, cursosPorId, fecha, registros]);
@@ -284,7 +305,8 @@ export default function TabRegistros({
 			turno,
 			inicio: fila?.horaInicio ?? "18:00",
 			fin: fila?.horaFin ?? "19:30",
-			profesoraId: curso?.profesoraIds[0] ?? profesorasActivas[0]?.id ?? "",
+			profesoraId:
+				titularesDeLaFecha(curso, fecha)[0] ?? profesorasActivas[0]?.id ?? "",
 			contarIgual: false,
 			motivo: "",
 		});
@@ -382,7 +404,7 @@ export default function TabRegistros({
 			() =>
 				repo.editarClase(
 					modalClase.clase,
-					{ profesora, contarIgual: fc.contarIgual },
+					{ profesora, contarIgual: fc.contarIgual, titularIds: titularesSeleccion },
 					fc.motivo.trim(),
 				),
 			"Clase actualizada.",
@@ -425,8 +447,10 @@ export default function TabRegistros({
 
 	const titularesSeleccion =
 		modalClase?.modo === "editar"
-			? modalClase.clase.titularIds
-			: (cursoSeleccionado?.profesoraIds ?? []);
+			? cursosPorId.has(modalClase.clase.cursoId)
+				? titularesDeLaFecha(cursosPorId.get(modalClase.clase.cursoId), modalClase.clase.fecha)
+				: modalClase.clase.titularIds
+			: titularesDeLaFecha(cursoSeleccionado, fecha);
 	const seraReemplazo =
 		!!fc.profesoraId && !titularesSeleccion.includes(fc.profesoraId);
 	// Cargar una clase de su titular es un registro manual; si la dio otra, es un cambio
@@ -670,7 +694,7 @@ export default function TabRegistros({
 										</div>
 										<p className="text-xs text-gray-500">
 											{d
-												? d.esReemplazo
+												? esReemplazoActual(f)
 													? `Dio: ${d.profesoraDictoNombre} · titular ${f.titulares.join(", ") || "—"}`
 													: `Dio: ${d.profesoraDictoNombre}`
 												: f.titulares.join(", ") || "Sin profesora asignada"}
@@ -683,7 +707,7 @@ export default function TabRegistros({
 											<Badge icon={Ban} className="bg-gray-100 text-gray-400 border-gray-200">
 												Anulada
 											</Badge>
-										) : d?.esReemplazo ? (
+										) : esReemplazoActual(f) ? (
 											<Badge icon={Repeat} className="bg-indigo-50 text-indigo-700 border-indigo-100">
 												Reemplazo
 											</Badge>
@@ -851,7 +875,7 @@ export default function TabRegistros({
 										...fc,
 										cursoId: e.target.value,
 										turno: t ? `${t.inicio}-${t.fin}` : "otro",
-										profesoraId: c?.profesoraIds[0] ?? fc.profesoraId,
+										profesoraId: titularesDeLaFecha(c, fecha)[0] ?? fc.profesoraId,
 									});
 								}}
 								className={inputClase}

@@ -4,6 +4,9 @@
  *
  * Las "clases esperadas" no se guardan: salen de `Cursos.horarios` (y su
  * vigencia) para cada día del mes, y se cruzan por ID con `ClasesDictadas`.
+ * Las titulares de cada clase son las de ese día de la semana (titulares.ts), y si
+ * una clase es reemplazo se calcula con ellas: así, si Juan reparte los días después
+ * de que se registró una clase, el calendario y el recibo dicen lo mismo.
  */
 import type {
 	ClaseCalendario,
@@ -15,6 +18,7 @@ import type {
 import { diaEspecialQueExcluye } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { combinarDiasEspeciales, diasQueAplican } from "./feriados";
 import { diaSemanaDeFecha, horaAR, sumarDias } from "./fechas";
+import { titularesDelDia } from "./titulares";
 import {
 	idClaseDictada,
 	nombreCompleto,
@@ -74,12 +78,16 @@ export function clasesDelMes(
 	const nombres = new Map(personal.map((p) => [p.id, nombreCompleto(p)]));
 	const clases: ClaseCalendario[] = [];
 
-	const aDictada = (d: ClaseDictada | undefined): ClaseCalendario["dictada"] =>
+	// Si es reemplazo se calcula con las titulares de hoy (null = no hay curso: lo guardado)
+	const aDictada = (
+		d: ClaseDictada | undefined,
+		titularIds: string[] | null,
+	): ClaseCalendario["dictada"] =>
 		d
 			? {
 					profesoraId: d.profesoraDictoId,
 					profesoraNombre: d.profesoraDictoNombre,
-					esReemplazo: d.esReemplazo,
+					esReemplazo: titularIds ? !titularIds.includes(d.profesoraDictoId) : d.esReemplazo,
 					minutosTarde: d.minutosTarde,
 					estado: d.estado,
 					contarIgual: d.contarIgual,
@@ -92,7 +100,11 @@ export function clasesDelMes(
 		const dia = diaSemanaDeFecha(fecha);
 		cursos
 			.filter((c) => c.activo && c.fechaInicio <= fecha && fecha <= c.fechaFin)
-			.forEach((c) =>
+			.forEach((c) => {
+				const titularIds = titularesDelDia(c, dia);
+				const titularNombres = titularIds.map(
+					(t) => c.profesoraNombres[c.profesoraIds.indexOf(t)] ?? "",
+				);
 				c.horarios
 					.filter((h) => h.dia === dia)
 					.forEach((h) => {
@@ -104,19 +116,19 @@ export function clasesDelMes(
 							cursoNombre: c.nombre,
 							horaInicio: h.inicio,
 							horaFin: h.fin,
-							titularIds: c.profesoraIds,
-							titularNombres: c.profesoraNombres,
-							dictada: aDictada(porId.get(id)),
+							titularIds,
+							titularNombres,
+							dictada: aDictada(porId.get(id), titularIds),
 						});
 						porId.delete(id);
-					}),
-			);
+					});
+			});
 	});
 
 	// Registradas fuera de los horarios del curso (clases extra o curso dado de baja)
 	porId.forEach((d) => {
 		const curso = cursosPorId.get(d.cursoId);
-		const titularIds = curso?.profesoraIds ?? d.titularIds;
+		const titularIds = curso ? titularesDelDia(curso, diaSemanaDeFecha(d.fecha)) : d.titularIds;
 		clases.push({
 			id: d.id,
 			fecha: d.fecha,
@@ -125,9 +137,8 @@ export function clasesDelMes(
 			horaInicio: d.horaInicio,
 			horaFin: d.horaFin,
 			titularIds,
-			titularNombres:
-				curso?.profesoraNombres ?? titularIds.map((id) => nombres.get(id) ?? ""),
-			dictada: aDictada(d),
+			titularNombres: titularIds.map((id) => nombres.get(id) ?? ""),
+			dictada: aDictada(d, curso ? titularIds : null),
 		});
 	});
 

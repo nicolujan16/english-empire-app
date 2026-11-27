@@ -6,7 +6,8 @@
  * - Persona secretaria → `Personal/{id}` (+ `PersonalLiquidacion/{id}` con el precio por hora)
  * - Persona profesora  → `Teachers/{uid}` (la misma cuenta del portal docente)
  * - Curso              → `Cursos/{id}` (nombre, horarios, vigencia)
- *                        + titulares desde `Teachers.cursosAsignados`
+ *                        + titulares desde `Teachers.cursosAsignados` (y los días de cada
+ *                          una en `Teachers.diasAsignados`, ver titulares.ts)
  *                        + `CursosLiquidacion/{id}` (monto fijo, porcentajes, alumnos corregidos)
  */
 
@@ -57,8 +58,14 @@ export interface Curso {
 	id: string;
 	nombre: string;
 	activo: boolean;
+	/** Profesoras del curso (Teachers.cursosAsignados): cobran su pago mensual */
 	profesoraIds: string[];
 	profesoraNombres: string[];
+	/**
+	 * Días que da cada profesora del curso (por id). null = todos los días.
+	 * Las titulares de cada clase salen de acá: ver titularesDelDia (titulares.ts).
+	 */
+	diasPorProfesora: Record<string, DiaSemana[] | null>;
 	horarios: HorarioCurso[];
 	fechaInicio: string; // "YYYY-MM-DD"
 	fechaFin: string;
@@ -82,6 +89,8 @@ export interface Curso {
 /** Lo que se edita en Carga de datos → Liquidación de cursos */
 export interface LiquidacionCursoInput {
 	profesoraIds: string[];
+	/** Días que da cada profesora (solo si el curso tiene días de clase) */
+	diasPorProfesora: Record<string, DiaSemana[]>;
 	/** null = usar la cantidad de inscriptos */
 	cantidadAlumnosManual: number | null;
 	montoFijo: number | null;

@@ -5,16 +5,19 @@
  *    No usa los horarios ni depende de cuántas clases dio. Si da varios cursos, se suma
  *    lo de cada uno. Ej.: Kinder A con Fio: 49.000 × 8 × 45% = 176.400 por mes.
  *
- * 2. Pago por clase (estimado) = pago mensual ÷ clases que tiene el curso en el mes.
- *    Las clases del mes son los días del mes que caen en los días de la semana del
- *    curso. Los feriados se cuentan igual (es un estimativo: lo que importa es el
- *    pago mensual). Ej.: Kinder A lunes y miércoles; noviembre 2026 tiene 5 lunes y
- *    4 miércoles = 9 clases → 176.400 ÷ 9 = 19.600 por clase.
+ * 2. Pago por clase (estimado) = pago mensual ÷ clases que ELLA tiene en el curso en
+ *    el mes. Las clases del mes son los días del mes que caen en los días de la semana
+ *    que da (si se reparten los días con otra profesora, solo los suyos; ver
+ *    titulares.ts). Los feriados se cuentan igual (es un estimativo: lo que importa es
+ *    el pago mensual). Ej.: Kinder A lunes y miércoles, los dos días con Fio;
+ *    noviembre 2026 tiene 5 lunes y 4 miércoles = 9 clases → 176.400 ÷ 9 = 19.600.
+ *    Si Fio da solo los lunes: 5 clases → 176.400 ÷ 5 = 35.280 por clase.
  *    Es el valor que se descuenta a la titular (y cobra la reemplazante) por un reemplazo.
  */
 import { diasDelMes, rangoDelMes } from "./calendario";
 import { redondearCentavos } from "./dinero";
 import { diaSemanaDeFecha } from "./fechas";
+import { daElDia } from "./titulares";
 import type { Curso } from "./tipos";
 
 type DatosDePago = Pick<Curso, "cantidadAlumnos" | "montoFijo" | "porcentajes">;
@@ -54,6 +57,19 @@ export function clasesDelMesSegunHorarios(
 	periodo: string,
 ): number {
 	const dias = new Set(curso.diasDeClase);
+	return diasDelMes(periodo).filter((f) => dias.has(diaSemanaDeFecha(f))).length;
+}
+
+/**
+ * Clases que tiene la profesora en el curso en el mes: como clasesDelMesSegunHorarios,
+ * pero solo con los días de la semana que da ella.
+ */
+export function clasesDelMesDeProfesora(
+	curso: Pick<Curso, "diasDeClase" | "profesoraIds" | "diasPorProfesora">,
+	periodo: string,
+	profesoraId: string,
+): number {
+	const dias = new Set(curso.diasDeClase.filter((d) => daElDia(curso, profesoraId, d)));
 	return diasDelMes(periodo).filter((f) => dias.has(diaSemanaDeFecha(f))).length;
 }
 

@@ -85,8 +85,8 @@ export interface ClaseCalendario {
 	cursoNombre: string;
 	horaInicio: string; // "18:00"
 	horaFin: string; // "19:30"
-	titularIds: string[]; // Curso.profesoraIds
-	titularNombres: string[]; // Curso.profesoraNombres
+	titularIds: string[]; // titulares de ese día del curso (titularesDelDia)
+	titularNombres: string[];
 	/** null = la clase estaba programada y no tiene registro */
 	dictada: {
 		profesoraId: string;

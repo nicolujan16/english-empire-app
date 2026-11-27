@@ -53,7 +53,8 @@ export default function ModalClase({
 	// Si está anulada, se "asigna" de nuevo: crearClaseManual la reactiva con su historial
 	const editar = !!dictada && dictada.estado === "Activa";
 	const curso = cursos.find((c) => c.id === clase.cursoId);
-	const titularIds = dictada?.titularIds ?? clase.titularIds;
+	// Las titulares de ese día según la asignación actual (lo guardado puede ser viejo)
+	const titularIds = clase.titularIds;
 
 	const [profesoraId, setProfesoraId] = useState(
 		editar ? dictada.profesoraDictoId : (clase.titularIds[0] ?? ""),
@@ -93,7 +94,7 @@ export default function ModalClase({
 				if (!profesora) throw new Error("Elegí quién dio la clase.");
 				await repositorioFirestore.editarClase(
 					dictada,
-					{ profesora, contarIgual },
+					{ profesora, contarIgual, titularIds },
 					motivo.trim(),
 				);
 			} else {

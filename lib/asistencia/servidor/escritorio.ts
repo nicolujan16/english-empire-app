@@ -9,6 +9,7 @@ import { FieldValue, Timestamp, type DocumentData, type DocumentReference } from
 import { adminDb } from "@/lib/firebaseAdmin";
 import { interpretarHorarios, vigenciaDelCurso } from "../cursosInstituto";
 import { fechaAR } from "../fechas";
+import { leerDiasAsignados } from "../titulares";
 import { idLlaveroPendiente } from "../tipos";
 import { normalizarUid } from "../uid";
 import { auditarServidor, type AdminAutenticado } from "./autenticacion";
@@ -49,11 +50,14 @@ export async function leerDatos(desde: string, hasta: string) {
 		...teachersSnap.docs.map((d) => persona(d.id, d.data(), "profesora")),
 	];
 
-	// Titulares de cada curso (Teachers.cursosAsignados)
-	const titulares = new Map<string, string[]>();
+	// Profesoras de cada curso (Teachers.cursosAsignados) con sus días (null = todos)
+	const titulares = new Map<string, { id: string; dias: number[] | null }[]>();
 	teachersSnap.docs.forEach((t) =>
 		(Array.isArray(t.data().cursosAsignados) ? t.data().cursosAsignados : []).forEach((c: string) =>
-			titulares.set(c, [...(titulares.get(c) ?? []), t.id]),
+			titulares.set(c, [
+				...(titulares.get(c) ?? []),
+				{ id: t.id, dias: leerDiasAsignados(t.data().diasAsignados, c) },
+			]),
 		),
 	);
 	const anio = Number(hoy.slice(0, 4));
@@ -65,12 +69,20 @@ export async function leerDatos(desde: string, hasta: string) {
 			return v.fechaInicio <= hoy && hoy <= v.fechaFin;
 		});
 		if (!vigente) return [];
+		const delCurso = titulares.get(s.id) ?? [];
 		return [
 			{
 				id: s.id,
 				nombre: String(d.nombre ?? ""),
-				horarios: interpretarHorarios(d.horarios).horarios,
-				profesoraIds: titulares.get(s.id) ?? [],
+				// Cada horario con las titulares de ese día de la semana
+				horarios: interpretarHorarios(d.horarios).horarios.map((h) => ({
+					...h,
+					profesoraIds: delCurso
+						.filter((t) => t.dias === null || t.dias.includes(h.dia))
+						.map((t) => t.id),
+				})),
+				// Todas las profesoras del curso (las versiones viejas de la aplicación usan esto)
+				profesoraIds: delCurso.map((t) => t.id),
 			},
 		];
 	});

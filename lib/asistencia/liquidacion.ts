@@ -8,10 +8,10 @@
  *   vigente en el mes: monto fijo × alumnos × su porcentaje (ver pagoCursos.ts).
  *   No depende de cuántas clases dio: las clases que cuentan (Activa, no excluida
  *   por un día especial, salvo "contar igual") van al recibo como control.
- * - Reemplazos: si una clase que cuenta la dio alguien que no es titular del
- *   curso, el valor de la clase (pago mensual de la titular ÷ días de clase del
- *   curso en el mes, feriados incluidos) se le resta a la titular y se le suma a
- *   la reemplazante.
+ * - Reemplazos: si una clase que cuenta la dio alguien que no es titular de ese
+ *   día (aunque sea profesora del curso: ver titulares.ts), el valor de la clase
+ *   (pago mensual de la titular ÷ sus clases del curso en el mes, feriados
+ *   incluidos) se le resta a la titular y se le suma a la reemplazante.
  */
 import {
 	diaEspecialQueExcluye,
@@ -21,8 +21,10 @@ import {
 	type JornadaCalendario,
 } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { redondearCentavos } from "./dinero";
+import { diaSemanaDeFecha } from "./fechas";
+import { titularesDelDia } from "./titulares";
 import {
-	clasesDelMesSegunHorarios,
+	clasesDelMesDeProfesora,
 	cursoVigenteEnMes,
 	pagoMensual,
 	pagoPorClaseEstimado,
@@ -113,34 +115,30 @@ interface Traspaso {
 
 /**
  * Reemplazos del mes: clases que cuentan, de cursos activos y vigentes, dadas
- * por alguien que no es titular. Uno por cada titular del curso.
+ * por alguien que no es titular de ese día. Uno por cada titular de ese día.
  */
 export function traspasosDelMes(datos: DatosLiquidacion): Traspaso[] {
 	const cursosPorId = new Map(datos.cursos.map((c) => [c.id, c]));
 	return datos.clases.flatMap((clase) => {
 		const curso = cursosPorId.get(clase.cursoId);
 		const dictada = clase.dictada;
-		if (
-			!curso ||
-			!dictada ||
-			!curso.activo ||
-			!cursoVigenteEnMes(curso, datos.periodo) ||
-			curso.profesoraIds.includes(dictada.profesoraId) ||
-			!claseCuenta(clase, datos.diasEspeciales)
-		)
+		if (!curso || !dictada || !curso.activo || !cursoVigenteEnMes(curso, datos.periodo))
 			return [];
-		const clasesDelMes = clasesDelMesSegunHorarios(curso, datos.periodo);
-		return curso.profesoraIds.map(
-			(titularId, i): Traspaso => ({
+		const titulares = titularesDelDia(curso, diaSemanaDeFecha(clase.fecha));
+		if (titulares.includes(dictada.profesoraId) || !claseCuenta(clase, datos.diasEspeciales))
+			return [];
+		return titulares.map((titularId): Traspaso => {
+			const clasesDelMes = clasesDelMesDeProfesora(curso, datos.periodo, titularId);
+			return {
 				clase,
 				titularId,
-				titularNombre: curso.profesoraNombres[i] ?? "",
+				titularNombre: curso.profesoraNombres[curso.profesoraIds.indexOf(titularId)] ?? "",
 				reemplazanteId: dictada.profesoraId,
 				reemplazanteNombre: dictada.profesoraNombre,
 				clasesDelMes,
 				monto: pagoPorClaseEstimado(pagoMensual(curso, titularId), clasesDelMes),
-			}),
-		);
+			};
+		});
 	});
 }
 
