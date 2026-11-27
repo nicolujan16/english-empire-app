@@ -4,13 +4,20 @@
  * La aplicación no lee ni escribe Firestore directamente: pide todo acá con la sesión
  * de quien está logueado (Admins activo), y el servidor arma lo que necesitan sus
  * pantallas (Presentes, Itinerario, Historial, Llaveros).
+ *
+ * Las clases de una secretaria que también es profesora no se fichan: cuentan como
+ * dadas si estaba en su turno (turnos.ts). La web las calcula, y acá se agregan a las
+ * clases (`enSuTurno: true`) para que el itinerario de la aplicación las muestre igual
+ * que el calendario, sin cambiar la aplicación.
  */
 import { FieldValue, Timestamp, type DocumentData, type DocumentReference } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { interpretarHorarios, vigenciaDelCurso } from "../cursosInstituto";
-import { fechaAR } from "../fechas";
+import { diaSemanaDeFecha, fechaAR, fechaHoraAR, minutosEntre, sumarDias } from "../fechas";
 import { leerDiasAsignados } from "../titulares";
-import { idLlaveroPendiente } from "../tipos";
+import { idClaseDictada, idLlaveroPendiente } from "../tipos";
+import { turnoQueCubre } from "../turnos";
+import { diaQueExcluye, diasEspecialesEntre } from "./fichar";
 import { normalizarUid } from "../uid";
 import { auditarServidor, type AdminAutenticado } from "./autenticacion";
 
@@ -92,6 +99,26 @@ export async function leerDatos(desde: string, hasta: string) {
 		];
 	});
 
+	// Secretarias que también son profesoras (activas en Teachers)
+	const docentesActivas = new Set(
+		teachersSnap.docs.filter((t) => t.data().activo !== false).map((t) => t.id),
+	);
+	const duales = personalSnap.docs
+		.filter((d) => docentesActivas.has(d.id))
+		.map((d) => ({ id: d.id, rol: "secretaria" as const, tambienProfesora: true as const }));
+	const clasesEnSuTurno =
+		duales.length === 0
+			? []
+			: await clasesDadasEnSuTurno({
+					desde,
+					hasta: hasta < hoy ? hasta : hoy,
+					cursos,
+					duales,
+					nombres: new Map(personalSnap.docs.map((d) => [d.id, d.data()])),
+					jornadas: jornadasSnap.docs.map((j) => j.data()),
+					registradas: new Set(clasesSnap.docs.map((c) => c.id)),
+				});
+
 	return {
 		hoy,
 		desde,
@@ -142,7 +169,7 @@ export async function leerDatos(desde: string, hasta: string) {
 				esReemplazo: d.esReemplazo === true,
 				fichadaId: texto(d.fichadaId),
 			};
-		}),
+		}).concat(clasesEnSuTurno),
 		fichadas: fichadasSnap.docs.map((s) => {
 			const d = s.data();
 			return {
@@ -160,6 +187,74 @@ export async function leerDatos(desde: string, hasta: string) {
 			};
 		}),
 	};
+}
+
+/**
+ * Clases sin registro guardado de las secretarias que también son profesoras, que
+ * estaban en su turno a esa hora (misma regla que el calendario, sin las que caen en
+ * un día especial). Con la forma de las clases registradas: la llegada es la entrada
+ * de su turno.
+ */
+async function clasesDadasEnSuTurno(input: {
+	desde: string;
+	hasta: string;
+	cursos: { id: string; nombre: string; horarios: { dia: number; inicio: string; fin: string; profesoraIds: string[] }[] }[];
+	duales: { id: string; rol: "secretaria"; tambienProfesora: true }[];
+	nombres: Map<string, DocumentData>;
+	jornadas: DocumentData[];
+	registradas: Set<string>;
+}) {
+	if (input.hasta < input.desde) return [];
+	const ids = new Set(input.duales.map((d) => d.id));
+	const jornadas = input.jornadas
+		.filter((j) => ids.has(j.personalId) && j.entrada instanceof Timestamp)
+		.map((j) => ({
+			personalId: String(j.personalId),
+			fecha: String(j.fecha ?? ""),
+			entrada: (j.entrada as Timestamp).toDate(),
+			salida: j.salida instanceof Timestamp ? j.salida.toDate() : null,
+			estado: (j.estado === "Anulada" ? "Anulada" : "Activa") as "Activa" | "Anulada",
+		}));
+	if (jornadas.length === 0) return [];
+	const dias = await diasEspecialesEntre(input.desde, input.hasta);
+
+	const res = [];
+	for (let fecha = input.desde; fecha <= input.hasta; fecha = sumarDias(fecha, 1)) {
+		const dia = diaSemanaDeFecha(fecha);
+		for (const c of input.cursos) {
+			for (const h of c.horarios) {
+				const id = idClaseDictada(c.id, fecha, h.inicio);
+				if (h.dia !== dia || input.registradas.has(id)) continue;
+				if (diaQueExcluye({ cursoId: c.id, inicio: h.inicio, fin: h.fin }, fecha, dias)) continue;
+				const t = turnoQueCubre(
+					{ fecha, horaInicio: h.inicio, horaFin: h.fin, titularIds: h.profesoraIds },
+					input.duales,
+					jornadas,
+				);
+				if (!t) continue;
+				const n = input.nombres.get(t.personaId);
+				const inicio = fechaHoraAR(fecha, h.inicio);
+				res.push({
+					id,
+					cursoId: c.id,
+					cursoNombre: c.nombre,
+					fecha,
+					horaInicio: h.inicio,
+					horaFin: h.fin,
+					profesoraDictoId: t.personaId,
+					profesoraDictoNombre: `${n?.nombre ?? ""} ${n?.apellido ?? ""}`.trim(),
+					llegada: t.jornada.entrada.toISOString(),
+					minutosTarde:
+						t.jornada.entrada > inicio ? minutosEntre(inicio, t.jornada.entrada) : 0,
+					estado: "Activa",
+					esReemplazo: false,
+					fichadaId: null,
+					enSuTurno: true,
+				});
+			}
+		}
+	}
+	return res;
 }
 
 // ─── Llaveros (solo director) ─────────────────────────────────────────────────

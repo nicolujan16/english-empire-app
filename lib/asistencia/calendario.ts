@@ -22,7 +22,8 @@ import type {
 } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { diaEspecialQueExcluye } from "@/components/admin/asistencia-personal/CalendarioAsistencia";
 import { combinarDiasEspeciales, diasQueAplican } from "./feriados";
-import { diaSemanaDeFecha, fechaHoraAR, horaAR, sumarDias } from "./fechas";
+import { diaSemanaDeFecha, horaAR, sumarDias } from "./fechas";
+import { dadaEnSuTurno } from "./turnos";
 import { titularesDelDia } from "./titulares";
 import {
 	idClaseDictada,
@@ -71,35 +72,6 @@ export const diasDelMes = (periodo: string) => {
  * días no quedan como "sin registro". No cambia los montos: la liquidación usa las
  * dictadas y los horarios del curso, no esta lista de esperadas.
  */
-/**
- * Secretaria que también es profesora y es titular de la clase: la clase cuenta como
- * dada por ella si tiene una jornada activa que se superpone con la clase (si la
- * jornada sigue abierta, solo cuenta la del mismo día). Devuelve quién, o null.
- */
-export function dadaEnSuTurno(
-	clase: { fecha: string; horaInicio: string; horaFin: string; titularIds: string[] },
-	personal: Persona[],
-	jornadas: Pick<Jornada, "personalId" | "fecha" | "entrada" | "salida" | "estado">[],
-): Persona | null {
-	const ini = fechaHoraAR(clase.fecha, clase.horaInicio).getTime();
-	const fin = fechaHoraAR(clase.fecha, clase.horaFin).getTime();
-	return (
-		personal.find(
-			(p) =>
-				p.rol === "secretaria" &&
-				p.tambienProfesora === true &&
-				clase.titularIds.includes(p.id) &&
-				jornadas.some(
-					(j) =>
-						j.personalId === p.id &&
-						j.estado === "Activa" &&
-						j.entrada.getTime() < fin &&
-						(j.salida ? j.salida.getTime() > ini : j.fecha === clase.fecha),
-				),
-		) ?? null
-	);
-}
-
 export function clasesDelMes(
 	periodo: string,
 	cursos: Curso[],

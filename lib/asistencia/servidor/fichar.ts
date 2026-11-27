@@ -137,9 +137,13 @@ async function bloquesDelDia(profesoraId: string, cursoIds: string[], fecha: str
 	return agruparBloques(clases);
 }
 
-/** Días especiales que aplican en la fecha (guardados + feriados predeterminados) */
-async function diasEspecialesDe(fecha: string): Promise<DiaEspecial[]> {
-	const snap = await adminDb.collection(COL.diasEspeciales).where("fecha", "==", fecha).get();
+/** Días especiales que aplican entre dos fechas (guardados + feriados predeterminados) */
+export async function diasEspecialesEntre(desde: string, hasta: string): Promise<DiaEspecial[]> {
+	const snap = await adminDb
+		.collection(COL.diasEspeciales)
+		.where("fecha", ">=", desde)
+		.where("fecha", "<=", hasta)
+		.get();
 	const guardados: DiaEspecial[] = snap.docs.map((doc) => {
 		const d = doc.data();
 		return {
@@ -157,11 +161,17 @@ async function diasEspecialesDe(fecha: string): Promise<DiaEspecial[]> {
 			predeterminado: d.predeterminado === true,
 		};
 	});
-	return diasQueAplican(combinarDiasEspeciales(guardados, fecha, fecha));
+	return diasQueAplican(combinarDiasEspeciales(guardados, desde, hasta));
 }
 
+const diasEspecialesDe = (fecha: string) => diasEspecialesEntre(fecha, fecha);
+
 /** Misma regla que el calendario (diaEspecialQueExcluye): la clase no cuenta ese día */
-const diaQueExcluye = (c: ClaseProgramada, fecha: string, dias: DiaEspecial[]) =>
+export const diaQueExcluye = (
+	c: Pick<ClaseProgramada, "cursoId" | "inicio" | "fin">,
+	fecha: string,
+	dias: DiaEspecial[],
+) =>
 	dias.find(
 		(d) =>
 			d.fecha === fecha &&

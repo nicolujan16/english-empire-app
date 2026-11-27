@@ -41,6 +41,7 @@ Los permisos de pantalla están en `lib/asistencia/permisos.ts`. **La protecció
   - En la web aparece una sola vez, como secretaria con `tambienProfesora: true` (lo arma `suscribirPersonal`). La API de la app de escritorio la manda una sola vez, como secretaria.
   - Ficha **su turno** con un solo llavero (`fichar.ts` busca primero en `Personal`). Su clase cuenta como **dada en su turno** si tiene una jornada que se superpone con la clase (`dadaEnSuTurno` en `calendario.ts`). No se guarda: se calcula, así si se corrige la jornada se recalcula. Si no la dio, el director la asigna a otra o la anula desde el calendario (eso sí se guarda y manda).
   - Editar sus datos o desactivarla actualiza también su doc de `Teachers`.
+  - La API de la app de escritorio (`/api/asistencia/escritorio/datos`) agrega esas clases a `clases` (con `enSuTurno: true` y la llegada = entrada de su turno), así el itinerario las muestra como "Presente / En clase / Dictada" y no como "Sin registro" ni "Puede fichar". La lógica está en `lib/asistencia/turnos.ts`, compartida con el calendario.
 - **`PersonalLiquidacion/{personalId}`** → `{ precioHora }`. Solo director. Va aparte porque las secretarias leen `Personal`.
 
 ### Cursos

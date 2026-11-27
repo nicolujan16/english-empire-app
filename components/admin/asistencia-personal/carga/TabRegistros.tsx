@@ -33,7 +33,7 @@ import {
 	sumarDias,
 } from "@/lib/asistencia/fechas";
 import { titularesDelDia } from "@/lib/asistencia/titulares";
-import { dadaEnSuTurno } from "@/lib/asistencia/calendario";
+import { dadaEnSuTurno } from "@/lib/asistencia/turnos";
 import type {
 	RegistrosDelDia,
 	RepositorioCarga,
